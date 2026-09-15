@@ -281,22 +281,11 @@ local function combinedTauAtSample(sample)
 end
 
 local function displayedMomentDensity(sample)
-    local value_a = sample.moment_z_density or 0
-    local value_b = sample.moment_y_density or 0
-    local sign_u, sign_v = 1, 1
-    if rotation == 90 then sign_u, sign_v = -1, 1
-    elseif rotation == 180 then sign_u, sign_v = -1, -1
-    elseif rotation == 270 then sign_u, sign_v = 1, -1 end
-    local display_u = value_a * sign_u
-    local display_v = value_b * sign_v
-    return display_u, display_v
-end
-
-local function displayedCoordinateSigns()
-    if rotation == 90 then return -1, 1 end
-    if rotation == 180 then return -1, -1 end
-    if rotation == 270 then return 1, -1 end
-    return 1, 1
+    local r = system_results
+    if not r then return 0, 0 end
+    local display_u, display_v = coordinatesForDisplay(sample.u - r.ys, sample.v - r.zs)
+    local thickness = sample.thickness or default_t
+    return display_u * thickness, display_v * thickness
 end
 
 local function displayedVector(u, v)
@@ -1412,7 +1401,6 @@ local function berechneDuenneSchubspannung(Qa, Qb)
         -- Restmoment- und Schubmittelpunktgenauigkeit deutlich.
         local integration_step = math.max(raster / 4, 0.05)
         local sample_count = math.max(32, math.ceil(length / integration_step))
-        local sign_u, sign_v = displayedCoordinateSigns()
         for sample = 0, sample_count do
             local f = sample / sample_count
             local u = p1.u + f * du
@@ -1422,11 +1410,11 @@ local function berechneDuenneSchubspannung(Qa, Qb)
             local tau_a = Qa * first_moment_a / math.max(math.abs(r.Iz * elem.t), 1e-12)
             local tau_b = Qb * first_moment_b / math.max(math.abs(r.Iy * elem.t), 1e-12)
             local tau_total = tau_a + tau_b
-            table.insert(samples, {u = u, v = v, tau_a = tau_a, tau_b = tau_b, tau = tau_total, Sy = first_moment_b, Sz = first_moment_a, moment_y_density = (v - r.zs) * elem.t * sign_v, moment_z_density = (u - r.ys) * elem.t * sign_u, thickness = elem.t, ds = ds, tangent_u = du / length, tangent_v = dv / length, display_normal_u = display_normal_u, display_normal_v = display_normal_v, segment = segment_index, path_id = path.id, parameter = f, s = path_s + f * length, direction = reverse and -1 or 1})
+            table.insert(samples, {u = u, v = v, tau_a = tau_a, tau_b = tau_b, tau = tau_total, Sy = first_moment_b, Sz = first_moment_a, moment_y_density = (v - r.zs) * elem.t, moment_z_density = (u - r.ys) * elem.t, thickness = elem.t, ds = ds, tangent_u = du / length, tangent_v = dv / length, display_normal_u = display_normal_u, display_normal_v = display_normal_v, segment = segment_index, path_id = path.id, parameter = f, s = path_s + f * length, direction = reverse and -1 or 1})
             if sample < sample_count then
                 local midpoint = (sample + 0.5) / sample_count
-                first_moment_a = first_moment_a + (p1.u + midpoint * du - r.ys) * area * sign_u
-                first_moment_b = first_moment_b + (p1.v + midpoint * dv - r.zs) * area * sign_v
+                first_moment_a = first_moment_a + (p1.u + midpoint * du - r.ys) * area
+                first_moment_b = first_moment_b + (p1.v + midpoint * dv - r.zs) * area
             end
         end
         item.p1, item.p2 = p1, p2
@@ -1434,7 +1422,7 @@ local function berechneDuenneSchubspannung(Qa, Qb)
     end
 
     local function make_path(start_node, first_edge, initial_moment_a, initial_moment_b, start_kind)
-        local path = {id = #paths + 1, items = {}, start_kind = start_kind}
+        local path = {id = #paths + 1, items = {}, start_kind = start_kind, start_moment_a = initial_moment_a or 0, start_moment_b = initial_moment_b or 0}
         local current_node, edge_index = start_node, first_edge
         local first_moment_a, first_moment_b = initial_moment_a or 0, initial_moment_b or 0
         local path_s = 0
@@ -2283,10 +2271,11 @@ local function drawShearProfileLegacy(gc)
     gc:drawString(profile_name, 6, 5)
     gc:setFont("sansserif", "r", 9)
     local function profile_value(sample)
+        local display_sz, display_sy = coordinatesForDisplay(sample.Sz or 0, sample.Sy or 0)
         return shear_view_mode == 1 and displayedMomentDensity(sample)
             or shear_view_mode == 2 and select(2, displayedMomentDensity(sample))
-            or shear_view_mode == 3 and sample.Sy
-            or shear_view_mode == 4 and sample.Sz
+            or shear_view_mode == 3 and display_sy
+            or shear_view_mode == 4 and display_sz
             or shear_view_mode == 5 and sample.tau_a
             or shear_view_mode == 6 and sample.tau_b
             or shear_view_mode == 8 and torsionTauAtSample(sample)
@@ -2387,7 +2376,8 @@ local function drawShearProfileLegacy(gc)
             gc:fillArc(x - 2, y - 2, 4, 4, 0, 360)
             gc:setFont("sansserif", "r", 8)
             local label_value = profile_display_value(sample)
-            gc:drawString(label .. " " .. formatLabel(label_value), x + 4, y - 10)
+            local label_prefix = label ~= "" and label .. " " or ""
+            gc:drawString(label_prefix .. formatLabel(label_value), x + 4, y - 10)
         end
         local function draw_boundary_connector(sample)
             if not sample or not sample.display_normal_u or not sample.display_normal_v then return end
@@ -2402,9 +2392,9 @@ local function drawShearProfileLegacy(gc)
         end
         draw_boundary_connector(section[1] and section[1].sample)
         draw_boundary_connector(section[#section] and section[#section].sample)
-        draw_value(section[1] and section[1].sample, "Rand", {40, 80, 150})
+        draw_value(section[1] and section[1].sample, "", {40, 80, 150})
         if section[#section] and section[#section].sample ~= section[1].sample then
-            draw_value(section[#section].sample, "Rand", {40, 80, 150})
+            draw_value(section[#section].sample, "", {40, 80, 150})
         end
         if hovered_segment then
             if max_sample == hovered_max_sample and max_sample ~= section[1].sample and max_sample ~= section[#section].sample then
@@ -3293,7 +3283,7 @@ kern_collect_points = function()
     return pts
 end
 
-local function berechneSigmaExtrema(N, My_Nm, Mz_Nm)
+local function berechneSigmaExtrema(N, My_Nmm, Mz_Nmm)
     local r = system_results
     if not r then return nil end
     local points = kern_collect_points()
@@ -3302,8 +3292,8 @@ local function berechneSigmaExtrema(N, My_Nm, Mz_Nm)
         return nil
     end
 
-    local My = My_Nm * 1000
-    local Mz = Mz_Nm * 1000
+    local My = My_Nmm
+    local Mz = Mz_Nmm
     local normal = N / r.A
     local max_sigma, min_sigma = -math.huge, math.huge
     local max_point, min_point
@@ -3324,9 +3314,9 @@ local function berechneSigmaExtrema(N, My_Nm, Mz_Nm)
 
     return {
         N = N,
-        My_Nm = My_Nm,
+        My_Nm = My,
         My_Nmm = My,
-        Mz_Nm = Mz_Nm,
+        Mz_Nm = Mz,
         Mz_Nmm = Mz,
         A = r.A,
         ys = r.ys,
@@ -3361,7 +3351,7 @@ local function berechneKraftResultanten()
     return force_N, moment_a, moment_b
 end
 
-local function finishSigmaCalculation(Mz_Nm)
+local function finishSigmaCalculation(Mz_Nmm)
     local r = system_results
     local denominator = r.Iy * r.Iz - r.Iyz^2
     if math.abs(denominator) < 1e-12 then
@@ -3369,13 +3359,13 @@ local function finishSigmaCalculation(Mz_Nm)
     end
     local force_N, force_Ma, force_Mb = berechneKraftResultanten()
     local total_N = (sigma_N or 0) + force_N
-    local total_Ma_Nm = (sigma_My or 0) + force_Ma / 1000
-    local total_Mb_Nm = (Mz_Nm or 0) + force_Mb / 1000
-    sigma_results = berechneSigmaExtrema(total_N, total_Ma_Nm, total_Mb_Nm)
+    local total_Ma_Nmm = (sigma_My or 0) + force_Ma
+    local total_Mb_Nmm = (Mz_Nmm or 0) + force_Mb
+    sigma_results = berechneSigmaExtrema(total_N, total_Ma_Nmm, total_Mb_Nmm)
     if sigma_results then
         sigma_results.force_N = force_N
-        sigma_results.force_Ma_Nm = force_Ma / 1000
-        sigma_results.force_Mb_Nm = force_Mb / 1000
+        sigma_results.force_Ma_Nm = force_Ma
+        sigma_results.force_Mb_Nm = force_Mb
     end
     return sigma_results ~= nil
 end

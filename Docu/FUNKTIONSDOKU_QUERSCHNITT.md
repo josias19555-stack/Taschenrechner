@@ -154,6 +154,7 @@ Sie beschreibt zu jeder Funktion: **Zweck**, **Moeglichkeiten** und **Grenzen/be
   - Erkennt automatisch Verzweigungsknoten, freie Enden und T-Stoesse.
   - Reihenfolge der Integration: (1) freie Enden zuerst, (2) `resolve_branch_nodes()` fasst an Verzweigungen ankommende Teilmomente zusammen, sobald nur noch ein Ast offen ist, (3) bei **symmetrischen** Profilen (`|Iyz| < 1e-5`) wird zusaetzlich an einem Symmetrieachsen-Schnittpunkt gestartet (fixiert den unbestimmten Schubfluss `q0` einer geschlossenen Zelle), danach erneut `resolve_branch_nodes()` – das behandelt auch **Mischprofile** (geschlossene Zelle mit angehaengten freien Aesten) korrekt.
   - Liefert `samples` (mit `tau_a`, `tau_b`, `tau`, `Sy`, `Sz`, `moment_*_density`, `torsion_sign`, `s`, ...) und `paths` (fuer die Pfeil-/Start-Markierungen im Schubverlaufsbild); jeder Pfad kennzeichnet den fachlichen Starttyp (`free` oder `symmetry`), sofern er an einem freien Rand bzw. an der Symmetrieachse beginnt.
+  - Statische Momente und Momentendichten werden intern in der geometrischen KOS gespeichert und erst bei der Verlaufsdarstellung mit derselben Rotationsabbildung wie die gezeichnete KOS orientiert. Freie Integrationsanfaenge starten mit statischem Moment null.
 - **Grenzen:**
   - Fuer **unsymmetrische geschlossene Zellen** wird `q0` nicht ueber die allgemeine Vertraeglichkeitsgleichung (`∮ dq/t = 0`) bestimmt – der Restschnitt wird deterministisch mit Startwert 0 orientiert, das Ergebnis ist dann **nicht exakt**.
   - Mehrzellige geschlossene Profile werden nicht als gekoppeltes Gleichungssystem geloest.
@@ -210,12 +211,10 @@ Sie beschreibt zu jeder Funktion: **Zweck**, **Moeglichkeiten** und **Grenzen/be
 ## 7. Sigma-x (Normal-/Schiefe Biegung) & Kernflaeche
 
 ### `berechneSigmaExtrema(N, My_Nm, Mz_Nm)`
-- **Zweck:** Fuer gegebene Schnittgroessen `N, My, Mz` die minimale/maximale Randspannung `σx` ueber alle Randpunkte (`kern_collect_points()`) nach der Formel fuer schiefe Biegung mit Deviationsmoment.
-- **Grenzen:** Nur Randpunkte werden geprueft (keine Innenpunkte), das ist fuer konvexe **und** die meisten praktischen Querschnitte ausreichend, aber nicht mathematisch allgemein bewiesen fuer stark konkave Formen mit inneren Extrema.
+ **Möglichkeiten:** Verarbeitet Momente intern einheitlich in `Nmm`; die Eingabemaske rechnet ein eingegebenes `Nm` genau einmal in `Nmm` um. Die Ergebnisanzeige rechnet den internen Wert anschließend abhängig von der gewählten Momenteneinheit zurück.
 
 ### `finishSigmaCalculation(Mz_Nm)`
-- **Zweck:** Kombiniert manuell eingegebene `N/My` (und optional `Mz`) mit den Resultierenden aus platzierten Kraeften (`berechneKraftResultanten`) und speichert das Ergebnis in `sigma_results`.
-- **Grenzen:** Bricht ab (liefert `false`), wenn `Iy*Iz - Iyz^2 ≈ 0` (singulaeres System, z. B. bei entartetem Querschnitt).
+ **Möglichkeiten:** Addiert manuelle und aus Kräften berechnete Momente direkt in `Nmm`, ohne eine bereits umgerechnete Eingabe nochmals zu skalieren.
 
 ### `openSigmaFromForces()`
 - **Zweck:** Direkte σx-Auswertung ausschliesslich aus den bereits platzierten Kraeften, ohne manuelle Eingabemaske (analog zur Schubspannungs-Kraftauswertung).
