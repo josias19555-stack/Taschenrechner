@@ -1,0 +1,801 @@
+-- ========================================================
+-- KGV-LOGIK
+-- ========================================================
+local function backupSystem()
+    for i, k in ipairs(knoten) do k.orig_lager_x = k.lager_x; k.orig_lager_y = k.lager_y; k.orig_lager_m = k.lager_m; k.orig_last_x = k.last_x; k.orig_last_y = k.last_y; k.orig_last_m = k.last_m; k.orig_last_w = k.last_w end
+    for i, s in ipairs(staebe) do 
+        s.orig_gelenk_A=s.gelenk_A; s.orig_gelenk_B=s.gelenk_B; 
+        s.orig_q=s.q; s.orig_n=s.n; s.orig_m=s.m; 
+        s.orig_q_A=s.q_A; s.orig_q_B=s.q_B; s.orig_n_A=s.n_A; s.orig_n_B=s.n_B; 
+        s.orig_gx=s.gx; s.orig_gy=s.gy; s.orig_To=s.To; s.orig_Tu=s.Tu;
+        s.orig_q_str = s.q_str; s.orig_n_str = s.n_str; s.orig_m_str = s.m_str;
+        s.orig_gx_str = s.gx_str; s.orig_gy_str = s.gy_str;
+        s.orig_is_n_mitte = s.is_n_mitte
+    end
+end
+
+local function applyKGVZustand(lf)
+    if lf == -1 then
+        for i, k in ipairs(knoten) do if k.orig_lager_x~=nil then k.lager_x=k.orig_lager_x; k.lager_y=k.orig_lager_y; k.lager_m=k.orig_lager_m; k.last_x=k.orig_last_x; k.last_y=k.orig_last_y; k.last_m=k.orig_last_m; k.last_w=k.orig_last_w; k.hide_kgv_last = false end end
+        for i, s in ipairs(staebe) do if s.orig_gelenk_A~=nil then s.gelenk_A=s.orig_gelenk_A; s.gelenk_B=s.orig_gelenk_B; s.q=s.orig_q; s.n=s.orig_n; s.m=s.orig_m; s.q_A=s.orig_q_A; s.q_B=s.orig_q_B; s.n_A=s.orig_n_A; s.n_B=s.orig_n_B; s.gx=s.orig_gx; s.gy=s.orig_gy; s.To=s.orig_To; s.Tu=s.orig_Tu; s.x_mA=0; s.x_mB=0; s.q_str=s.orig_q_str; s.n_str=s.orig_n_str; s.m_str=s.orig_m_str; s.gx_str=s.orig_gx_str; s.gy_str=s.orig_gy_str; s.is_n_mitte=s.orig_is_n_mitte end end
+        updateAlleLasten()
+        return
+    end
+    for i, k in ipairs(knoten) do k.lager_x = k.orig_lager_x; k.lager_y = k.orig_lager_y; k.lager_m = k.orig_lager_m; k.hide_kgv_last = false end
+    for i, s in ipairs(staebe) do s.gelenk_A = s.orig_gelenk_A; s.gelenk_B = s.orig_gelenk_B; s.x_mA = 0; s.x_mB = 0; s.is_n_mitte = false end
+    for _, x in ipairs(X_Werte) do
+        if x.typ == "lager_x" then knoten[x.knoten].lager_x = false elseif x.typ == "lager_y" then knoten[x.knoten].lager_y = false elseif x.typ == "lager_m" then knoten[x.knoten].lager_m = false elseif x.typ == "gelenk_A" then staebe[x.stab].gelenk_A = true elseif x.typ == "gelenk_B" then staebe[x.stab].gelenk_B = true elseif x.typ == "n_mitte" then staebe[x.stab].n_gelenk_A = true; staebe[x.stab].is_n_mitte = true end
+    end
+    if lf == 0 then
+        for i, k in ipairs(knoten) do k.last_x=k.orig_last_x; k.last_y=k.orig_last_y; k.last_m=k.orig_last_m; k.last_w=k.orig_last_w end
+        for i, s in ipairs(staebe) do s.q=s.orig_q; s.n=s.orig_n; s.m=s.orig_m; s.q_A=s.orig_q_A; s.q_B=s.orig_q_B; s.n_A=s.orig_n_A; s.n_B=s.orig_n_B; s.gx=s.orig_gx; s.gy=s.orig_gy; s.To=s.orig_To; s.Tu=s.orig_Tu; s.q_str=s.orig_q_str; s.n_str=s.orig_n_str; s.m_str=s.orig_m_str; s.gx_str=s.orig_gx_str; s.gy_str=s.orig_gy_str end
+    else
+        for i, k in ipairs(knoten) do k.last_x=0; k.last_y=0; k.last_m=0; k.last_w=0 end
+        for i, s in ipairs(staebe) do s.q=0; s.n=0; s.m=0; s.q_A=0; s.q_B=0; s.n_A=0; s.n_B=0; s.gx=0; s.gy=0; s.To=0; s.Tu=0; s.q_str="0"; s.n_str="0"; s.m_str="0"; s.gx_str="0"; s.gy_str="0" end
+        local x = X_Werte[lf]; 
+        if x.typ == "lager_x" then local rad = math.rad(knoten[x.knoten].winkel or 0); knoten[x.knoten].last_x = math.cos(rad); knoten[x.knoten].last_y = math.sin(rad) 
+        elseif x.typ == "lager_y" then local rad = math.rad(knoten[x.knoten].winkel or 0); knoten[x.knoten].last_x = -math.sin(rad); knoten[x.knoten].last_y = math.cos(rad) 
+        elseif x.typ == "lager_m" then knoten[x.knoten].last_m = 1 
+        elseif x.typ == "gelenk_A" then staebe[x.stab].x_mA = 1 
+        elseif x.typ == "gelenk_B" then staebe[x.stab].x_mB = 1 
+        elseif x.typ == "n_mitte" then
+            local s = staebe[x.stab]; local k1, k2 = knoten[s.k1], knoten[s.k2]
+            local dx, dy = k2.x - k1.x, k2.y - k1.y; local L = math.sqrt(dx^2 + dy^2)
+            local c_val, s_val = dx/L, -dy/L
+            local T = { {c_val,-s_val,0,0,0,0}, {s_val,c_val,0,0,0,0}, {0,0,1,0,0,0}, {0,0,0,c_val,-s_val,0}, {0,0,0,s_val,c_val,0}, {0,0,0,0,0,1} }
+            local p_l = {{1}, {0}, {0}, {-1}, {0}, {0}}
+            local p_g = matMult(matTrans(T), p_l)
+            local TK = buildKnotenTransform(s)
+            local f_n = matMult(TK, p_g)
+            k1.last_x = f_n[1][1]; k1.last_y = f_n[2][1]
+            k2.last_x = f_n[4][1]; k2.last_y = f_n[5][1]
+            k1.hide_kgv_last = true; k2.hide_kgv_last = true
+        end
+    end
+    updateAlleLasten()
+end
+
+local function checkStabilitat() local u, _ = berechneSystemGleichungen(true); return u ~= nil end
+
+local function isHingedAt(s_idx, is_start)
+    local s = staebe[s_idx]
+    local k_idx = is_start and s.k1 or s.k2; local k = knoten[k_idx]
+    if k.gelenk then return true end
+    if is_start and s.gelenk_A then return true end
+    if not is_start and s.gelenk_B then return true end
+    if k.lager_m or (k.cm or 0) > 0 then return false end
+    
+    local rigid_count = 0
+    for i, r in ipairs(staebe) do
+        if r.k1 == k_idx and not r.gelenk_A then rigid_count = rigid_count + 1 end
+        if r.k2 == k_idx and not r.gelenk_B then rigid_count = rigid_count + 1 end
+    end
+    return rigid_count <= 1
+end
+
+local function findeAutoHauptsystem()
+    X_Werte = {}; if not checkStabilitat() then print("Kinematisch!"); return false end
+    for i, k in ipairs(knoten) do if k.lager_m then k.lager_m=false; if checkStabilitat() then table.insert(X_Werte, {typ="lager_m", knoten=i}) else k.lager_m=true end end end
+    for i, k in ipairs(knoten) do
+        if k.lager_x then k.lager_x=false; if checkStabilitat() then table.insert(X_Werte, {typ="lager_x", knoten=i}) else k.lager_x=true end end
+        if k.lager_y then k.lager_y=false; if checkStabilitat() then table.insert(X_Werte, {typ="lager_y", knoten=i}) else k.lager_y=true end end
+    end
+    for i, s in ipairs(staebe) do
+        if not s.gelenk_A and not knoten[s.k1].gelenk then s.gelenk_A=true; if checkStabilitat() then table.insert(X_Werte, {typ="gelenk_A", stab=i}) else s.gelenk_A=false end end
+        if not s.gelenk_B and not knoten[s.k2].gelenk then s.gelenk_B=true; if checkStabilitat() then table.insert(X_Werte, {typ="gelenk_B", stab=i}) else s.gelenk_B=false end end
+    end
+    for i, s in ipairs(staebe) do
+        local is_pendel = isHingedAt(i, true) and isHingedAt(i, false)
+        local has_no_loads = (s.q == 0 and s.q_A == 0 and s.q_B == 0 and s.n == 0 and s.n_A == 0 and s.n_B == 0 and s.m == 0 and (s.gx or 0) == 0 and (s.gy or 0) == 0 and s.q_str == "0" and s.n_str == "0" and s.m_str == "0" and s.gx_str == "0" and s.gy_str == "0")
+        if is_pendel and has_no_loads and not s.n_gelenk_A and not s.n_gelenk_B then
+            s.n_gelenk_A = true
+            if checkStabilitat() then table.insert(X_Werte, {typ="n_mitte", stab=i}) else s.n_gelenk_A = false end
+        end
+    end
+    kgv_n = #X_Werte
+    for _, x in ipairs(X_Werte) do if x.typ == "lager_m" then knoten[x.knoten].lager_m = true elseif x.typ == "lager_x" then knoten[x.knoten].lager_x = true elseif x.typ == "lager_y" then knoten[x.knoten].lager_y = true elseif x.typ == "gelenk_A" then staebe[x.stab].gelenk_A = false elseif x.typ == "gelenk_B" then staebe[x.stab].gelenk_B = false elseif x.typ == "n_mitte" then staebe[x.stab].n_gelenk_A = false end end
+end
+
+local function exportKGVToTI()
+    if not autoKGV or #X_Werte == 0 then print("Fehler: KGV nicht aktiv oder System statisch bestimmt!"); return end
+    print("Berechne KGV Matrizen...")
+    local orig_zustand = KGV_Zustand; local Delta0 = {}; local Delta = {}; local n = #X_Werte
+    for i=1, n do Delta[i] = {} end
+    
+    local function getGap(x_val, u_vec, is_state_0, j_state)
+        local rad = math.rad(knoten[x_val.knoten] and knoten[x_val.knoten].winkel or 0)
+        if x_val.typ == "lager_x" then return (u_vec[knoten[x_val.knoten].eq_x] or 0) * math.cos(rad) + (u_vec[knoten[x_val.knoten].eq_y] or 0) * math.sin(rad)
+        elseif x_val.typ == "lager_y" then return -(u_vec[knoten[x_val.knoten].eq_x] or 0) * math.sin(rad) + (u_vec[knoten[x_val.knoten].eq_y] or 0) * math.cos(rad)
+        elseif x_val.typ == "lager_m" then return u_vec[knoten[x_val.knoten].eq_m] or 0
+        elseif x_val.typ == "gelenk_A" then return ((stabID[x_val.stab][3]>0) and u_vec[stabID[x_val.stab][3]] or 0) - ((type(knoten[staebe[x_val.stab].k1].eq_m)=="number" and knoten[staebe[x_val.stab].k1].eq_m>0) and u_vec[knoten[staebe[x_val.stab].k1].eq_m] or 0)
+        elseif x_val.typ == "gelenk_B" then return ((stabID[x_val.stab][6]>0) and u_vec[stabID[x_val.stab][6]] or 0) - ((type(knoten[staebe[x_val.stab].k2].eq_m)=="number" and knoten[staebe[x_val.stab].k2].eq_m>0) and u_vec[knoten[staebe[x_val.stab].k2].eq_m] or 0)
+        elseif x_val.typ == "n_mitte" then
+            local s = staebe[x_val.stab]; local k1, k2 = knoten[s.k1], knoten[s.k2]
+            local dx, dy = k2.x - k1.x, k2.y - k1.y; local L = math.sqrt(dx^2 + dy^2); local c_val, s_val = dx/L, -dy/L
+            local u1_x, u1_y = ((type(k1.eq_x)=="number" and k1.eq_x>0) and u_vec[k1.eq_x] or 0), ((type(k1.eq_y)=="number" and k1.eq_y>0) and u_vec[k1.eq_y] or 0)
+            local u2_x, u2_y = ((type(k2.eq_x)=="number" and k2.eq_x>0) and u_vec[k2.eq_x] or 0), ((type(k2.eq_y)=="number" and k2.eq_y>0) and u_vec[k2.eq_y] or 0)
+            local v_k = {{u1_x}, {u1_y}, {0}, {u2_x}, {u2_y}, {0}}
+            local v_g = matMult(matTrans(buildKnotenTransform(s)), v_k)
+            local T = { {c_val,-s_val,0,0,0,0}, {s_val,c_val,0,0,0,0}, {0,0,1,0,0,0}, {0,0,0,c_val,-s_val,0}, {0,0,0,s_val,c_val,0}, {0,0,0,0,0,1} }
+            local v_l = matMult(T, v_g)
+            local delta_nodes = v_l[4][1] - v_l[1][1]
+            if is_state_0 then return -delta_nodes + (s.alpha * ((s.To + s.Tu) / 2) * L)
+            else return -delta_nodes + ((X_Werte[j_state] == x_val) and (L / s.EA) or 0) end
+        end; return 0
+    end
+    
+    applyKGVZustand(0); local u0 = berechneSystemGleichungen(false)
+    if u0 then for i, x_val in ipairs(X_Werte) do Delta0[i] = {getGap(x_val, u0, true, 0)} end end
+    for j = 1, n do applyKGVZustand(j); local uj = berechneSystemGleichungen(false); if uj then for i, x_val in ipairs(X_Werte) do Delta[i][j] = getGap(x_val, uj, false, j) end end end
+    
+    applyKGVZustand(orig_zustand); rechneAktuellesSystem(); speichereMatrix("kgv_delta", Delta); speichereMatrix("kgv_delta0", Delta0); print("-> KGV Matrizen exportiert!")
+end
+
+local function rechneAktuellesSystem()
+    if not checkStabilitat() then warnungKinematisch = true; platform.window:invalidate(); return end
+    local u, _ = berechneSystemGleichungen(false); if not u then warnungKinematisch = true; platform.window:invalidate(); return end
+    berechneAlleSchnittgroessen(u); berechneAuflagerkraefte()
+end
+
+local function starteBerechnung()
+    warnungKinematisch = false; kgv_n = nil; print("Starte Systemanalyse..."); backupSystem() 
+    if autoKGV then findeAutoHauptsystem(); KGV_Zustand = (#X_Werte > 0) and 0 or -1; applyKGVZustand(KGV_Zustand) else if zeigeN then findeAutoHauptsystem(); X_Werte = {} end; KGV_Zustand = -1; applyKGVZustand(-1) end
+    rechneAktuellesSystem(); print("Berechnung erfolgreich!")
+end
+
+
+
+
+
+
+
+
+-- ==========================================
+-- 5. BILDSCHIRM ZEICHNEN
+-- ==========================================
+function on.paint(gc)
+    local b, h = platform.window:width(), platform.window:height()
+    local drawPxProMeter = (ansichtsModus == "E") and (pxProMeter * zoomExplosion / zoomNormal) or pxProMeter
+    local stepPx = drawPxProMeter * rasterMass
+    local startX, startY = offsetX % stepPx, offsetY % stepPx
+    
+    gc:setColorRGB(180, 180, 180)
+    for rx = startX, b, stepPx do for ry = startY, h, stepPx do gc:fillRect(rx, ry, 1, 1) end end
+    gc:setColorRGB(200, 200, 255); gc:drawLine(offsetX, 0, offsetX, h); gc:drawLine(0, offsetY, b, offsetY)
+
+    gc:setFont("sansserif", "b", 12); gc:setColorRGB(0, 100, 200); local modusText = ansichtsModus or "System"; gc:drawString("Modus: " .. modusText, 5, 5)
+    
+    if autoKGV and KGV_Zustand >= 0 then gc:setColorRGB(200, 0, 0); gc:drawString("Auto-KGV: " .. ((KGV_Zustand == 0) and "Nullsystem" or ("X" .. KGV_Zustand .. " = 1")), 5, 25) end
+    if zeigeN then gc:setFont("sansserif", "b", 12); gc:setColorRGB(0, 100, 200); local n_text = "n = " .. getTopologicalN(); if kgv_n ~= nil then n_text = n_text .. " (" .. kgv_n .. ")" end; gc:drawString(n_text, b - gc:getStringWidth(n_text) - 10, 5) end
+
+    local function drawExplosionArrow(gc, x1, y1, x2, y2)
+        gc:drawLine(x1, y1, x2, y2); local dx, dy = x2 - x1, y2 - y1; local L = math.sqrt(dx*dx + dy*dy)
+        if L > 0 then local ux, uy = dx/L, dy/L; local nx, ny = -uy, ux; local hL, hW = 6, 2; local bx, by = x2 - hL*ux, y2 - hL*uy; gc:fillPolygon({x2, y2, bx + hW*nx, by + hW*ny, bx - hW*nx, by - hW*ny}) end
+    end
+    
+    local function drawReactionArrow(gc, val, dirX, dirY, cx, cy, labelPrefix)
+        if math.abs(val) < 1e-4 then return end
+        local sign = val >= 0 and 1 or -1; local tailX, tailY = cx - sign * dirX * 40, cy - sign * dirY * 40
+        gc:setColorRGB(0, 0, 255); gc:setPen("thin", "smooth"); drawExplosionArrow(gc, tailX, tailY, cx, cy)
+        gc:setFont("sansserif", "b", 9); local label = labelPrefix .. string.format("%.2f", math.abs(val)); local tw = gc:getStringWidth(label)
+        local ox, oy = -dirY * sign, dirX * sign; if oy > 0 or (oy == 0 and ox < 0) then ox = -ox; oy = -oy end
+        gc:drawString(label, (cx + tailX)/2 - tw/2 + ox*12, (cy + tailY)/2 - 5 + oy*12)
+    end
+    
+    local function drawFBDArrow(gc, val, dirX, dirY, x, y, labelPrefix)
+        if math.abs(val) < 1e-4 then return end
+        local sign = val >= 0 and 1 or -1; local tailX, tailY = x - sign * dirX * 45, y - sign * dirY * 45
+        gc:setColorRGB(0, 150, 0); gc:setPen("thin", "smooth"); drawExplosionArrow(gc, tailX, tailY, x, y)
+        gc:setFont("sansserif", "b", 9); local label = labelPrefix .. string.format("%.2f", math.abs(val)); local tw = gc:getStringWidth(label)
+        local ox, oy = -dirY * sign, dirX * sign; if oy > 0 or (oy == 0 and ox < 0) then ox = -ox; oy = -oy end
+        gc:drawString(label, (x + tailX)/2 - tw/2 + ox*10, (y + tailY)/2 - 5 + oy*10)
+    end
+
+    local function get_u_val(s, x, L_m, j, nA, nB)
+        local u_homogen = (s.v_local[1] or 0)*(1-x/L_m) + (s.v_local[4] or 0)*(x/L_m)
+        local u_part_class_EA = -(nA*x^2/2 + (nB-nA)*x^3/(6*L_m)) + (x/L_m) * (nA*L_m^2/2 + (nB-nA)*L_m^2/6)
+        local u_part_cas_EA = (s.u_cas_pts_EA and s.u_cas_pts_EA[j+1]) or 0
+        return u_homogen + (u_part_class_EA + u_part_cas_EA) / s.EA
+    end
+
+    local max_val = 0 
+    if ansichtsModus ~= "System" and ansichtsModus ~= "E" then
+        for i, s in ipairs(staebe) do
+            local L_m = math.sqrt((knoten[s.k2].x - knoten[s.k1].x)^2 + (knoten[s.k2].y - knoten[s.k1].y)^2) 
+            if L_m > 0 then
+                local dx, dy = knoten[s.k2].x - knoten[s.k1].x, knoten[s.k2].y - knoten[s.k1].y; local c_val, s_val = dx/L_m, -dy/L_m
+                local eff_gx = (s.gx or 0) * (s.gx_proj and math.abs(s_val) or 1); local eff_gy = (s.gy or 0) * (s.gy_proj and math.abs(c_val) or 1)
+                local n_add = eff_gx * c_val - eff_gy * s_val; local q_add = eff_gx * s_val + eff_gy * c_val
+                local N0, Q0, M0 = -s.s_local[1], -s.s_local[2], -s.s_local[3] 
+                local qA, qB, nA, nB = s.q + s.q_A + q_add, s.q + s.q_B + q_add, s.n + s.n_A + n_add, s.n + s.n_B + n_add
+                
+                for j = 0, ptsBiegelinie do
+                    local x = (j/ptsBiegelinie) * L_m; local val = 0
+                    local cas_Q_drop = (s.Q_cas_pts and s.Q_cas_pts[j+1]) or 0; local cas_M_drop = (s.M_cas_pts and s.M_cas_pts[j+1]) or 0; local cas_N_drop = (s.N_cas_pts and s.N_cas_pts[j+1]) or 0
+                    
+                    if ansichtsModus == "N" then val = N0 - (nA*x + (nB-nA)*(x^2)/(2*L_m)) - cas_N_drop
+                    elseif ansichtsModus == "Q" then val = Q0 - (qA*x + (qB-qA)*(x^2)/(2*L_m)) - cas_Q_drop
+                    elseif ansichtsModus == "M" then val = M0 + Q0*x - s.m*x - (qA*(x^2)/2 + (qB-qA)*(x^3)/(6*L_m)) - cas_M_drop 
+                    elseif ansichtsModus == "U" then val = get_u_val(s, x, L_m, j, nA, nB)
+                    elseif ansichtsModus == "W" then
+                        local EI = s.EI; local c1 = (s.v_local[2] or 0) * EI; local c2 = -(s.v_local[3] or 0) * EI; local c3 = (s.v_local[5] or 0) * EI; local c4 = -(s.v_local[6] or 0) * EI
+                        local xi = x / L_m
+                        local val_homogen_EI = c1*(1-3*xi^2+2*xi^3) + c2*(x-2*x^2/L_m+x^3/(L_m^2)) + c3*(3*xi^2-2*xi^3) + c4*(-x^2/L_m+x^3/(L_m^2))
+                        local v_part_class_EI = (x^2 * (L_m - x)^2) / (120 * L_m) * ((3*L_m - x)*qA + (2*L_m + x)*qB)
+                        local v_part_cas_EI = (s.v_cas_pts_EI and s.v_cas_pts_EI[j+1]) or 0
+                        val = (val_homogen_EI + v_part_class_EI + v_part_cas_EI) / EI
+                    end
+                    if math.abs(val) < 1e-5 then val = 0 end; if math.abs(val) > max_val then max_val = math.abs(val) end
+                end
+            end
+        end
+    end
+    if max_val < 1e-15 then max_val = 1 end
+    local drawScale = 40 / max_val
+    local isExplosion = (ansichtsModus == "E"); local loadApplied = {}
+
+    for i, s in ipairs(staebe) do
+        local px1, py1 = knoten[s.k1].x * drawPxProMeter + offsetX, knoten[s.k1].y * drawPxProMeter + offsetY
+        local px2, py2 = knoten[s.k2].x * drawPxProMeter + offsetX, knoten[s.k2].y * drawPxProMeter + offsetY
+        local orig_px1, orig_py1, orig_px2, orig_py2 = px1, py1, px2, py2
+        local dx_orig, dy_orig = px2 - px1, py2 - py1; local L_orig = math.sqrt(dx_orig^2 + dy_orig^2)
+        
+        local explodeA = knoten[s.k1].gelenk or s.gelenk_A or s.n_gelenk_A or s.q_gelenk_A
+        local explodeB = knoten[s.k2].gelenk or s.gelenk_B or s.n_gelenk_B or s.q_gelenk_B
+        
+        if isExplosion and L_orig > 10 then
+            local ux, uy = dx_orig/L_orig, dy_orig/L_orig
+            local gap = math.min(1.5 * drawPxProMeter, L_orig * 0.35)
+            if explodeA then px1 = px1 + ux * gap; py1 = py1 + uy * gap end
+            if explodeB then px2 = px2 - ux * gap; py2 = py2 - uy * gap end
+        end
+        
+        local dx, dy = px2 - px1, py2 - py1; local L = math.sqrt(dx^2 + dy^2)
+        
+        if ansichtsModus == "W" then gc:setColorRGB(150, 150, 150)
+        elseif (menuOffen and menuTyp == "stab" and menuIndex == i) or (not menuOffen and hoverTyp == "stab" and hoverObj == i) then gc:setColorRGB(0, 100, 255) else gc:setColorRGB(0, 0, 0) end
+        
+        gc:setPen((ansichtsModus == "W" or ansichtsModus == "U" or isExplosion) and "thin" or "medium", "smooth")
+        if ansichtsModus == "W" or ansichtsModus == "U" then gc:setPen("thin", "dashed") end
+        gc:drawLine(px1, py1, px2, py2); gc:setPen("medium", "smooth")
+        
+        if L > 0 and ansichtsModus ~= "W" and ansichtsModus ~= "U" then
+            local ux, uy = dx/L, dy/L; local nx, ny = -uy, ux
+            if s.gelenk_A then gc:setColorRGB(255, 255, 255); gc:fillArc(px1 + ux*10 - 4, py1 + uy*10 - 4, 8, 8, 0, 360); gc:setColorRGB(100, 100, 100); gc:drawArc(px1 + ux*10 - 4, py1 + uy*10 - 4, 8, 8, 0, 360) end
+            if s.gelenk_B then gc:setColorRGB(255, 255, 255); gc:fillArc(px2 - ux*10 - 4, py2 - uy*10 - 4, 8, 8, 0, 360); gc:setColorRGB(100, 100, 100); gc:drawArc(px2 - ux*10 - 4, py2 - uy*10 - 4, 8, 8, 0, 360) end
+            if s.n_gelenk_A and not s.is_n_mitte then gc:setPen("medium", "smooth"); gc:setColorRGB(0, 0, 0); gc:drawLine(px1 + ux*10 + nx*4, py1 + uy*10 + ny*4, px1 + ux*20 + nx*4, py1 + uy*20 + ny*4); gc:drawLine(px1 + ux*10 - nx*4, py1 + uy*10 - ny*4, px1 + ux*20 - nx*4, py1 + uy*20 - ny*4) end
+            if s.n_gelenk_B then gc:setPen("medium", "smooth"); gc:setColorRGB(0, 0, 0); gc:drawLine(px2 - ux*20 + nx*4, py2 - uy*20 + ny*4, px2 - ux*10 + nx*4, py2 - uy*10 + ny*4); gc:drawLine(px2 - ux*20 - nx*4, py2 - uy*20 - ny*4, px2 - ux*10 - nx*4, py2 - uy*10 - ny*4) end
+            if s.q_gelenk_A then gc:setPen("medium", "smooth"); gc:setColorRGB(0, 0, 0); gc:drawLine(px1 + ux*12 + nx*6, py1 + uy*12 + ny*6, px1 + ux*12 - nx*6, py1 + uy*12 - ny*6); gc:drawLine(px1 + ux*16 + nx*6, py1 + uy*16 + ny*6, px1 + ux*16 - nx*6, py1 + uy*16 - ny*6) end
+            if s.q_gelenk_B then gc:setPen("medium", "smooth"); gc:setColorRGB(0, 0, 0); gc:drawLine(px2 - ux*12 + nx*6, py2 - uy*12 + ny*6, px2 - ux*12 - nx*6, py2 - uy*12 - ny*6); gc:drawLine(px2 - ux*16 + nx*6, py2 - uy*16 + ny*6, px2 - ux*16 - nx*6, py2 - uy*16 - ny*6) end
+            if s.is_n_mitte then
+                local midX, midY = px1 + dx/2, py1 + dy/2
+                gc:setPen("medium", "smooth"); gc:setColorRGB(0, 0, 0); 
+                gc:drawLine(midX - ux*5 + nx*4, midY - uy*5 + ny*4, midX + ux*5 + nx*4, midY + uy*5 + ny*4)
+                gc:drawLine(midX - ux*5 - nx*4, midY - uy*5 - ny*4, midX + ux*5 - nx*4, midY + uy*5 - ny*4)
+                if KGV_Zustand > 0 and X_Werte[KGV_Zustand].typ == "n_mitte" and X_Werte[KGV_Zustand].stab == i then
+                    gc:setColorRGB(255, 50, 50); drawArrow(gc, midX - ux*10, midY - uy*10, midX - ux*30, midY - uy*30); drawArrow(gc, midX + ux*10, midY + uy*10, midX + ux*30, midY + uy*30)
+                end
+            end
+        end
+        
+        if L > 0 then
+            local nx, ny = -dy/L, dx/L 
+            if ansichtsModus ~= "W" and ansichtsModus ~= "U" then
+                gc:setPen("thin", "dashed")
+                if (menuOffen and menuTyp == "stab" and menuIndex == i) or (not menuOffen and hoverTyp == "stab" and hoverObj == i) then gc:setColorRGB(100, 150, 255) else gc:setColorRGB(150, 150, 150) end
+                gc:drawLine(px1 + nx*5, py1 + ny*5, px2 + nx*5, py2 + ny*5); gc:setPen("thin", "smooth")
+            end
+            
+            if modusText == "System" or isExplosion then
+                local has_cas_gy = s.gy_str and string.find(s.gy_str, "x")
+                if (s.gy or 0) ~= 0 or has_cas_gy then
+                    local steps = 10; local max_gy = 0
+                    if has_cas_gy and s.gy_pts then for j=1, 11 do if math.abs(s.gy_pts[j]) > max_gy then max_gy = math.abs(s.gy_pts[j]) end end else max_gy = math.abs(s.gy) end
+                    if max_gy > 0 then
+                        gc:setColorRGB(255, 150, 0); local scale_gy = 20 / max_gy
+                        if s.gy_proj then
+                            local ref_gy = has_cas_gy and (s.gy_pts and s.gy_pts[1] or 0) or s.gy
+                            local top_y = math.min(py1, py2) - 25; if ref_gy < 0 then top_y = math.max(py1, py2) + 25 end
+                            gc:drawLine(px1, py1, px1, top_y); gc:drawLine(px2, py2, px2, top_y); local env_pts = {}
+                            for j = 0, steps do 
+                                local t = j/steps; local gy_val = has_cas_gy and (s.gy_pts and s.gy_pts[j+1] or 0) or s.gy
+                                local h_curr = math.abs(gy_val) * scale_gy * (gy_val > 0 and -1 or 1)
+                                local tailX, tailY = px1 + dx*t, top_y + h_curr; table.insert(env_pts, tailX); table.insert(env_pts, tailY)
+                                if math.abs(gy_val) > 0.5 then drawArrow(gc, tailX, tailY, px1 + dx*t, top_y) end
+                            end
+                            gc:setPen("thin", "smooth"); gc:drawPolyLine(env_pts); gc:drawLine(px1, top_y, px2, top_y)
+                        else
+                            local env_pts = {}
+                            for j = 0, steps do 
+                                local t = j/steps; local gy_val = has_cas_gy and (s.gy_pts and s.gy_pts[j+1] or 0) or s.gy
+                                local h_curr = math.abs(gy_val) * scale_gy * (gy_val > 0 and -1 or 1)
+                                local tailX, tailY = px1 + dx*t, py1 + dy*t + h_curr; table.insert(env_pts, tailX); table.insert(env_pts, tailY)
+                                if math.abs(gy_val) > 0.5 then drawArrow(gc, tailX, tailY, px1 + dx*t, py1 + dy*t) end
+                            end
+                            gc:setPen("thin", "smooth"); gc:drawPolyLine(env_pts)
+                        end
+                    end
+                end
+                
+                local has_cas_gx = s.gx_str and string.find(s.gx_str, "x")
+                if (s.gx or 0) ~= 0 or has_cas_gx then
+                    local steps = 10; local max_gx = 0
+                    if has_cas_gx and s.gx_pts then for j=1, 11 do if math.abs(s.gx_pts[j]) > max_gx then max_gx = math.abs(s.gx_pts[j]) end end else max_gx = math.abs(s.gx) end
+                    if max_gx > 0 then
+                        gc:setColorRGB(255, 150, 0); local scale_gx = 20 / max_gx
+                        if s.gx_proj then
+                            local ref_gx = has_cas_gx and (s.gx_pts and s.gx_pts[1] or 0) or s.gx
+                            local side_x = math.min(px1, px2) - 25; if ref_gx < 0 then side_x = math.max(px1, px2) + 25 end
+                            gc:drawLine(px1, py1, side_x, py1); gc:drawLine(px2, py2, side_x, py2); local env_pts = {}
+                            for j = 0, steps do 
+                                local t = j/steps; local gx_val = has_cas_gx and (s.gx_pts and s.gx_pts[j+1] or 0) or s.gx
+                                local h_curr = math.abs(gx_val) * scale_gx * (gx_val > 0 and -1 or 1)
+                                local tailX, tailY = side_x + h_curr, py1 + dy*t; table.insert(env_pts, tailX); table.insert(env_pts, tailY)
+                                if math.abs(gx_val) > 0.5 then drawArrow(gc, tailX, tailY, side_x, py1 + dy*t) end
+                            end
+                            gc:setPen("thin", "smooth"); gc:drawPolyLine(env_pts); gc:drawLine(side_x, py1, side_x, py2)
+                        else
+                            local env_pts = {}
+                            for j = 0, steps do 
+                                local t = j/steps; local gx_val = has_cas_gx and (s.gx_pts and s.gx_pts[j+1] or 0) or s.gx
+                                local h_curr = math.abs(gx_val) * scale_gx * (gx_val > 0 and -1 or 1)
+                                local tailX, tailY = px1 + dx*t + h_curr, py1 + dy*t; table.insert(env_pts, tailX); table.insert(env_pts, tailY)
+                                if math.abs(gx_val) > 0.5 then drawArrow(gc, tailX, tailY, px1 + dx*t, py1 + dy*t) end
+                            end
+                            gc:setPen("thin", "smooth"); gc:drawPolyLine(env_pts)
+                        end
+                    end
+                end
+                
+                gc:setColorRGB(255, 50, 50)
+                local has_classic_q = (s.q + s.q_A ~= 0) or (s.q + s.q_B ~= 0); local has_cas_q = (s.q_pts and #s.q_pts == 11)
+                if has_classic_q or has_cas_q then
+                    local combined_q = {}; local max_abs_q = 0
+                    for j = 0, 10 do
+                        local t = j / 10; local q_tot = (s.q + s.q_A)*(1-t) + (s.q + s.q_B)*t + ((has_cas_q and s.q_pts[j+1]) or 0)
+                        table.insert(combined_q, q_tot); if math.abs(q_tot) > max_abs_q then max_abs_q = math.abs(q_tot) end
+                    end
+                    if max_abs_q > 0 then
+                        local scale_q = 25 / max_abs_q; local pts_env = {}
+                        for j = 0, 10 do
+                            local t = j / 10; local h_curr = -combined_q[j+1] * scale_q; local fx, fy = px1 + dx*t, py1 + dy*t
+                            table.insert(pts_env, fx + nx*h_curr); table.insert(pts_env, fy + ny*h_curr)
+                            if math.abs(h_curr) > 0.5 then drawArrow(gc, fx + nx*h_curr, fy + ny*h_curr, fx, fy) end
+                        end
+                        gc:setPen("thin", "smooth"); gc:drawPolyLine(pts_env)
+                        gc:drawLine(px1, py1, pts_env[1], pts_env[2]); gc:drawLine(px2, py2, pts_env[#pts_env-1], pts_env[#pts_env])
+                    end
+                end
+                
+                local has_classic_n = (s.n + s.n_A ~= 0) or (s.n + s.n_B ~= 0); local has_cas_n = (s.n_pts and #s.n_pts == 11)
+                if has_classic_n or has_cas_n then
+                    local combined_n = {}; local max_abs_n = 0
+                    for j = 0, 10 do
+                        local t = j / 10; local n_tot = (s.n + s.n_A)*(1-t) + (s.n + s.n_B)*t + ((has_cas_n and s.n_pts[j+1]) or 0)
+                        table.insert(combined_n, n_tot); if math.abs(n_tot) > max_abs_n then max_abs_n = math.abs(n_tot) end
+                    end
+                    if max_abs_n > 0 then
+                        local dist = 14; gc:drawLine(px1 + nx*dist, py1 + ny*dist, px2 + nx*dist, py2 + ny*dist)
+                        for j = 0, 10, 2 do 
+                            local t = j/10; local n_curr = combined_n[j+1]; local fx, fy = px1 + dx*t + nx*dist, py1 + dy*t + ny*dist
+                            if math.abs(n_curr) > 0.5 then local arr_len = (n_curr/max_abs_n)*12; drawArrow(gc, fx - (dx/L)*arr_len, fy - (dy/L)*arr_len, fx + (dx/L)*arr_len, fy + (dy/L)*arr_len) end 
+                        end
+                    end
+                end
+                
+                local has_classic_m = (s.m ~= 0); local has_cas_m = (s.m_pts and #s.m_pts == 11)
+                if has_classic_m or has_cas_m then
+                    local combined_m = {}; local max_abs_m = 0
+                    for j = 0, 10 do
+                        local m_tot = s.m + ((has_cas_m and s.m_pts[j+1]) or 0)
+                        table.insert(combined_m, m_tot); if math.abs(m_tot) > max_abs_m then max_abs_m = math.abs(m_tot) end
+                    end
+                    if max_abs_m > 0 then
+                        for j = 1, 9, 2 do 
+                            local t = j/10; local m_curr = combined_m[j+1]; local fx, fy = px1 + dx*t, py1 + dy*t
+                            if math.abs(m_curr) > 0.5 then drawMoment(gc, fx, fy, 8, m_curr < 0) end 
+                        end
+                    end
+                end
+                
+                local ux, uy = dx/L, dy/L
+                if (s.x_mA or 0) ~= 0 then gc:setColorRGB(200, 0, 200); gc:setPen("thin", "smooth"); drawRodMoment(gc, px1, py1, ux, uy, s.x_mA < 0) end
+                if (s.x_mB or 0) ~= 0 then gc:setColorRGB(200, 0, 200); gc:setPen("thin", "smooth"); drawRodMoment(gc, px2, py2, -ux, -uy, s.x_mB < 0) end
+                
+            elseif not isExplosion then
+                local L_m = L / drawPxProMeter
+                local c_val, s_val = dx/L, -dy/L
+                local eff_gx = (s.gx or 0) * (s.gx_proj and math.abs(s_val) or 1); local eff_gy = (s.gy or 0) * (s.gy_proj and math.abs(c_val) or 1)
+                local n_add = eff_gx * c_val - eff_gy * s_val; local q_add = eff_gx * s_val + eff_gy * c_val
+
+                local N0, Q0, M0 = -s.s_local[1], -s.s_local[2], -s.s_local[3]
+                local qA, qB = s.q + s.q_A + q_add, s.q + s.q_B + q_add; local nA, nB = s.n + s.n_A + n_add, s.n + s.n_B + n_add
+                local pts = {}
+                local min_val, max_val_ext, best_t, best_px, best_py = 0, 0, 0, px1, py1
+                
+                for j = 0, ptsBiegelinie do
+                    local t = j / ptsBiegelinie; local x = t * L_m; local val = 0
+                    local cas_Q_drop = (s.Q_cas_pts and s.Q_cas_pts[j+1]) or 0; local cas_M_drop = (s.M_cas_pts and s.M_cas_pts[j+1]) or 0; local cas_N_drop = (s.N_cas_pts and s.N_cas_pts[j+1]) or 0
+                    
+                    if ansichtsModus == "N" then val = N0 - (nA*x + (nB-nA)*(x^2)/(2*L_m)) - cas_N_drop
+                    elseif ansichtsModus == "Q" then val = Q0 - (qA*x + (qB-qA)*(x^2)/(2*L_m)) - cas_Q_drop
+                    elseif ansichtsModus == "M" then val = M0 + Q0*x - s.m*x - (qA*(x^2)/2 + (qB-qA)*(x^3)/(6*L_m)) - cas_M_drop 
+                    elseif ansichtsModus == "U" then val = get_u_val(s, x, L_m, j, nA, nB)
+                    elseif ansichtsModus == "W" then
+                        local EI = s.EI; local c1 = (s.v_local[2] or 0) * EI; local c2 = -(s.v_local[3] or 0) * EI; local c3 = (s.v_local[5] or 0) * EI; local c4 = -(s.v_local[6] or 0) * EI
+                        local xi = x / L_m
+                        local val_homogen_EI = c1*(1-3*xi^2+2*xi^3) + c2*(x-2*x^2/L_m+x^3/(L_m^2)) + c3*(3*xi^2-2*xi^3) + c4*(-x^2/L_m+x^3/(L_m^2))
+                        local v_part_class_EI = (x^2 * (L_m - x)^2) / (120 * L_m) * ((3*L_m - x)*qA + (2*L_m + x)*qB)
+                        local v_part_cas_EI = (s.v_cas_pts_EI and s.v_cas_pts_EI[j+1]) or 0
+                        val = (val_homogen_EI + v_part_class_EI + v_part_cas_EI) / EI
+                    end
+                    
+                    if math.abs(val) < 1e-5 then val = 0 end 
+                    local dist = val * drawScale
+                    local cur_px, cur_py = px1 + dx*t + nx*dist, py1 + dy*t + ny*dist
+                    
+                    if ansichtsModus == "W" then
+                        local u_val = get_u_val(s, x, L_m, j, nA, nB)
+                        cur_px = cur_px + (dx/L)*u_val*drawScale; cur_py = cur_py + (dy/L)*u_val*drawScale
+                    end
+                    
+                    if math.abs(val) >= math.abs(max_val_ext) then max_val_ext = val; best_t = t; best_px = cur_px; best_py = cur_py end
+                    table.insert(pts, cur_px); table.insert(pts, cur_py)
+                    if ansichtsModus ~= "W" and ansichtsModus ~= "U" then gc:setColorRGB(180, 180, 180); gc:drawLine(px1 + dx*t, py1 + dy*t, cur_px, cur_py) end
+                end
+                
+                if ansichtsModus == "M" then gc:setColorRGB(200, 50, 50) elseif ansichtsModus == "Q" then gc:setColorRGB(50, 150, 50) elseif ansichtsModus == "W" then gc:setColorRGB(200, 0, 200) elseif ansichtsModus == "U" then gc:setColorRGB(255, 120, 0) else gc:setColorRGB(50, 50, 200) end 
+                
+                if ansichtsModus == "W" or ansichtsModus == "U" then gc:setPen("thin", "smooth") else gc:setPen("medium", "smooth") end
+                gc:drawPolyLine(pts); gc:setFont("sansserif", "r", 8); gc:setColorRGB(0, 0, 0)
+                
+                local v_start = (ansichtsModus == "N" and N0) or (ansichtsModus == "Q" and Q0) or M0; local v_end = 0
+                local cas_Q_end = (s.Q_cas_pts and s.Q_cas_pts[ptsBiegelinie+1]) or 0; local cas_M_end = (s.M_cas_pts and s.M_cas_pts[ptsBiegelinie+1]) or 0; local cas_N_end = (s.N_cas_pts and s.N_cas_pts[ptsBiegelinie+1]) or 0
+                
+                if ansichtsModus == "N" then v_end = N0 - (nA*L_m + (nB-nA)*(L_m^2)/(2*L_m)) - cas_N_end
+                elseif ansichtsModus == "Q" then v_end = Q0 - (qA*L_m + (qB-qA)*(L_m^2)/(2*L_m)) - cas_Q_end 
+                elseif ansichtsModus == "M" then v_end = M0 + Q0*L_m - s.m*L_m - (qA*(L_m^2)/2 + (qB-qA)*(L_m^3)/(6*L_m)) - cas_M_end 
+                end
+                
+                if ansichtsModus == "W" or ansichtsModus == "U" then
+                    if math.abs(max_val_ext) > 1e-12 then 
+                        if ansichtsModus == "W" then gc:setColorRGB(200, 0, 200) else gc:setColorRGB(255, 120, 0) end
+                        gc:fillArc(best_px - 2, best_py - 2, 5, 5, 0, 360); gc:drawString(string.format("max: %.3f mm", max_val_ext*1000), best_px + nx*6, best_py + ny*6) 
+                    end
+                else
+                    gc:drawString(string.format("%.2f", math.abs(v_start) < 1e-5 and 0 or v_start), pts[1] + nx*5, pts[2] + ny*5)
+                    gc:drawString(string.format("%.2f", math.abs(v_end) < 1e-5 and 0 or v_end), pts[#pts-1] + nx*5, pts[#pts] + ny*5)
+                    if ansichtsModus == "M" and math.abs(max_val_ext) > 0.1 then gc:setColorRGB(200, 0, 0); gc:fillArc(best_px - 2, best_py - 2, 5, 5, 0, 360); gc:drawString(string.format("max: %.2f", max_val_ext), best_px + nx*6, best_py + ny*6) end
+                end
+            end
+        end
+
+        -- ==========================================================
+        -- EXPLOSIONSZEICHNUNG: FEINE GELENKKRÄFTE (Anti-Overlap)
+        -- ==========================================================
+        if isExplosion and s.s_local and L_orig > 0 then
+            local ux, uy = dx_orig/L_orig, dy_orig/L_orig; local nx, ny = -uy, ux
+            local Na, Va, Ma = s.s_local[1] or 0, s.s_local[2] or 0, s.s_local[3] or 0
+            local Nb, Vb, Mb = s.s_local[4] or 0, s.s_local[5] or 0, s.s_local[6] or 0
+            
+            local offsetX_A, offsetY_A, offsetM_A, offsetRx_A, offsetRy_A, offsetRm_A = 0,0,0,0,0,0
+            local offsetX_B, offsetY_B, offsetM_B, offsetRx_B, offsetRy_B, offsetRm_B = 0,0,0,0,0,0
+            
+            if explodeA and knoten[s.k1].gelenk and not loadApplied[s.k1] then
+                local kn = knoten[s.k1]; offsetX_A = kn.last_x; offsetY_A = kn.last_y; offsetM_A = kn.last_m 
+                local isSupp = kn.lager_x or kn.lager_y or kn.lager_m or kn.cx > 0 or kn.cy > 0 or kn.cm > 0
+                offsetRx_A = isSupp and kn.Rx_glob or 0; offsetRy_A = isSupp and kn.Ry_glob or 0; offsetRm_A = isSupp and kn.Rm_glob or 0
+                loadApplied[s.k1] = true
+            end
+            if explodeB and knoten[s.k2].gelenk and not loadApplied[s.k2] then
+                local kn = knoten[s.k2]; offsetX_B = kn.last_x; offsetY_B = kn.last_y; offsetM_B = kn.last_m 
+                local isSupp = kn.lager_x or kn.lager_y or kn.lager_m or kn.cx > 0 or kn.cy > 0 or kn.cm > 0
+                offsetRx_B = isSupp and kn.Rx_glob or 0; offsetRy_B = isSupp and kn.Ry_glob or 0; offsetRm_B = isSupp and kn.Rm_glob or 0
+                loadApplied[s.k2] = true
+            end
+            
+            local Fx_a = Na * ux + Va * nx - (offsetX_A + offsetRx_A); local Fy_a = Na * uy + Va * ny - (offsetY_A + offsetRy_A)
+            local Fx_b = Nb * ux + Vb * nx - (offsetX_B + offsetRx_B); local Fy_b = Nb * uy + Vb * ny - (offsetY_B + offsetRy_B)
+            
+            local M_a_disp = -(Ma - (offsetM_A + offsetRm_A)); local M_b_disp = Mb - (offsetM_B + offsetRm_B)
+            
+            if explodeA then
+                local val_N, val_Q, val_h, val_v
+                if s.n_gelenk_A or s.q_gelenk_A then
+                    val_N = -Fx_a * ux - Fy_a * uy; val_Q = -Fx_a * nx - Fy_a * ny
+                    drawFBDArrow(gc, val_N, -ux, -uy, px1, py1, "N = ")
+                    drawFBDArrow(gc, val_Q, -nx, -ny, px1, py1, "Q = ")
+                else
+                    val_h = -Fx_a; val_v = -Fy_a
+                    drawFBDArrow(gc, val_h, -1, 0, px1, py1, "h = ")
+                    drawFBDArrow(gc, val_v, 0, -1, px1, py1, "v = ")
+                end
+                
+                if math.abs(M_a_disp) > 1e-4 then 
+                    gc:setColorRGB(0, 150, 0); gc:setPen("thin", "smooth"); drawMoment(gc, px1, py1, 16, M_a_disp > 0) 
+                    gc:setFont("sansserif", "b", 9); gc:drawString("M = " .. string.format("%.2f", math.abs(M_a_disp)), px1 - ux*45 - 20, py1 - uy*45 - 10)
+                end
+                
+                if not knoten[s.k1].gelenk then
+                    if s.n_gelenk_A or s.q_gelenk_A then
+                        drawFBDArrow(gc, -val_N, -ux, -uy, orig_px1, orig_py1, "N = ")
+                        drawFBDArrow(gc, -val_Q, -nx, -ny, orig_px1, orig_py1, "Q = ")
+                    else
+                        drawFBDArrow(gc, -val_h, -1, 0, orig_px1, orig_py1, "h = ")
+                        drawFBDArrow(gc, -val_v, 0, -1, orig_px1, orig_py1, "v = ")
+                    end
+                    if math.abs(M_a_disp) > 1e-4 then 
+                        gc:setColorRGB(0, 150, 0); gc:setPen("thin", "smooth"); drawMoment(gc, orig_px1, orig_py1, 16, M_a_disp <= 0) 
+                        gc:setFont("sansserif", "b", 9); gc:drawString("M = " .. string.format("%.2f", math.abs(M_a_disp)), orig_px1 + ux*30, orig_py1 + uy*30)
+                    end
+                end
+            end
+            
+            if explodeB then
+                local val_N, val_Q, val_h, val_v
+                if s.n_gelenk_B or s.q_gelenk_B then
+                    val_N = Fx_b * ux + Fy_b * uy; val_Q = Fx_b * nx + Fy_b * ny
+                    drawFBDArrow(gc, val_N, ux, uy, px2, py2, "N = ")
+                    drawFBDArrow(gc, val_Q, nx, ny, px2, py2, "Q = ")
+                else
+                    val_h = Fx_b; val_v = Fy_b
+                    drawFBDArrow(gc, val_h, 1, 0, px2, py2, "h = ")
+                    drawFBDArrow(gc, val_v, 0, 1, px2, py2, "v = ")
+                end
+                
+                if math.abs(M_b_disp) > 1e-4 then 
+                    gc:setColorRGB(0, 150, 0); gc:setPen("thin", "smooth"); drawMoment(gc, px2, py2, 16, M_b_disp < 0) 
+                    gc:setFont("sansserif", "b", 9); gc:drawString("M = " .. string.format("%.2f", math.abs(M_b_disp)), px2 + ux*45 - 15, py2 + uy*45 - 5)
+                end
+                
+                if not knoten[s.k2].gelenk then
+                    if s.n_gelenk_B or s.q_gelenk_B then
+                        drawFBDArrow(gc, -val_N, ux, uy, orig_px2, orig_py2, "N = ")
+                        drawFBDArrow(gc, -val_Q, nx, ny, orig_px2, orig_py2, "Q = ")
+                    else
+                        drawFBDArrow(gc, -val_h, 1, 0, orig_px2, orig_py2, "h = ")
+                        drawFBDArrow(gc, -val_v, 0, 1, orig_px2, orig_py2, "v = ")
+                    end
+                    if math.abs(M_b_disp) > 1e-4 then 
+                        gc:setColorRGB(0, 150, 0); gc:setPen("thin", "smooth"); drawMoment(gc, orig_px2, orig_py2, 16, M_b_disp >= 0) 
+                        gc:setFont("sansserif", "b", 9); gc:drawString("M = " .. string.format("%.2f", math.abs(M_b_disp)), orig_px2 - ux*30, orig_py2 - uy*30)
+                    end
+                end
+            end
+        end
+    end
+
+    gc:setPen("thin", "smooth")
+    for i, k in ipairs(knoten) do
+        local px, py = k.x * drawPxProMeter + offsetX, k.y * drawPxProMeter + offsetY
+        
+        if modusText == "System" or (isExplosion and not loadApplied[i]) then
+            gc:setColorRGB(255, 50, 50)
+            if not k.hide_kgv_last then
+                if k.last_x ~= 0 then local dir = k.last_x > 0 and 1 or -1; drawArrow(gc, px - dir*40, py, px - dir*10, py) end
+                if k.last_y ~= 0 then local dir = k.last_y > 0 and 1 or -1; drawArrow(gc, px, py - dir*40, px, py - dir*10) end
+            end
+            if k.last_m ~= 0 then drawMoment(gc, px, py, 22, k.last_m < 0) end
+        end
+        
+        if isExplosion and not loadApplied[i] then
+            local isSupp = k.lager_x or k.lager_y or k.lager_m or k.cx > 0 or k.cy > 0 or k.cm > 0
+            if isSupp then
+                local r = math.rad(k.winkel or 0); local cw, sw = math.cos(r), math.sin(r)
+                if math.abs(k.R_xi or 0) > 1e-4 then drawReactionArrow(gc, k.R_xi, cw, -sw, px, py, "H = ") end
+                if math.abs(k.R_eta or 0) > 1e-4 then drawReactionArrow(gc, k.R_eta, sw, cw, px, py, "V = ") end
+                if math.abs(k.Rm_glob or 0) > 1e-4 then
+                    gc:setColorRGB(0, 0, 255); gc:setPen("thin", "smooth")
+                    drawMoment(gc, px, py, 28, k.Rm_glob < 0)
+                    gc:setFont("sansserif", "b", 9); gc:drawString("M = " .. string.format("%.2f", math.abs(k.Rm_glob)), px + 22, py + 22)
+                end
+            end
+        end
+        
+        if k.cx > 0 or k.cy > 0 or k.cm > 0 then
+            gc:setColorRGB(100, 220, 100); gc:setPen("thin", "smooth")
+            if k.cx > 0 then drawZigZag(gc, px, py, k.f_winkel or 0) end
+            if k.cy > 0 then drawZigZag(gc, px, py, (k.f_winkel or 0) - 90) end
+            if k.cm > 0 then gc:drawArc(px - 14, py - 14, 28, 28, 0, 360); gc:drawArc(px - 10, py - 10, 20, 20, 0, 360) end
+        end
+        
+        if k.lager_m then gc:setColorRGB(150, 150, 150); drawRotatedPolygon(gc, {px - 6, py - 6, px + 6, py - 6, px + 6, py + 6, px - 6, py + 6}, px, py, k.winkel or 0) end
+        gc:setColorRGB(34, 139, 34)
+        if k.lager_y then drawRotatedPolygon(gc, {px, py, px - 8, py + 12, px + 8, py + 12}, px, py, k.winkel or 0) end
+        if k.lager_x then drawRotatedPolygon(gc, {px, py, px - 12, py - 8, px - 12, py + 8}, px, py, k.winkel or 0) end
+        
+        if not isExplosion or not k.gelenk then
+            if k.gelenk then
+                gc:setColorRGB(255, 255, 255); gc:fillArc(px - 5, py - 5, 10, 10, 0, 360)
+                if i == auswahl then gc:setColorRGB(255, 0, 0) elseif (menuOffen and menuTyp == "knoten" and menuIndex == i) or (not menuOffen and hoverTyp == "knoten" and hoverObj == i) then gc:setColorRGB(0, 100, 255) else gc:setColorRGB(0, 0, 0) end
+                gc:setPen("medium", "smooth"); gc:drawArc(px - 5, py - 5, 10, 10, 0, 360)
+            else
+                if i == auswahl then gc:setColorRGB(255, 0, 0) elseif (menuOffen and menuTyp == "knoten" and menuIndex == i) or (not menuOffen and hoverTyp == "knoten" and hoverObj == i) then gc:setColorRGB(0, 100, 255) else gc:setColorRGB(0, 0, 0) end
+                gc:fillArc(px - 4, py - 4, 8, 8, 0, 360)
+            end
+        end
+    end
+
+    if menuOffen then
+        local menueHoehe = 150
+        if menuTyp == "knoten" then if menuSeite == 1 then menueHoehe = 160 elseif menuSeite == 2 then menueHoehe = 140 elseif menuSeite == 3 then menueHoehe = 120 else menueHoehe = 120 end 
+        elseif menuTyp == "stab" then if menuSeite == 1 then menueHoehe = 140 elseif menuSeite == 2 then menueHoehe = 120 elseif menuSeite == 3 then menueHoehe = 200 elseif menuSeite == 6 then menueHoehe = 160 elseif menuSeite == 7 then menueHoehe = 180 else menueHoehe = 160 end
+        elseif menuTyp == "obermenue" then if menuSeite == 1 then menueHoehe = 160 else menueHoehe = 200 end end
+        
+        gc:setColorRGB(240, 240, 240); gc:fillRect(b - 165, 10, 155, menueHoehe); gc:setColorRGB(0, 0, 0); gc:drawRect(b - 165, 10, 155, menueHoehe)
+        gc:setColorRGB(200, 200, 255); gc:fillRect(b - 163, 20 + (menuZeile * 20), 151, 18); gc:setColorRGB(0, 0, 0); gc:setFont("sansserif", "b", 9)
+        
+        if menuTyp == "knoten" then
+            local k = knoten[menuIndex]; gc:drawString("Knoten " .. menuIndex .. " < S." .. menuSeite .. "/4 >", b - 160, 15); gc:setFont("sansserif", "r", 9)
+            if menuSeite == 1 then
+                gc:drawString("Koord X (m):", b - 160, 40); gc:drawString("Koord Y (m):", b - 160, 60); gc:drawString("Vollgelenk:", b - 160, 80); gc:drawString("Lager X:", b - 160, 100); gc:drawString("Lager Y:", b - 160, 120); gc:drawString("Lager M:", b - 160, 140)
+                gc:setColorRGB(0, 0, 255)
+                if menuZeile == 1 and eingabeModus then gc:drawString(eingabeText .. "_", b - 65, 40) else gc:drawString(tostring(k.x), b - 65, 40) end
+                if menuZeile == 2 and eingabeModus then gc:drawString(eingabeText .. "_", b - 65, 60) else gc:drawString(tostring(k.y), b - 65, 60) end
+                if k.last_m ~= 0 then gc:setColorRGB(150, 150, 150); gc:drawString("Gesperrt", b - 65, 80) else gc:setColorRGB(0, 0, 255); gc:drawString(k.gelenk and "Ja" or "Nein", b - 65, 80) end
+                gc:setColorRGB(0, 0, 255)
+                gc:drawString(k.lager_x and "Fest" or "Frei", b - 65, 100); gc:drawString(k.lager_y and "Fest" or "Frei", b - 65, 120); gc:drawString(k.lager_m and "Fest" or "Frei", b - 65, 140)
+            elseif menuSeite == 2 then
+                gc:drawString("Last X (kN):", b - 160, 40); gc:drawString("Last Y (kN):", b - 160, 60); gc:drawString("Last M (kNm):", b - 160, 80); gc:drawString("Last-Winkel:", b - 160, 100); gc:drawString("Lager-Winkel:", b - 160, 120)
+                gc:setColorRGB(0, 0, 255)
+                if menuZeile == 1 and eingabeModus then gc:drawString(eingabeText .. "_", b - 65, 40) else gc:drawString(tostring(k.last_x), b - 65, 40) end
+                if menuZeile == 2 and eingabeModus then gc:drawString(eingabeText .. "_", b - 65, 60) else gc:drawString(tostring(k.last_y), b - 65, 60) end
+                if k.gelenk then gc:setColorRGB(150, 150, 150); gc:drawString("Gesperrt", b - 65, 80) else gc:setColorRGB(0, 0, 255); if menuZeile == 3 and eingabeModus then gc:drawString(eingabeText .. "_", b - 65, 80) else gc:drawString(tostring(k.last_m), b - 65, 80) end end
+                gc:setColorRGB(0, 0, 255)
+                if menuZeile == 4 and eingabeModus then gc:drawString(eingabeText .. "_", b - 65, 100) else gc:drawString(tostring(k.last_w or 0), b - 65, 100) end
+                if menuZeile == 5 and eingabeModus then gc:drawString(eingabeText .. "_", b - 65, 120) else gc:drawString(tostring(k.winkel or 0), b - 65, 120) end
+            elseif menuSeite == 3 then
+                gc:drawString("Feder cx (kN/m):", b - 160, 40); gc:drawString("Feder cy (kN/m):", b - 160, 60); gc:drawString("Feder cm (kNm/r):", b - 160, 80); gc:drawString("Feder-Winkel:", b - 160, 100)
+                gc:setColorRGB(0, 0, 255)
+                if menuZeile == 1 and eingabeModus then gc:drawString(eingabeText .. "_", b - 65, 40) else gc:drawString(tostring(k.cx or 0), b - 65, 40) end
+                if menuZeile == 2 and eingabeModus then gc:drawString(eingabeText .. "_", b - 65, 60) else gc:drawString(tostring(k.cy or 0), b - 65, 60) end
+                if menuZeile == 3 and eingabeModus then gc:drawString(eingabeText .. "_", b - 65, 80) else gc:drawString(tostring(k.cm or 0), b - 65, 80) end
+                if menuZeile == 4 and eingabeModus then gc:drawString(eingabeText .. "_", b - 65, 100) else gc:drawString(tostring(k.f_winkel or 0), b - 65, 100) end
+            elseif menuSeite == 4 then
+                gc:drawString("R_xi (Parallel):", b - 160, 40); gc:drawString("R_eta (Senkr.):", b - 160, 60); gc:drawString("R_m (Moment):", b - 160, 80); gc:drawString("In TI speichern:", b - 160, 100)
+                gc:setColorRGB(0, 120, 0)
+                gc:drawString(string.format("%.2f", k.R_xi or 0), b - 60, 40); gc:drawString(string.format("%.2f", k.R_eta or 0), b - 60, 60); gc:drawString(string.format("%.2f", k.R_m or 0), b - 60, 80)
+                if menuZeile == 4 then gc:setColorRGB(200, 0, 0) else gc:setColorRGB(0, 0, 255) end
+                gc:drawString("Export", b - 60, 100)
+            end
+            
+        elseif menuTyp == "stab" then
+            local s = staebe[menuIndex]; gc:drawString("Stab " .. menuIndex .. " < S." .. menuSeite .. "/7 >", b - 160, 15); gc:setFont("sansserif", "r", 9)
+            if menuSeite == 1 then
+                gc:drawString("EI (kNm2):", b - 160, 40); gc:drawString("EA (kN):", b - 160, 60); gc:drawString("Last q(x):", b - 160, 80); gc:drawString("Last n(x):", b - 160, 100); gc:drawString("Momentenlast m:", b - 160, 120)
+                gc:setColorRGB(0, 0, 255)
+                if menuZeile == 1 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 40) else gc:drawString(tostring(s.EI), b - 60, 40) end
+                if menuZeile == 2 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 60) else gc:drawString(tostring(s.EA), b - 60, 60) end
+                if menuZeile == 3 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 80) else gc:drawString(s.q_str or "0", b - 60, 80) end
+                if menuZeile == 4 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 100) else gc:drawString(s.n_str or "0", b - 60, 100) end
+                if menuZeile == 5 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 120) else gc:drawString(s.m_str or tostring(s.m), b - 60, 120) end
+            elseif menuSeite == 2 then
+                gc:drawString("Global pX:", b - 160, 40); gc:drawString("pX projiziert:", b - 160, 60); gc:drawString("Global pY:", b - 160, 80); gc:drawString("pY projiziert:", b - 160, 100)
+                gc:setColorRGB(0, 0, 255)
+                if menuZeile == 1 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 40) else gc:drawString(s.gx_str or tostring(s.gx or 0), b - 60, 40) end
+                gc:drawString((s.gx_proj and "Ja" or "Nein"), b - 60, 60)
+                if menuZeile == 3 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 80) else gc:drawString(s.gy_str or tostring(s.gy or 0), b - 60, 80) end
+                gc:drawString((s.gy_proj and "Ja" or "Nein"), b - 60, 100)
+            elseif menuSeite == 3 then
+                gc:drawString("Trapez q Start:", b - 160, 40); gc:drawString("Trapez q Ende:", b - 160, 60); gc:drawString("Trapez n Start:", b - 160, 80); gc:drawString("Trapez n Ende:", b - 160, 100)
+                gc:drawString("Temp. T_oben:", b - 160, 120); gc:drawString("Temp. T_unten:", b - 160, 140); gc:drawString("Alpha_t:", b - 160, 160); gc:drawString("Höhe h (m):", b - 160, 180)
+                gc:setColorRGB(0, 0, 255)
+                if menuZeile == 1 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 40) else gc:drawString(tostring(s.q_A), b - 60, 40) end
+                if menuZeile == 2 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 60) else gc:drawString(tostring(s.q_B), b - 60, 60) end
+                if menuZeile == 3 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 80) else gc:drawString(tostring(s.n_A), b - 60, 80) end
+                if menuZeile == 4 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 100) else gc:drawString(tostring(s.n_B), b - 60, 100) end
+                if menuZeile == 5 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 120) else gc:drawString(tostring(s.To), b - 60, 120) end
+                if menuZeile == 6 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 140) else gc:drawString(tostring(s.Tu), b - 60, 140) end
+                if menuZeile == 7 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 160) else gc:drawString(tostring(s.alpha), b - 60, 160) end
+                if menuZeile == 8 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 180) else gc:drawString(tostring(s.h), b - 60, 180) end
+            elseif menuSeite == 4 then
+                gc:drawString("M-Gelenk Start:", b - 160, 40); gc:drawString("M-Gelenk Ende:", b - 160, 60); gc:drawString("N-Gelenk Start:", b - 160, 80); gc:drawString("N-Gelenk Ende:", b - 160, 100); gc:drawString("Q-Gelenk Start:", b - 160, 120); gc:drawString("Q-Gelenk Ende:", b - 160, 140)
+                gc:setColorRGB(0, 0, 255)
+                gc:drawString(s.gelenk_A and "Ja" or "Nein", b - 60, 40); gc:drawString(s.gelenk_B and "Ja" or "Nein", b - 60, 60)
+                gc:drawString(s.n_gelenk_A and "Ja" or "Nein", b - 60, 80); gc:drawString(s.n_gelenk_B and "Ja" or "Nein", b - 60, 100)
+                gc:drawString(s.q_gelenk_A and "Ja" or "Nein", b - 60, 120); gc:drawString(s.q_gelenk_B and "Ja" or "Nein", b - 60, 140)
+            elseif menuSeite == 5 then
+                gc:drawString("Na (Start):", b - 160, 40); gc:drawString("Qa (Start):", b - 160, 60); gc:drawString("Ma (Start):", b - 160, 80); gc:drawString("Nb (Ende):", b - 160, 100); gc:drawString("Qb (Ende):", b - 160, 120); gc:drawString("Mb (Ende):", b - 160, 140)
+                gc:setColorRGB(0, 120, 0)
+                gc:drawString(string.format("%.2f", -s.s_local[1] or 0), b - 60, 40); gc:drawString(string.format("%.2f", -s.s_local[2] or 0), b - 60, 60); gc:drawString(string.format("%.2f", -s.s_local[3] or 0), b - 60, 80)
+                gc:drawString(string.format("%.2f", s.s_local[4] or 0), b - 60, 100); gc:drawString(string.format("%.2f", s.s_local[5] or 0), b - 60, 120); gc:drawString(string.format("%.2f", s.s_local[6] or 0), b - 60, 140)
+            elseif menuSeite == 6 then
+                gc:drawString("h_a (links+):", b - 160, 40); gc:drawString("v_a (oben+):", b - 160, 60); gc:drawString("M_a (Uhrz.+):", b - 160, 80); gc:drawString("h_b (rechts+):", b - 160, 100); gc:drawString("v_b (unten+):", b - 160, 120); gc:drawString("M_b (Gegen-U.+):", b - 160, 140)
+                gc:setColorRGB(0, 120, 0)
+                
+                local k1, k2 = knoten[s.k1], knoten[s.k2]
+                local dx, dy = k2.x - k1.x, k2.y - k1.y
+                local L = math.sqrt(dx^2 + dy^2)
+                if L > 0 then
+                    local c, s_val = dx/L, -dy/L
+                    local Na, Va, Ma = s.s_local[1] or 0, s.s_local[2] or 0, s.s_local[3] or 0
+                    local Nb, Vb, Mb = s.s_local[4] or 0, s.s_local[5] or 0, s.s_local[6] or 0
+                    
+                    local loadAppliedMenu = {}
+                    local offsetX_A, offsetY_A, offsetM_A, offsetRx_A, offsetRy_A, offsetRm_A = 0, 0, 0, 0, 0, 0
+                    local offsetX_B, offsetY_B, offsetM_B, offsetRx_B, offsetRy_B, offsetRm_B = 0, 0, 0, 0, 0, 0
+                    
+                    for idx, temp_s in ipairs(staebe) do
+                        local explA = knoten[temp_s.k1].gelenk or temp_s.gelenk_A or temp_s.n_gelenk_A or temp_s.q_gelenk_A
+                        local explB = knoten[temp_s.k2].gelenk or temp_s.gelenk_B or temp_s.n_gelenk_B or temp_s.q_gelenk_B
+                        if explA and knoten[temp_s.k1].gelenk and not loadAppliedMenu[temp_s.k1] then
+                            if idx == menuIndex then 
+                                local kn = knoten[temp_s.k1]
+                                offsetX_A = kn.last_x; offsetY_A = kn.last_y; offsetM_A = kn.last_m 
+                                local isSupp = kn.lager_x or kn.lager_y or kn.lager_m or kn.cx > 0 or kn.cy > 0 or kn.cm > 0
+                                offsetRx_A = isSupp and kn.Rx_glob or 0; offsetRy_A = isSupp and kn.Ry_glob or 0; offsetRm_A = isSupp and kn.Rm_glob or 0
+                            end
+                            loadAppliedMenu[temp_s.k1] = true
+                        end
+                        if explB and knoten[temp_s.k2].gelenk and not loadAppliedMenu[temp_s.k2] then
+                            if idx == menuIndex then 
+                                local kn = knoten[temp_s.k2]
+                                offsetX_B = kn.last_x; offsetY_B = kn.last_y; offsetM_B = kn.last_m 
+                                local isSupp = kn.lager_x or kn.lager_y or kn.lager_m or kn.cx > 0 or kn.cy > 0 or kn.cm > 0
+                                offsetRx_B = isSupp and kn.Rx_glob or 0; offsetRy_B = isSupp and kn.Ry_glob or 0; offsetRm_B = isSupp and kn.Rm_glob or 0
+                            end
+                            loadAppliedMenu[temp_s.k2] = true
+                        end
+                    end
+                    
+                    local ux, uy = dx/L, dy/L; local nx, ny = -uy, ux
+                    local Fx_a = Na * ux + Va * nx - (offsetX_A + offsetRx_A); local Fy_a = Na * uy + Va * ny - (offsetY_A + offsetRy_A)
+                    local Fx_b = Nb * ux + Vb * nx - (offsetX_B + offsetRx_B); local Fy_b = Nb * uy + Vb * ny - (offsetY_B + offsetRy_B)
+                    local M_a_disp = -(Ma - (offsetM_A + offsetRm_A)); local M_b_disp = Mb - (offsetM_B + offsetRm_B)
+                    
+                    local function cl(v) return math.abs(v) < 1e-4 and 0 or v end
+                    gc:drawString(string.format("%.2f kN", cl(-Fx_a)), b - 60, 40)
+                    gc:drawString(string.format("%.2f kN", cl(-Fy_a)), b - 60, 60)
+                    gc:drawString(string.format("%.2f kNm", cl(M_a_disp)), b - 60, 80)
+                    gc:drawString(string.format("%.2f kN", cl(Fx_b)), b - 60, 100)
+                    gc:drawString(string.format("%.2f kN", cl(Fy_b)), b - 60, 120)
+                    gc:drawString(string.format("%.2f kNm", cl(M_b_disp)), b - 60, 140)
+                end
+            elseif menuSeite == 7 then
+                gc:drawString("ua (m):", b - 160, 40); gc:drawString("va (m):", b - 160, 60); gc:drawString("phi_a (rad):", b - 160, 80); gc:drawString("ub (m):", b - 160, 100); gc:drawString("vb (m):", b - 160, 120); gc:drawString("phi_b (rad):", b - 160, 140)
+                gc:setColorRGB(180, 0, 180)
+                gc:drawString(string.format("%.3e", s.v_local[1] or 0):gsub("%.", ","), b - 70, 40); gc:drawString(string.format("%.3e", s.v_local[2] or 0):gsub("%.", ","), b - 70, 60); gc:drawString(string.format("%.3e", s.v_local[3] or 0):gsub("%.", ","), b - 70, 80)
+                gc:drawString(string.format("%.3e", s.v_local[4] or 0):gsub("%.", ","), b - 70, 100); gc:drawString(string.format("%.3e", s.v_local[5] or 0):gsub("%.", ","), b - 70, 120); gc:drawString(string.format("%.3e", s.v_local[6] or 0):gsub("%.", ","), b - 70, 140)
+                gc:setColorRGB(0, 0, 0); gc:drawString("In TI speichern:", b - 160, 160)
+                if menuZeile == 7 then gc:setColorRGB(200, 0, 0) else gc:setColorRGB(0, 0, 255) end
+                gc:drawString("Export", b - 70, 160)
+            end
+            
+        elseif menuTyp == "obermenue" then
+            gc:drawString("Einstellungen < S." .. menuSeite .. "/2 >", b - 160, 15); gc:setFont("sansserif", "r", 9)
+            if menuSeite == 1 then
+                gc:drawString("Raster (m):", b - 160, 40); gc:drawString("Alle EA setzen:", b - 160, 60); gc:drawString("Alle EI setzen:", b - 160, 80); gc:drawString("Starr-Modus:", b - 160, 100); gc:drawString("Auto-KGV Solver:", b - 160, 120)
+                gc:drawString("Unbestimmtheit n:", b - 160, 140)
+                gc:setColorRGB(0, 0, 255)
+                if menuZeile == 1 and eingabeModus then gc:drawString(eingabeText .. "_", b - 65, 40) else gc:drawString(tostring(rasterMass), b - 65, 40) end
+                if menuZeile == 2 and eingabeModus then gc:drawString(eingabeText .. "_", b - 65, 60) else gc:drawString(string.format("%.3e", defEA):gsub("%.", ","), b - 65, 60) end
+                if menuZeile == 3 and eingabeModus then gc:drawString(eingabeText .. "_", b - 65, 80) else gc:drawString(string.format("%.3e", defEI):gsub("%.", ","), b - 65, 80) end
+                if menuZeile == 4 then gc:setColorRGB(200, 0, 0) else gc:setColorRGB(0, 0, 255) end
+                gc:drawString("Aktivieren", b - 65, 100)
+                if menuZeile == 5 then gc:setColorRGB(200, 0, 0) else gc:setColorRGB(0, 0, 255) end
+                gc:drawString(autoKGV and "An" or "Aus", b - 65, 120)
+                if menuZeile == 6 then gc:setColorRGB(200, 0, 0) else gc:setColorRGB(0, 0, 255) end
+                gc:drawString(zeigeN and "An" or "Aus", b - 65, 140)
+            elseif menuSeite == 2 then
+                gc:drawString("Alles Exportieren:", b - 160, 40); gc:drawString("Nur Biegelinien exp.:", b - 160, 60); gc:drawString("Nur Längslinien exp.:", b - 160, 80); gc:drawString("KGV Daten exp.:", b - 160, 100); gc:drawString("CAS Bruch-Tol. (1E-x):", b - 160, 120)
+                gc:drawString("Punkte/Stab (Graph):", b - 160, 140); gc:drawString("Zoom-Schritt Normal:", b - 160, 160); gc:drawString("Zoom-Schritt Expl.:", b - 160, 180)
+                gc:setColorRGB(0, 0, 255)
+                if menuZeile == 1 then gc:setColorRGB(200, 0, 0) else gc:setColorRGB(0, 0, 255) end; gc:drawString("Export", b - 45, 40)
+                if menuZeile == 2 then gc:setColorRGB(200, 0, 0) else gc:setColorRGB(0, 0, 255) end; gc:drawString("Export", b - 45, 60)
+                if menuZeile == 3 then gc:setColorRGB(200, 0, 0) else gc:setColorRGB(0, 0, 255) end; gc:drawString("Export", b - 45, 80)
+                if menuZeile == 4 then gc:setColorRGB(200, 0, 0) else gc:setColorRGB(0, 0, 255) end; gc:drawString("Export", b - 45, 100)
+                gc:setColorRGB(0, 0, 255)
+                if menuZeile == 5 and eingabeModus then gc:drawString(eingabeText .. "_", b - 45, 120) else gc:drawString(tostring(casToleranz), b - 45, 120) end
+                if menuZeile == 6 and eingabeModus then gc:drawString(eingabeText .. "_", b - 45, 140) else gc:drawString(tostring(ptsBiegelinie), b - 45, 140) end
+                if menuZeile == 7 and eingabeModus then gc:drawString(eingabeText .. "_", b - 45, 160) else gc:drawString(tostring(zoomNormal), b - 45, 160) end
+                if menuZeile == 8 and eingabeModus then gc:drawString(eingabeText .. "_", b - 45, 180) else gc:drawString(tostring(zoomExplosion), b - 45, 180) end
+            end
+        end
+    end
+    
+    if warnungKinematisch then
+        local boxW, boxH = math.min(b - 20, 180), 36; local boxX, boxY = math.floor((b - boxW) / 2), math.floor((h - boxH) / 2)
+        gc:setColorRGB(255, 0, 0); gc:fillRect(boxX, boxY, boxW, boxH); gc:setColorRGB(255, 255, 255); gc:drawRect(boxX, boxY, boxW, boxH)
+        gc:setFont("sansserif", "b", 10); gc:drawString("System ist kinematisch!", boxX + 8, boxY + 12)
+    end
+end
