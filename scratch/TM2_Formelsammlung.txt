@@ -1,0 +1,582 @@
+Institut für Statik und Dynamik
+der Luft- und Raumfahrtkonstruktionen
+Jun.-Prof. Dr.-Ing. Jan Liedmann
+Formelsammlung
+Technische Mechanik II
+Institut für Statik und Dynamik
+der Luft- und Raumfahrtkonstruktionen
+1 / 16
+
+Institut für Statik und Dynamik der Luft- und Raumfahrtkonstruktionen
+Jun.-Prof. Dr.-Ing. Jan Liedmann
+TM2
+1 Flächenträgheitsmomente
+1.1 Flächenträgheitsmomente bezogen auf die Schwerachsen
+Die Flächenträgheitsmomente (FTM) sind ein Maß für die Steifigkeit eines Querschnittes.
+FTM sind von der Orientierung des Querschnitts abhängig.
+Definition1:
+Iyy =
+∫
+A z2
+sdAAxiales Eigen-Flächenträgheitsmoment bezogen auf diey-Achse.
+Izz =
+∫
+A y2
+sdAAxiales Eigen-Flächenträgheitsmoment bezogen auf diez-Achse.
+Iyz =−
+∫
+A yszsdAAxiales Eigen-Deviationsmoment bezüglich dery- undz-Achsen.
+Eigenschaften:
+▶Flächenträgheitsmomente haben die Dimension [Länge]4
+▶I yy undI zz sind stets positiv, währendIyz auch negative Werte annehmen kann.
+▶ Ist eine der Koordinatenachsen eine Symmetrieachse des Querschnitts, so verschwindet
+das Deviations-/ZentrifugalmomentI yz.
+1Im folgenden wird auf die Darstellung der Einheitsvektoren verzichtet.
+2 / 16
+
+Institut für Statik und Dynamik der Luft- und Raumfahrtkonstruktionen
+Jun.-Prof. Dr.-Ing. Jan Liedmann
+TM2
+1.2 Flächenträgheitsmomente bezogen auf parallelverschobene
+Koordinaten
+Bezüglich der parallelverschobenen Koordinatenachsen gilt:
+¯Iyy =I yy + (¯zs)2A
+¯Izz =I zz + (¯ys)2A
+¯Iyz =I yz−¯ys¯zsA
+¯y
+¯z
+¯yS
+¯zS
+y
+z
+Der jeweils zweite Summand (auf der rechten Seite) heißtSteinerAnteil.
+1.3 Flächenträgheitsmomente bezogen auf gedrehte
+Koordinatenachsen
+y
+η
+z ζ
+φ
+Koordinatentransformation
+η=ycosφ+zsinφ
+ζ=−ysinφ+zcosφ
+Die Flächenträgheitsmomente Iη, Iζ und Iηζ sind bezogen auf die um den Winkelφ
+gedrehten Koordinatenachsenηundζ.
+Iηη = 1
+2(Iyy +I zz) + 1
+2(Iyy−I zz) cos 2φ+I yz sin 2φ
+Iζζ = 1
+2(Iyy +I zz)− 1
+2(Iyy−I zz) cos 2φ−I yz sin 2φ
+Iηζ =− 1
+2(Iyy−I zz) sin 2φ+I yz cos 2φ
+3 / 16
+
+Institut für Statik und Dynamik der Luft- und Raumfahrtkonstruktionen
+Jun.-Prof. Dr.-Ing. Jan Liedmann
+TM2
+1.4 Das polare Flächenträgheitsmoment
+Das polare FlächenträgheitsmomentIP ist bei Drehung der Koordinatenachsen invariant.
+IP =I ηη +Iζζ =I yy +I zz
+1.5 Hauptträgheitsmomente
+Hauptträgheitsachsen sind Achsen, deren Ursprung im Schwerpunkt liegt und zu denen
+die Flächenträgheitsmomente Extremwerte (Maximum und Minimum) annehmen. Das
+Zentrifugalmoment Iyz bezogen auf die Hauptträgheitsachsen ist gleich Null. Der Winkel
+zwischen dem y-z-Bezugssystem und den Hauptträgheitsachsen heißtφ∗. Ist ein Quer-
+schnitt achsensymmetrisch, so verschwindet sein Zentrifugalmoment bezüglich dieser Achse.
+Jede Symmetrieachse ist eine Hauptachse (HA).
+Hauptträgheitsmomente
+Imax =I 1 = 1
+2(Iyy +I zz) + 1
+2
+√
+(Iyy−I zz)2 + 4(Iyz)2
+Imin =I 2 = 1
+2(Iyy +I zz)− 1
+2
+√
+(Iyy−I zz)2 + 4(Iyz)2
+Winkelφ∗ :
+tan 2φ∗ = 2Iyz
+Iyy−I zz
+y
+HA 1 (oder HA 2) z HA 2 (oder HA 1)
+φ∗
+4 / 16
+
+Institut für Statik und Dynamik der Luft- und Raumfahrtkonstruktionen
+Jun.-Prof. Dr.-Ing. Jan Liedmann
+TM2
+Quelle: Gross, Hauger, Schröder, Wall, Technische Mechanik 2, Springer Verlag, 9. Auflage
+5 / 16
+
+Institut für Statik und Dynamik der Luft- und Raumfahrtkonstruktionen
+Jun.-Prof. Dr.-Ing. Jan Liedmann
+TM2
+1.6 Flächenschwerpunkte
+Fläche Flächeninhalt Schwerpunktlage
+rechtwinkliges Dreieck
+x
+y
+a
+hS
+A = 1
+2 ah xs = 2
+3 a,
+ys = h
+3
+Dreieck
+x
+y
+x1,y 1
+x2,y 2
+x3,y 3
+S
+A = 1
+2 [(x2−x 1)(y3−y 1)− (x3−
+x1)(y2−y 1)]
+xs = 1
+3 (x1 + x2 + x3),
+ys = 1
+3 (y1 + y2 + y3)
+Trapez
+x
+y
+a
+b
+hS
+A = h
+2 (a + b) Sliegt auf der Seitenhalbierenden,
+ys = h
+3
+a + 2b
+a + b
+Kreisausschnitt
+x
+y
+α
+α
+r
+S
+A =αr 2
+xs = 2
+3 r sinα
+α ,
+ys = 0
+Halbkreis
+x
+y
+r
+S
+A = π
+2 r2 xs = 4 r
+3π ,
+ys = 0
+Kreisabschnitt
+x
+y
+sα
+α
+r S
+A = 1
+2 r2 (2α−sin(2α)) xs = s3
+12 A = 4
+3 r sin3(α)
+2α−sin(2α) ,
+ys = 0
+6 / 16
+
+Institut für Statik und Dynamik der Luft- und Raumfahrtkonstruktionen
+Jun.-Prof. Dr.-Ing. Jan Liedmann
+TM2
+2 Der ebene Spannungszustand
+2.1 Spannungstransformation
+σξ = 1
+2(σx +σ y) + 1
+2(σx−σ y) cos(2φ) +τ xy sin(2φ)
+ση = 1
+2(σx +σ y)− 1
+2(σx−σ y) cos(2φ)−τ xy sin(2φ)
+τηξ =τ ξη =− 1
+2(σx−σ y) sin(2φ) +τ xy cos(2φ)
+2.2 Hauptnormalspannungen
+Die Hauptnomalspannungen ergeben sich für das um den Winkelφ∗ gedrehte Basissystem,
+in dem die Schubspannungen zu Null und die Normalspannungen extremal werden.
+Winkelφ∗:
+tan(2φ∗) = 2τxy
+σx−σ y
+Hauptnormalspannungenσ 1,σ 2:
+σ1,2 = 1
+2(σy +σ x)± 1
+2
+√
+(σy−σ x)2 + 4τ2
+xy
+7 / 16
+
+Institut für Statik und Dynamik der Luft- und Raumfahrtkonstruktionen
+Jun.-Prof. Dr.-Ing. Jan Liedmann
+TM2
+2.3 Maximale Schubspannungen
+τxy,max =
+√(σx−σ y
+2
+)2
++τ 2
+xy
+bei
+φ∗∗ =φ∗±45◦
+2.4 Der Mohr’sche Spannungskreis
+Konstruktion:
+1) Die Punkte P1(σx,τ xy) und P2(σy,−τ xy) in
+ein σ/τ- Diagramm einzeichnen und verbin-
+den.
+2) Kreis um den Schnittpunkt von der Gerade
+P1-P2 mit derσ-Achse ziehen.
+3)Die Gerade um2φim Uhrzeigersinn drehen.
+4)σ ξ,σ η undτ ηξ ablesen.
+2.5 Verzerrungszustand
+Allgemein:
+εik =ε ki = 1
+2
+(
+∂ui
+∂Xk
++ ∂uk
+∂Xi
+)
+wobei u(x) der Verschiebungsvektor ist.
+Dehnungen:
+εx = ∂ux
+∂x , ε y = ∂uy
+∂y , ε z = ∂uz
+∂z
+Beispiel: Stabverlängerung infolge der Kraft F
+8 / 16
+
+Institut für Statik und Dynamik der Luft- und Raumfahrtkonstruktionen
+Jun.-Prof. Dr.-Ing. Jan Liedmann
+TM2
+2.6 Stoffgesetz (Hooksches Gesetz)
+σ=Eε
+εx = 1
+E[σx−ν(σ y +σ z)] +α∆T
+εy = 1
+E[σy−ν(σ z +σ x)] +α∆T
+εz = 1
+E[σz−ν(σ x +σ y)] +α∆T
+γxy = 1
+Gτxy
+γyz = 1
+Gτyz
+γzx = 1
+Gτzx
+mit
+ν:=Querkontraktionszahl
+α:=Temperaturausdehnungs-
+koeffizient
+∆T= (T i−T a) :=Temperaturdifferenz
+E= 2G(1 +ν) :=Elastizitätsmodul
+G:=Schubmodul
+2.6.1 Matrix-Form des allgemeinen Hookeschen Gesetzes
+
+
+σx
+σy
+σz
+τxy
+τyz
+τzx
+
+
+= E
+(1 +ν)(1−2ν)
+
+
+1−ν ν ν0 0 0
+ν1−ν ν0 0 0
+ν ν1−ν0 0 0
+0 0 0 1
+2−ν 0 0
+0 0 0 0 1
+2−ν 0
+0 0 0 0 0 1
+2−ν
+
+
+
+
+εx
+εy
+εz
+γxy
+γyz
+γzx
+
+
+Die inverse Form ist:
+
+
+εx
+εy
+εz
+γxy
+γyz
+γzx
+
+
+= 1
+E
+
+
+1−ν−ν0 0 0
+−ν1−ν0 0 0
+−ν−ν1 0 0 0
+0 0 0 2(1 +ν) 0 0
+0 0 0 0 2(1 +ν) 0
+0 0 0 0 0 2(1 +ν)
+
+
+
+
+σx
+σy
+σz
+τxy
+τyz
+τzx
+
+
+Verschiebung:
+u =
+∫
+ℓ
+(
+N
+EA +α t·∆T
+)
+dℓ
+9 / 16
+
+Institut für Statik und Dynamik der Luft- und Raumfahrtkonstruktionen
+Jun.-Prof. Dr.-Ing. Jan Liedmann
+TM2
+3 Normalspannung aus Biegung und Längskraft
+3.1 Voraussetzungen
+▶Konstanter Querschnitt in Stablängsrichtung (x-Richtung)
+▶y- undz-Achsen sind Hauptträgheitsachsen des Querschnitts
+3.2 Normalspannung infolgeNx,M y undM z
+σx(x,y,z) = Nx
+A + My
+Iy
+·z− Mz
+Iz
+·y
+3.3 Biegenormalspannung bezüglich beliebiger kartesischer
+Achsen (¯y,¯z)
+σx(¯ y,¯ z) =1
+∆·[(M ¯yI¯z−M ¯zI¯y¯z)·¯z−(M ¯zI¯y−M ¯yI¯y¯z)·¯y]
+mit:
+∆ =I ¯yI¯z−I 2
+¯y¯z
+Wenn¯y,¯zHauptträgheitsachsen sind, folgt:I¯y¯z= 0.
+10 / 16
+
+Institut für Statik und Dynamik der Luft- und Raumfahrtkonstruktionen
+Jun.-Prof. Dr.-Ing. Jan Liedmann
+TM2
+3.4 Kernfläche
+Der Kern eines Querschnittes ist der Querschnittsteil, in dem eine exzentrische Normalkraft
+angreifen muss, um im gesamten Querschnitt nur Normalspannungen eines Vorzeichens
+hervorzurufen. Die neutrale Faser liegt am Rand bzw. außerhalb des Querschnittes.
+Trägheitsradien des Querschnitts:
+i2
+y = Iy
+A i2
+z = Iz
+A
+Bestimmung der Eckpunkte der KernflächePi(yF,i|zF,i):
+yF,i =− i2
+z
+y0,i
+zF,i =− i2
+y
+z0,i
+Mity 0,i undz 0,i Schnittpunkte der umhüllenden Geraden i mit dery- bzw.z-Achse.
+11 / 16
+
+Institut für Statik und Dynamik der Luft- und Raumfahrtkonstruktionen
+Jun.-Prof. Dr.-Ing. Jan Liedmann
+TM2
+4 Differentialgleichung der Biegelinie
+Darstellung des Verschiebungsvektors (allgemein):
+u= ue 1 + ve 2 + we 3
+Abbildung 1:Darstellung eines ebenen Balken unter Belastung
+Die Deformation der Stabachse wird bei ebenen Systemen durch folgende Differentialglei-
+chungen bestimmt (Schubverformung wird vernachlässigt):
+EIy(x)w(4)(x) = pz(x)
+EIy(x)w(3)(x) =−Q z(x)
+EIy(x)w(2)(x) =−M y(x)
+EIy(x)w′(x) =−EI y(x)φ(x)
+sowie:
+EA(x)u(2)(x) =−n x(x)
+EA(x)u′(x) = Nx(x)
+Die bei der Integration auftretenden Konstanten werden durch die statischen und geome-
+trischen Rand- und Übergangsbedingungen bestimmt.
+12 / 16
+
+Institut für Statik und Dynamik der Luft- und Raumfahrtkonstruktionen
+Jun.-Prof. Dr.-Ing. Jan Liedmann
+TM2
+4.1 Randbedingungen:
+Lagerung geom. RB stat. RB
+Freies Ende N = 0,Q = 0,M = 0
+vertikal verschieblich gelagert u = 0 Q = 0,M = 0
+horizontal verschieblich gelagert w = 0 N = 0,M = 0
+unverschieblich gelagert w = 0,u = 0 M = 0
+vertikal verschiebliche Einspannung u = 0,w′ = 0 Q = 0
+horizontal verschiebliche Einspannung w = 0,w′ = 0 N = 0
+Einspannung u = 0,w = 0,w ′ = 0
+4.2 Übergangsbedingungen:
+Gelenk Übergangbedingung
+Querkraftgelenk
+ u1(x1 = l) = u2(x2 = 0)
+w1(x1 = l)̸= w 2(x2 = 0)
+w′
+1(x1 = l) = w′
+2(x2 = 0)
+Normalkraftgelenk
+ u1(x1 = l)̸= u 2(x2 = 0)
+w1(x1 = l) = w2(x2 = 0)
+w′
+1(x1 = l) = w′
+2(x2 = 0)
+Momentengelenk
+ u1(x1 = l) = u2(x2 = 0)
+w1(x1 = l) = w2(x2 = 0)
+w′
+1(x1 = l)̸= w′
+2(x2 = 0)
+13 / 16
+
+Institut für Statik und Dynamik der Luft- und Raumfahrtkonstruktionen
+Jun.-Prof. Dr.-Ing. Jan Liedmann
+TM2
+5 Schubspannungen infolge Querkraft
+5.1 Symmetrische dünnwandige Querschnitte
+Einführung einer Koordinate s entlang der Profilmittellinie. Die Schubspannungenτ(s)
+verlaufen in Richtung der Profilmittellinie und die Verteilung ist über die Profildicke
+konstant.
+Allgemein:Schubspannung infolgeQ z
+statisches MomentS y(z) =
+∫
+z·h ds
+Schubflusst(s) =− Qz·S y
+Iy
+Schubspannungτ(s) = t(s)
+h(s) =− Qz·S y
+Iy·h(s)
+Allgemein:Schubspannung infolgeQ y
+statisches MomentS z(y) =
+∫
+y·h ds
+Schubflusst(s) =− Qy·S z
+Iz
+Schubspannungτ(s) = t(s)
+h(s) =− Qy·S z
+Iz·h(s)
+Für eine bestimmte Fasers∗ =konst.:
+τ(s∗) =− Qz·S y(s∗)
+Iy·h(s∗)
+mit dem statischen Moment der Restfläche
+Sy(s∗) = AR·z R =
+∫
+A
+z dA =
+∫s∗
+0
+z(s)·h(s) ds
+FürQ y analoges Vorgehen.
+14 / 16
+
+Institut für Statik und Dynamik der Luft- und Raumfahrtkonstruktionen
+Jun.-Prof. Dr.-Ing. Jan Liedmann
+TM2
+6 Schubspannung infolge Torsion
+Verdrillung:ϑ(x) = MT(x)
+G IT
+Verdrehung:φ=
+∫
+ϑ(x) dx
+Verwölbung (für dünnwandige QS):u x(s) =
+∫
+s
+[
+MT
+2G Am h(s)−r⊥ϑ
+]
+ds + c
+mit TorsionsmomentMT,
+Schubmodul G,
+TorsionsträgheitsmomentI T und
+umschlossener FlächeA m
+6.1 Kreisförmiger Vollquerschnitt
+T.-trägheitsmoment Widerstandsmoment Schubspannung Größte Schubspannung
+IT = πR 4
+2 WT = IT
+R = πR 3
+2 τ= MT
+IT
+rτ max = MT
+WT
+6.2 Dünnwandige Profile
+mit Stablängenℓund Stabdicken h:
+Dünnwandige geschlosseneProfile
+T.-trägheitsmoment ...für dünnw. Kreis-QS ...für zusammeng. Rechtecke
+IT = 4Am
+2
+∮1
+hds IT = 4Am
+2 h
+U IT = 4Am
+2
+n∑
+i=1
+ℓi
+hi
+T.-widerstandsmoment Schubspannung Größte Schubspannung
+WT = 2Am hmin τ= MT
+2Am h τmax = MT
+WT
+15 / 16
+
+Institut für Statik und Dynamik der Luft- und Raumfahrtkonstruktionen
+Jun.-Prof. Dr.-Ing. Jan Liedmann
+TM2
+Dünnwandige offeneProfile
+T.-trägheitsmoment T.-widerstandsmoment Schubspannung Größte Schubspannung
+IT = 1
+3ξ
+n∑
+i=1
+hi
+3ℓi WT = IT
+hmax
+τ= MT
+IT
+hi τmax = MT
+WT
+Profilbeiwertξ:
+6.3 Lage des Schubmittelpunktes M bei dünnwandig offenen Profilen
+Def.: Der SchubmittelpunktMist der Punkt, durch den die Wirkungslinie der Querkraft
+gehen muss, damit sich der Querschnitt nicht verdreht, also keine Torsion erfährt.
+▶Symmetrieachsen sind geometrische Orte vonM. Bei Doppelsymmetrie giltM = S
+▶ Schneiden sich bei Polygonquerschnitten sämtliche Profilmittellinien in einem Punkt,
+so ist dies der Schubmittelpunkt M.
+Berechnung der Koordinaten des Schubmittelpunktes:
+▶Berechnung der TeilschubkräfteT i =
+∫
+t(s) ds
+▶Wahl eines BezugspunktesB, der den Abstandy m vom Schwerpunkt hat
+▶ Momentengleichgewicht um den PunktBberechnen und nachym auflösen. Das liefert
+den Abstand zwischen Schubmittelpunkt M = B und Schwerpunkt
+16 / 16
