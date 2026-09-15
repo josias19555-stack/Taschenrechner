@@ -7995,7 +7995,7 @@ function on.paint(gc)
                 if pm == 0 then polStr = "Keine"
                 elseif pm == 2 then polStr = "Alle" end
                 
-                gc:drawString(polStr, b - 80, 40)
+                gc:drawString(polStr, b - 80, 40) --hallo 
                 
                 gc:setColorRGB(0, 0, 0)
                 gc:drawString("Verlauf-Skalierung:", b - 200, 60)
