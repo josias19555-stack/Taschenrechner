@@ -914,6 +914,13 @@ exportULinienToTI = function(stab_index)
     end
 end
 
+function exportVerschiebungenToTI()
+    if #staebe == 0 or not staebe[1].mat_k then print("Fehler: Bitte zuerst das System berechnen!"); return end
+    exportBiegelinienToTI()
+    exportULinienToTI()
+    print("-> Verschiebungslinien (v*EI und u*EA) fuer alle Staebe exportiert!")
+end
+
 local function exportKGVToTI()
     if not autoKGV or #X_Werte == 0 then
         print("Fehler: KGV nicht aktiv oder System statisch bestimmt!")
