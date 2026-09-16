@@ -94,7 +94,7 @@ local function shutdownCasServer()
 end
 
 -- 3. test.txt laden und lokale Kernfunktionen in _G spiegeln
-local f_in = assert(io.open('test.txt', 'rb'))
+local f_in = assert(io.open('AktuellerStand.lua', 'rb'))
 local code = f_in:read('*a')
 f_in:close()
 if code:sub(1,3) == string.char(239,187,191) then code = code:sub(4) end
@@ -343,7 +343,7 @@ function testSymbolischeFederRahmen()
     }
 
     -- Standardmodell des Taschenrechners: EA ist gegenüber EI sehr groß.
-    for i = 1, 3 do s[i].EA = 1e10; s[i].EI = 1 end
+    for i = 1, 3 do s[i].EA = 1e8; s[i].EI = 1 end
     s[2].q = 1; s[2].q_str = 'q'
     s[2].q_A_str = '0'; s[2].q_B_str = '0'
     setStaebe(s)

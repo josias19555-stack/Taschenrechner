@@ -61,7 +61,8 @@ Diese Datei dokumentiert alle funktionalen Features des Programms, ihre Möglich
 
 **Einheiten und Vorzeichen:**
 - Intern rechnet das Programm mit N, mm und Nmm; die Anzeige kann zwischen N/kN, mm/cm/dm/m sowie Nmm/Ncm/Nm/kNmm/kNcm/kNm umgeschaltet werden.
-- Bei der σx-Eingabe wird ein Moment aus dem angezeigten Eingabewert genau einmal in Nmm umgerechnet; die anschließende Spannungsberechnung verwendet diesen internen Nmm-Wert ohne weitere Skalierung.
+- Bei der σx-Eingabe wird die tatsächlich eingestellte Momenteneinheit im Eingabehinweis angezeigt. Der Eingabewert wird genau einmal in Nmm umgerechnet; die anschließende Spannungsberechnung verwendet diesen internen Nmm-Wert ohne weitere Skalierung.
+- Bereits bestätigte Eingaben bleiben im Dialog in der eingestellten Einheit sichtbar; interne Nmm-Werte werden nur für die Berechnung verwendet.
 - Flächen-, Volumen- und Trägheitseinheiten werden aus der gewählten Längeneinheit abgeleitet.
 - Das Deviationsmoment $I_{yz}$ und die Hauptachsenrichtung sind vorzeichenabhängig; die Interpretation muss zusammen mit der aktuellen KOS-Orientierung erfolgen.
 - Zahlen können als Dezimalzahl, Bruch oder Wurzel-Bruch angezeigt werden. Das Anzeigeformat ändert nicht die interne Berechnung.

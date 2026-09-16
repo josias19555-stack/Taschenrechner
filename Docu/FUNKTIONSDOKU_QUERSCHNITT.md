@@ -210,11 +210,11 @@ Sie beschreibt zu jeder Funktion: **Zweck**, **Moeglichkeiten** und **Grenzen/be
 
 ## 7. Sigma-x (Normal-/Schiefe Biegung) & Kernflaeche
 
-### `berechneSigmaExtrema(N, My_Nm, Mz_Nm)`
- **Möglichkeiten:** Verarbeitet Momente intern einheitlich in `Nmm`; die Eingabemaske rechnet ein eingegebenes `Nm` genau einmal in `Nmm` um. Die Ergebnisanzeige rechnet den internen Wert anschließend abhängig von der gewählten Momenteneinheit zurück.
+### `berechneSigmaExtrema(N, My_Nmm, Mz_Nmm)`
+ **Moeglichkeiten:** Verarbeitet Momente intern einheitlich in `Nmm`; die Eingabemaske rechnet den Wert genau einmal mit der aktuell angezeigten Momenteneinheit (`Nm`, `Nmm`, `kNm` usw.) um. Die Ergebnisanzeige rechnet den internen Wert anschließend in die gewählte Anzeigeeinheit zurück.
 
-### `finishSigmaCalculation(Mz_Nm)`
- **Möglichkeiten:** Addiert manuelle und aus Kräften berechnete Momente direkt in `Nmm`, ohne eine bereits umgerechnete Eingabe nochmals zu skalieren.
+### `finishSigmaCalculation(Mz_Nmm)`
+ **Moeglichkeiten:** Verwendet die bereits einmalig in `Nmm` umgerechneten Eingaben und addiert die aus äußeren Kräften berechneten Momente ebenfalls in `Nmm`, ohne eine zweite Einheitenumrechnung.
 
 ### `openSigmaFromForces()`
 - **Zweck:** Direkte σx-Auswertung ausschliesslich aus den bereits platzierten Kraeften, ohne manuelle Eingabemaske (analog zur Schubspannungs-Kraftauswertung).
@@ -222,6 +222,7 @@ Sie beschreibt zu jeder Funktion: **Zweck**, **Moeglichkeiten** und **Grenzen/be
 
 ### `openSigmaInput(oblique)` / `enterSigmaInput()`
 - **Zweck:** Mehrstufige manuelle Eingabemaske fuer `N`, `My` (und bei `oblique=true` zusaetzlich `Mz`).
+- **Moeglichkeiten:** Bereits bestaetigte Werte werden im Eingabedialog wieder in der aktuell eingestellten Anzeigeeinheit dargestellt; die interne Umrechnung in `N`/`Nmm` bleibt davon getrennt.
 - **Grenzen:** Reine Texteingabe ueber `evaluate_input`; keine Bereichspruefung der eingegebenen Werte.
 
 ### `kern_dual(nu, nv, d)`

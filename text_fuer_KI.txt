@@ -35,6 +35,10 @@ Die Programme müssen nahtlos zur Philosophie der existierenden Module (`Mohr_Sp
 4. **Vorzeichen- & Schnittufer-Konvention:**
    - Strikte Einhaltung der in TM2 üblichen Konventionen (positives Schnittufer: $N$ nach außen, $Q$ nach unten/rechts, $M$ dreht gegen den Uhrzeigersinn um die z-Achse; Euler-Bernoulli-Balkentheorie mit $w''(x) = -M(x) / (EI)$).
 
+Du solltest dich an alle bisher im programm implementierten vorzeichenkonventionen halten.
+
+Wir sollten keine algorithmen für rechnungen verwenden für die sie garnicht entworfen wurden. z.B. sollten wir für geschlossene Profiele ohne symmetrie nicht einfach das Statische moment blind ausrechnen, da dieses Mit den methoden der TM2 für diesen Fall nicht direkt zugänglich ist.
+
 ---
 
 ## 3. FACHLICHER FUNKTIONSUMFANG (BASIEREND AUF DER AUFGABENSAMMLUNG & DEN ALTKLAUSUREN)
@@ -107,6 +111,11 @@ Die Suite deckt die folgenden 8 Kernmodule ab:
   - Kinematische Analyse, Polplan-Ermittlung (Hauptpole, Nebenpole).
   - Prinzip der virtuellen Verschiebungen (PVV) zur direkten Bestimmung gesuchter Lager- oder Schnittkräfte.
 
+  Hier können wir auch gerne das bis jetzt seperate querschnittsmodul in tas tragwerk modul integrieren, sodass für bestimmte oder alle stäbe ein querschnitt eingegeben werden kann und dann EI und EA automatisch IN DER RICHTIGEN EINHEIT an das tragwerksskritp weitergegeben werden
+  Falls es das tragwerk zulässt also z.B. die möglichkeit besteht momente um die x bzw z achse aufzunehmen. Sollte die berechnung auch Korrekt funktionieren wenn über den querschnitt exzentrisch angreifende Kräfte vorhanden sind.
+  Sodass im ganzen tragwerk auch biegemomente um die z achse und torsionmomente berechnet werden. Mit diesem wissen sollten wir eine art FEM bauen mit dem (nach wahl einer entsprechenden Festigkeitshypothese oder nur beachtung von schub oder normal spannungen) die höchstbelasteten stellen des tragwerks angezeigt werden.
+
+
 ---
 
 ## 4. ANWEISUNGEN FÜR CODE-ERZEUGUNG & ANTWORTEN
@@ -116,3 +125,5 @@ Wenn du Programmcode oder Module für dieses Projekt erstellst oder erweiterst:
 2. **Robustes Event-Handling:** Stelle sicher, dass die Tastensteuerung (`on.charIn`, `on.arrowKey`, `on.enterKey`, `on.escapeKey`) klar strukturiert ist und sich nicht mit Texteingabefeldern überschneidet.
 3. **Optimierte Grafik:** Achte bei allen `gc`-Aufrufen darauf, dass Linien, Bemaßungen und Textbeschriftungen sich nicht überlappen und Farbkontraste auf dem Nspire-Display gut erkennbar sind.
 4. **Modulare Struktur:** Trenne das mathematische Rechenmodell strikt von der UI- und Zeichenlogik, damit Tests und CAS-Exporte unabhängig voneinander gewartet werden können.
+5 es ist vermutlich sinnvol wenn du dir ein eigenen Emulator baust, dass du prüfen kannst ob nahc einer änderung die ergebnisse Stimmen eine teilweise funktioneirende version davon gibt es in test_runner.lua
+6 es ist wichti gzu wiissen das die musterlösungen leider des öfteren fehler haben, verrene dich also nicht an ergebnissen die leicht abweiche, falls deine ergebnisse aber komplett anderst sind solltest du das prüfen

@@ -193,8 +193,8 @@ local function openSigmaInput(oblique)
     sigma_results, sigma_scroll_y, sigma_table_scroll_y = nil, 0, 0
     showResults, showTable, menuOpen = true, false, false
     local a, b = current_axes()
-    status = "N in Newton eingeben, dann Enter."
-    if sigma_oblique then status = "N, M" .. a .. " und M" .. b .. " eingeben." end
+    status = "N in " .. force_unit .. " eingeben, dann Enter."
+    if sigma_oblique then status = "N in " .. force_unit .. ", M" .. a .. " und M" .. b .. " in " .. moment_unit .. " eingeben." end
 end
 
 local function openShearInput()
@@ -2174,8 +2174,11 @@ end
 local function drawSigmaInput(gc, w, h)
     if sigma_input_step == 0 then return end
     local left, top, width = 12, 28, math.min(260, w - 24)
-    local function valueText(value)
-        return value == nil and "" or string.format("%.6g", value)
+    local function forceValueText(value)
+        return value == nil and "" or string.format("%.6g", display_force(value))
+    end
+    local function momentValueText(value)
+        return value == nil and "" or string.format("%.6g", display_moment(value))
     end
 
     local field_left = left + 72
@@ -2194,8 +2197,8 @@ local function drawSigmaInput(gc, w, h)
     gc:drawString("M" .. moment_a .. " [" .. moment_unit .. "]", left + 8, top + 70)
     gc:drawRect(field_left, top + 28, field_width, 20)
     gc:drawRect(field_left, top + 62, field_width, 20)
-    gc:drawString(sigma_input_step == 1 and inputText .. "_" or valueText(sigma_N), field_left + 5, top + 33)
-    gc:drawString(sigma_input_step == 2 and inputText .. "_" or valueText(sigma_My), field_left + 5, top + 67)
+    gc:drawString(sigma_input_step == 1 and inputText .. "_" or forceValueText(sigma_N), field_left + 5, top + 33)
+    gc:drawString(sigma_input_step == 2 and inputText .. "_" or momentValueText(sigma_My), field_left + 5, top + 67)
     if sigma_oblique then
         gc:drawString("M" .. moment_b .. " [" .. moment_unit .. "]", left + 8, top + 104)
         gc:drawRect(field_left, top + 96, field_width, 20)
@@ -2492,11 +2495,11 @@ local function drawSigmaResultsTable(gc, w, h)
     local rows = {
         {"N [" .. force_unit .. "]", string.format("%.6g %s", display_force(sigma_results.N), force_unit)},
         {"N aus Kraeften [" .. force_unit .. "]", string.format("%.6g %s", display_force(sigma_results.force_N or 0), force_unit)},
-        {"M" .. moment_a .. " [" .. moment_unit .. "]", string.format("%.6g %s", display_moment(sigma_results.My_Nm), moment_unit)},
-        {"M" .. moment_a .. " aus Kraeften [" .. moment_unit .. "]", string.format("%.6g %s", display_moment(sigma_results.force_Ma_Nm or 0), moment_unit)},
+        {"M" .. moment_a .. " [" .. moment_unit .. "]", string.format("%.6g %s", display_moment(sigma_results.My_Nmm), moment_unit)},
+        {"M" .. moment_a .. " aus Kraeften [" .. moment_unit .. "]", string.format("%.6g %s", display_moment(sigma_results.force_Ma_Nmm or 0), moment_unit)},
         {"M" .. moment_a .. " umgerechnet [Nmm]", string.format("%.6g Nmm", sigma_results.My_Nmm)},
-        {"M" .. moment_b .. " [" .. moment_unit .. "]", string.format("%.6g %s", display_moment(sigma_results.Mz_Nm), moment_unit)},
-        {"M" .. moment_b .. " aus Kraeften [" .. moment_unit .. "]", string.format("%.6g %s", display_moment(sigma_results.force_Mb_Nm or 0), moment_unit)},
+        {"M" .. moment_b .. " [" .. moment_unit .. "]", string.format("%.6g %s", display_moment(sigma_results.Mz_Nmm), moment_unit)},
+        {"M" .. moment_b .. " aus Kraeften [" .. moment_unit .. "]", string.format("%.6g %s", display_moment(sigma_results.force_Mb_Nmm or 0), moment_unit)},
         {"A [" .. unit_label(2) .. "]", string.format("%.6g %s", display_area(sigma_results.A), unit_label(2))},
         {"Iy [" .. unit_label(4) .. "]", string.format("%.6g %s", display_inertia(sigma_results.Iy), unit_label(4))},
         {"Iz [" .. unit_label(4) .. "]", string.format("%.6g %s", display_inertia(sigma_results.Iz), unit_label(4))},
@@ -3314,9 +3317,7 @@ local function berechneSigmaExtrema(N, My_Nmm, Mz_Nmm)
 
     return {
         N = N,
-        My_Nm = My,
         My_Nmm = My,
-        Mz_Nm = Mz,
         Mz_Nmm = Mz,
         A = r.A,
         ys = r.ys,
@@ -3364,8 +3365,8 @@ local function finishSigmaCalculation(Mz_Nmm)
     sigma_results = berechneSigmaExtrema(total_N, total_Ma_Nmm, total_Mb_Nmm)
     if sigma_results then
         sigma_results.force_N = force_N
-        sigma_results.force_Ma_Nm = force_Ma
-        sigma_results.force_Mb_Nm = force_Mb
+        sigma_results.force_Ma_Nmm = force_Ma
+        sigma_results.force_Mb_Nmm = force_Mb
     end
     return sigma_results ~= nil
 end
@@ -4174,13 +4175,13 @@ local function enterSigmaInput()
     if sigma_input_step == 1 then
         sigma_N, sigma_input_step, inputText = input_to_internal(val, force_unit), 2, ""
         local moment_a = axes()
-        status = "M" .. moment_a .. " in Nm eingeben, dann Enter."
+        status = "M" .. moment_a .. " in " .. moment_unit .. " eingeben, dann Enter."
     elseif sigma_input_step == 2 then
         sigma_My, inputText = input_to_internal(val, moment_unit), ""
         if sigma_oblique then
             sigma_input_step = 3
             local _, moment_b = axes()
-            status = "M" .. moment_b .. " in Nm eingeben, dann Enter."
+            status = "M" .. moment_b .. " in " .. moment_unit .. " eingeben, dann Enter."
         else
             sigma_input_step = 0
             status = finishSigmaCalculation(0) and "Normale σx-Minimum und -Maximum berechnet." or "σx nicht berechenbar: Nenner ist 0."
