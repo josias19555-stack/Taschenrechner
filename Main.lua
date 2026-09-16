@@ -850,18 +850,7 @@ exportBiegelinienToTI = function(stab_index)
                 else
                     expr = v_last_expr .. " + " .. c1 .. "*(1-3*(x/"..L_str..")^2+2*(x/"..L_str..")^3) + " .. c2 .. "*(x-2*x^2/"..L_str.."+x^3/("..L_str.."^2)) + " .. c3 .. "*(3*(x/"..L_str..")^2-2*(x/"..L_str..")^3) + " .. c4 .. "*(-x^2/"..L_str.."+x^3/("..L_str.."^2))"
                 end
-                
-                math.eval("v_EI_dbg_c1_" .. i .. "(x) := " .. c1)
-                math.eval("v_EI_dbg_c2_" .. i .. "(x) := " .. c2)
-                math.eval("v_EI_dbg_c3_" .. i .. "(x) := " .. c3)
-                math.eval("v_EI_dbg_c4_" .. i .. "(x) := " .. c4)
-                math.eval("v_EI_dbg_load_" .. i .. "(x) := " .. v_last_expr)
-                math.eval("v_EI_dbg_h1_" .. i .. "(x) := " .. c1 .. "*(1-3*(x/"..L_str..")^2+2*(x/"..L_str..")^3)")
-                math.eval("v_EI_dbg_h2_" .. i .. "(x) := " .. c2 .. "*(x-2*x^2/"..L_str.."+x^3/("..L_str.."^2))")
-                math.eval("v_EI_dbg_h3_" .. i .. "(x) := " .. c3 .. "*(3*(x/"..L_str..")^2-2*(x/"..L_str..")^3)")
-                math.eval("v_EI_dbg_h4_" .. i .. "(x) := " .. c4 .. "*(-x^2/"..L_str.."+x^3/("..L_str.."^2))")
-                math.eval("v_EI_stab_raw" .. i .. "(x) := " .. expr)
-                -- HIER IST DER FIX: exact() liegt jetzt um das gesamte, in Lua bereits rausch-bereinigte Polynom!
+                -- exact() liegt um das gesamte, in Lua bereits rausch-bereinigte Polynom!
                 math.eval("v_EI_stab" .. i .. "(x) := " .. eval_cas_string(expr, true))
             end
         end
@@ -874,43 +863,83 @@ exportULinienToTI = function(stab_index)
     if #staebe == 0 or not staebe[1].mat_k then print("Fehler: Bitte zuerst das System berechnen!"); return end
     if math.eval then
         local fN = fN_export
-        
+
         local start_i = stab_index or 1
-        local end_i = stab_index or #staebe
+        local end_i   = stab_index or #staebe
         for i = start_i, end_i do
-            local s = staebe[i]
-            local dx, dy = knoten[s.k2].x - knoten[s.k1].x, knoten[s.k2].y - knoten[s.k1].y; local L = math.sqrt(dx^2 + dy^2)
-            if L > 0 then
+            local s  = staebe[i]
+            local dx = knoten[s.k2].x - knoten[s.k1].x
+            local dy = knoten[s.k2].y - knoten[s.k1].y
+            local L  = math.sqrt(dx^2 + dy^2)
+            if L > 0 and (s.bogen_r or 0) == 0 then
                 local EA = s.EA
-                local nA, nB = s.n_A, s.n_B 
+
+                -- Lokale Verschiebungen an den Stabenden (aus FEM-Loesung)
                 local ua = (math.abs(s.v_local[1] or 0) < 1e-12) and 0 or s.v_local[1]
                 local ub = (math.abs(s.v_local[4] or 0) < 1e-12) and 0 or s.v_local[4]
+
                 local L_str = fN(L)
-                local eq_n = getEqN(s, L, fN)
+
+                -- Randbedingungen als Konstanten mal EA
+                local c1 = fN(ua * EA)   -- EA*u(0) = ua*EA
+                local c2 = fN(ub * EA)   -- EA*u(L) = ub*EA
+
+                -- Streckenlast-Anteil: N_last(x) = Normalkraft nur aus Streckenlasten
+                -- getEqN liefert den Ausdruck der verteilten Normallast (Streckenlast) in lokalen Koordinaten
+                local eq_n   = getEqN(s, L, fN)
                 local use_cas = string.find(eq_n, "x")
+
                 local expr = ""
-                
-                local c1 = fN(ua * EA)
-                local c2 = fN(ub * EA)
-                
+
                 if use_cas then
+                    -- CAS-Pfad: N_last(x) enthaelt x -> numerische Integration via TI-CAS
+                    -- u(x)*EA = c1*(1-x/L) + c2*(x/L)
+                    --         - integral(N_last(t), t, 0, x)
+                    --         + (x/L) * integral(N_last(t), t, 0, L)
                     local n_t = eq_n:gsub("x", "t")
-                    local u_L_last_str = "integral(("..n_t..")*("..L_str.."-t),t,0,"..L_str..")"
-                    expr = "-integral(("..n_t..")*(x-t),t,0,x) + (x/"..L_str..") * " .. u_L_last_str .. " + " .. c1 .. "*(1-x/"..L_str..") + " .. c2 .. "*(x/"..L_str..")"
+                    local int_0_L = "integral((" .. n_t .. "), t, 0, " .. L_str .. ")"
+                    local int_0_x = "integral((" .. n_t .. "), t, 0, x)"
+                    expr = c1 .. "*(1-x/" .. L_str .. ") + " .. c2 .. "*(x/" .. L_str .. ") - " ..
+                           int_0_x .. " + (x/" .. L_str .. ")*(" .. int_0_L .. ")"
                 else
-                    local alg_n = s.n + (s.gx or 0) * (s.gx_proj and math.abs(-dy/L) or 1) * (dx/L) - (s.gy or 0) * (s.gy_proj and math.abs(dx/L) or 1) * (-dy/L)
-                    nA, nB = nA + alg_n, nB + alg_n
-                    local u_L_last = (nA * L^2 / 2) + ((nB - nA) * L^2 / 6)
-                    local c3 = fN(u_L_last)
-                    local u_last_expr = "-("..fN(nA).."/2)*x^2 - (("..fN(nB).."-"..fN(nA)..")/(6*"..L_str.."))*x^3"
-                    expr = u_last_expr .. " + (x/"..L_str..") * " .. c3 .. " + " .. c1 .. "*(1-x/"..L_str..") + " .. c2 .. "*(x/"..L_str..")"
+                    -- Algebraischer Pfad: N_last(x) = nA + (nB-nA)/L * x  (konstant oder linear)
+                    -- Gesamtnormalkraft am Stabstart: N(0) = -s_local[1] (Auflagerkraft)
+                    -- Streckenlast: gleichmaessig n + linear variierende n_A..n_B + Eigengewicht
+                    local c_val  = dx / L
+                    local s_val  = -dy / L
+                    local f_gx   = (s.gx_proj)  and math.abs(s_val) or 1
+                    local f_gy   = (s.gy_proj)  and math.abs(c_val) or 1
+                    -- Gleichmaessige Streckenlast in Stabachsenrichtung (lokal)
+                    local n_const = (s.n or 0)
+                                  + (s.gx or 0) * f_gx * c_val
+                                  - (s.gy or 0) * f_gy * s_val
+                    -- Lineare Komponente (n_A am Stabstart, n_B am Stabende)
+                    local nA_lin = (s.n_A or 0)
+                    local nB_lin = (s.n_B or 0)
+                    -- Gesamte Streckenlasten-Beitraege
+                    local nA_tot = n_const + nA_lin   -- N_last(0)
+                    local nB_tot = n_const + nB_lin   -- N_last(L)
+
+                    -- integral(N_last(t), t=0..x)  mit linearer Variation:
+                    -- = nA_tot*x + (nB_tot-nA_tot)/(2*L) * x^2
+                    -- integral(N_last(t), t=0..L):
+                    -- = nA_tot*L + (nB_tot-nA_tot)/2 * L
+                    -- = (nA_tot + nB_tot)/2 * L
+                    local int_0_L_val = (nA_tot + nB_tot) / 2.0 * L
+
+                    local load_expr = "-((" .. fN(nA_tot) .. ")*x + (("
+                                     .. fN(nB_tot) .. ")-(" .. fN(nA_tot) .. "))/(2*" .. L_str .. ")*x^2)"
+                    local corr_expr = "(x/" .. L_str .. ")*(" .. fN(int_0_L_val) .. ")"
+
+                    expr = load_expr .. " + " .. corr_expr
+                         .. " + " .. c1 .. "*(1-x/" .. L_str .. ") + " .. c2 .. "*(x/" .. L_str .. ")"
                 end
-                
-                -- HIER IST DER FIX: exact() umspannt das gesamte Polynom!
+
+                -- Vereinfachtes Ergebnis exportieren
                 math.eval("u_EA_stab" .. i .. "(x) := " .. eval_cas_string(expr, true))
             end
         end
-        print("-> Exakte Längslinien (*EA) exportiert!")
+        print("-> Exakte Laengslinien (*EA) exportiert!")
     end
 end
 
