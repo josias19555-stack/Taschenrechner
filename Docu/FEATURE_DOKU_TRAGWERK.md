@@ -99,7 +99,7 @@ Stabgelenke können an Anfang und Ende getrennt definiert werden:
 - N-Gelenk trennt die axiale Übertragung,
 - Q-Gelenk trennt die Querübertragung.
 
-Diese Gelenke beeinflussen sowohl das Gleichungssystem als auch die topologische Freiheitsgrad- und Kinematikprüfung.
+Diese Gelenke beeinflussen sowohl das Gleichungssystem als auch die topologische Freiheitsgrad- und Kinematikprüfung. Aktive Federn in den drei Knotenfreiheitsgraden werden bei der topologischen Systemzahl zusätzlich als elastische Bindungen berücksichtigt; ein Freiheitsgrad mit idealem Lager wird dabei nicht doppelt gezählt.
 
 ### 3.3 Federn
 

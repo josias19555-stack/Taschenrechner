@@ -175,9 +175,9 @@ Diese Datei dokumentiert die wichtigsten Funktionen des gemeinsamen Tragwerksmod
 
 ### `getTopologicalN()`
 
-- **Zweck:** Bestimmt eine topologische Systemzahl aus Knoten, Stäben, Lagern und Gelenken.
-- **Möglichkeiten:** Grundlage für die Anzeige von `n` und die Stabilitäts-/Bestimmtheitskontrolle.
-- **Grenzen:** Die Zahl ist eine Modellierungsdiagnose und ersetzt keine vollständige fachliche Prüfung jedes Sonderfalls.
+- **Zweck:** Bestimmt eine topologische Systemzahl aus Knoten, Stäben, Lagern, Federn und Gelenken.
+- **Möglichkeiten:** Berücksichtigt jede aktive translatorische oder rotatorische Feder als eine zusätzliche elastische Bindung, sofern am gleichen Freiheitsgrad kein ideales Lager sitzt. Grundlage für die Anzeige von `n` und die Stabilitäts-/Bestimmtheitskontrolle.
+- **Grenzen:** Die Zahl ist eine Modellierungsdiagnose; Federsteifigkeiten müssen positiv sein, und die Zählung ersetzt keine vollständige fachliche Prüfung von Sonderfällen oder der tatsächlichen Matrixrangprüfung.
 
 ### `findZeroForceMembers()`
 

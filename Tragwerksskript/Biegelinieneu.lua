@@ -1868,6 +1868,9 @@ local function getTopologicalN()
     local a, rel = 0, 0
     for i, k in ipairs(knoten) do
         if k.lager_x then a=a+1 end; if k.lager_y then a=a+1 end; if k.lager_m then a=a+1 end
+        if not k.lager_x and (k.cx or 0) > 0 then a=a+1 end
+        if not k.lager_y and (k.cy or 0) > 0 then a=a+1 end
+        if not k.lager_m and (k.cm or 0) > 0 then a=a+1 end
         if k.gelenk then local m=0; for _,s in ipairs(staebe) do if s.k1==i or s.k2==i then m=m+1 end end; if m>1 then a=a-(m-1) end end
     end
     for _, s in ipairs(staebe) do

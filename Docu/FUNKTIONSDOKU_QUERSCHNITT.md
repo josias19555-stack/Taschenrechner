@@ -158,7 +158,7 @@ Sie beschreibt zu jeder Funktion: **Zweck**, **Moeglichkeiten** und **Grenzen/be
 - **Grenzen:**
   - Fuer **unsymmetrische geschlossene Zellen** wird `q0` nicht ueber die allgemeine Vertraeglichkeitsgleichung (`∮ dq/t = 0`) bestimmt – der Restschnitt wird deterministisch mit Startwert 0 orientiert, das Ergebnis ist dann **nicht exakt**.
   - Mehrzellige geschlossene Profile werden nicht als gekoppeltes Gleichungssystem geloest.
-  - Integrationsschrittweite ist an `raster` gekoppelt (mind. 32 Stuetzstellen pro atomarer Kante), nicht an die Bildschirmzoomstufe.
+  - Integrationsschrittweite ist an `raster` gekoppelt (mind. 64 Teilintervalle pro atomarer Kante, zusaetzlich maximal `raster/8` bzw. `0.025` Laengeneinheiten pro Schritt), nicht an die Bildschirmzoomstufe. Die hoehere Aufloesung erhoeht den Rechenaufwand.
 
 ### `berechneOffenenSchubmittelpunkt()`
 - **Zweck:** Schubmittelpunkt ueber Momentengleichgewicht der tatsaechlichen Schubspannungsverteilung (Einheitslasten `Qa=1`/`Qb=1`).

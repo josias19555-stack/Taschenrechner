@@ -1397,10 +1397,10 @@ local function berechneDuenneSchubspannung(Qa, Qb)
         local display_normal_u = original_length > 1e-9 and -original_dv / original_length or 0
         local display_normal_v = original_length > 1e-9 and original_du / original_length or 0
         -- Die Integration darf nicht von der Bildschirmzoomstufe abhaengen.
-        -- Mindestens 32 Teilintervalle pro atomarer Kante verbessern die
+        -- Mindestens 64 Teilintervalle pro atomarer Kante verbessern die
         -- Restmoment- und Schubmittelpunktgenauigkeit deutlich.
-        local integration_step = math.max(raster / 4, 0.05)
-        local sample_count = math.max(32, math.ceil(length / integration_step))
+        local integration_step = math.max(raster / 8, 0.025)
+        local sample_count = math.max(64, math.ceil(length / integration_step))
         for sample = 0, sample_count do
             local f = sample / sample_count
             local u = p1.u + f * du
