@@ -111,6 +111,21 @@ Knotenfedern können für die drei Freiheitsgradtypen eingegeben werden:
 
 Die Federwerte werden in das globale Gleichungssystem integriert. Ein Federwinkel kann für eine gedrehte Federorientierung hinterlegt werden.
 
+### 3.4 Symbolischer Export der Verformungslinien
+
+Das aktive Modul `AktuellerStand.lua` enthält neben den unveränderten Referenzexporten zwei zusätzliche Exporte:
+
+- `exportBiegelinienNeuToTI` für eine symbolische Biegelinie mit Rand-LGS,
+- `exportULinienNeuToTI` für eine symbolische axiale Verformungslinie mit Rand-LGS.
+
+Beide neuen Befehle sind im Obermenü `O`, Seite 2, als `Neue Biegelinie (Rand-LGS)` und `Neue Längslinie (Rand-LGS)` direkt auswählbar. Die Längslinien `uneu1`, `uneu2` usw. werden aus den global gelösten lokalen Endverschiebungen aufgebaut und nicht mehr ausschließlich aus axialen Streckenlasten.
+
+Symbolische Eingaben werden für die CAS-Ausgabe erhalten. Das gilt auch für Federsteifigkeiten wie `EI/l^3`; für die numerische Zwischenrechnung dürfen weiterhin Dummywerte verwendet werden. Bei mehreren geraden Stäben verwendet der neue Biegelinienexport die gekoppelte FEM-/Hermite-Rekonstruktion des global berechneten Systems und exportiert die Ergebnisse als `vne1`, `vne2` usw. Dadurch werden auch Übergänge und translatorische Knotenfedern konsistent berücksichtigt.
+
+Symbolische Eingaben werden außerdem in den grafischen Menüs wieder als eingegebener Ausdruck angezeigt. Das betrifft insbesondere Knotenfedern wie `EI/l^3` sowie die global gesetzten Stabwerte `EI` und `EA`; die internen numerischen Ersatzwerte werden nicht mehr als scheinbare Eingabewerte dargestellt.
+
+**Grenzen:** Der globale Mehrstabpfad ist auf gerade Stäbe und die unterstützten Modellrandbedingungen beschränkt. Der separate Rand-LGS-Pfad für Einzelstäbe bildet keine vollständig gekoppelte globale Lösung über mehrere Stäbe.
+
 ## 4. Lasten
 
 ### 4.1 Knotenlasten
@@ -268,7 +283,9 @@ Erkannte Nullstäbe werden für die Darstellung markiert. Der Algorithmus wieder
 - KGV-Daten,
 - Arbeitssatzdaten,
 - Schnittkraftfunktionen,
-- globale LGS-Matrix.
+- globale LGS-Matrix,
+- symbolische Biegelinien mit elementarem Rand-LGS,
+- symbolische Längslinien mit elementarem Rand-LGS.
 
 Typische gespeicherte Variablen sind `sys_k`, `sys_f`, `sys_u`, `ggw_a`, `ggw_b`, `ggw_x`, `ggw_eqs` sowie stabspezifische Matrizen und Funktionen.
 

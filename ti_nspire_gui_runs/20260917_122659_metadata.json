@@ -1,0 +1,68 @@
+{
+  "run_id": "20260917_122659",
+  "started_at": "2026-09-17T12:26:59",
+  "mode": "run",
+  "screen_size": [
+    2880,
+    1800
+  ],
+  "steps": [
+    {
+      "name": "focus_window",
+      "action": "hotkey",
+      "value": [
+        "alt",
+        "tab"
+      ],
+      "delay": 1.0
+    },
+    {
+      "name": "capture_before",
+      "action": "screenshot",
+      "value": "before_export",
+      "delay": 0.2
+    },
+    {
+      "name": "open_settings",
+      "action": "press",
+      "value": "o",
+      "delay": 0.5
+    },
+    {
+      "name": "open_export_page",
+      "action": "press",
+      "value": "right",
+      "delay": 0.3
+    },
+    {
+      "name": "select_new_bending_export",
+      "action": "press",
+      "value": "down",
+      "delay": 0.3
+    },
+    {
+      "name": "run_new_bending_export",
+      "action": "press",
+      "value": "enter",
+      "delay": 2.0
+    },
+    {
+      "name": "capture_bending_export",
+      "action": "screenshot",
+      "value": "after_bending_export",
+      "delay": 0.5
+    },
+    {
+      "name": "close_menu",
+      "action": "press",
+      "value": "escape",
+      "delay": 0.5
+    },
+    {
+      "name": "capture_final",
+      "action": "screenshot",
+      "value": "final",
+      "delay": 0.2
+    }
+  ]
+}

@@ -34,6 +34,7 @@ Diese Datei dokumentiert die wichtigsten Funktionen des gemeinsamen Tragwerksmod
 
 - **Zweck:** Wertet numerische, CAS-kompatible oder symbolische Eingaben aus.
 - **Möglichkeiten:** Akzeptiert Dezimalkomma, direkte Zahlen, Klammern, `+`, `-`, `*`, `/`, `^`, TI-Nspire-CAS-Funktionen und symbolische Variablen. Der Ausdruck wird in allen numerischen Eingabefeldern über denselben Parser ausgewertet; dazu gehören auch die Knotenfedersteifigkeiten `cx`, `cy` und `cm`. Auf Wunsch wird der Originaltext für die spätere symbolische Anzeige zurückgegeben.
+- Symbolische Ausdrücke bleiben nach der Eingabe in den jeweiligen `*_str`-Feldern erhalten und werden in den Knoten-, Feder-, Stab- und globalen Einstellungsmenüs angezeigt; numerische Dummywerte werden nur intern für die Berechnung verwendet.
 - CAS-Ergebnisse aus numerischen Zwischenberechnungen werden über eine eigene Konvertierung auf den ersten Rückgabewert begrenzt; dadurch bleiben symbolische Lastfunktionen wie `q/l*x` auch bei TI-Nspire-CAS-Rückgaben als Text stabil.
 - Symbolische Anfangs- und Endwerte der Trapezlast werden mit der Stablänge in die Funktion `q(x)` eingebaut; bei einer funktionalen q-Last verwendet die Darstellung die vollständige CAS-Stützstellenkurve ohne zusätzlichen Dummy-Grundwert.
 - Für grafische und numerische Zwischenwerte werden freie Symbole über ihre Dummywerte eingesetzt, während der ursprüngliche symbolische Ausdruck für Export und symbolische Ergebnisse erhalten bleibt.
@@ -69,6 +70,18 @@ Diese Datei dokumentiert die wichtigsten Funktionen des gemeinsamen Tragwerksmod
 - **Zweck:** Erzeugt die symbolischen Biegelinien $EI\,w(x)$ aus Lastpartikulärlösung und Hermite-Randwerten.
 - **Möglichkeiten:** Setzt die Lastpartikulärlösung und die vier Hermite-Randwerte aus dem berechneten Stabzustand zusammen; der Anfangs-Biegeversatz wird mit seinem lokalen Vorzeichen als $c_1=v_a EI$ übernommen. Symbolische Lasten werden als CAS-Integrale exportiert.
 - **Grenzen:** Die Vorzeichenkonvention folgt den lokalen Stabgrößen des Rechenmodells. Eine externe Musterlösung mit anderer Last- oder Koordinatenkonvention kann deshalb abweichende Polynome liefern.
+
+### `exportBiegelinienNeuToTI(stab_index)`
+
+- **Zweck:** Erzeugt einen separaten symbolischen Biegelinienexport mit Randgleichungssystem je geradem Stab.
+- **Möglichkeiten:** Ist im aktiven Modul verfügbar und über das Exportmenü aufrufbar. Für mehrere gerade Stäbe übernimmt der Export die geprüfte globale FEM-/Hermite-Rekonstruktion und stellt sie unter `vne1`, `vne2` usw. bereit; dadurch werden Übergänge, Lager, Gelenke und Knotenfedern gemeinsam berücksichtigt. Für einen einzelnen geraden Stab bleibt der separate Rand-LGS-Pfad verfügbar.
+- **Grenzen:** Bögen, Gelenk-Sonderfälle und nichtnumerische Staborientierungen benötigen weiterhin gesonderte Behandlung. Der Einzelstab-Rand-LGS-Pfad ist nicht als global gekoppelter Mehrstabsolver ausgelegt.
+
+### `exportULinienNeuToTI(stab_index)`
+
+- **Zweck:** Erzeugt den symbolischen Export der lokalen Längsverschiebungslinie als `uneu1`, `uneu2` usw.
+- **Möglichkeiten:** Nutzt bei mehreren Stäben die global berechneten lokalen Endverschiebungen und interpoliert sie entlang des Stabs. Dadurch werden Rahmenverformungen durch Querlasten, Knotenfedern und globale Kopplung berücksichtigt.
+- **Grenzen:** Bögen und Sonderfälle außerhalb gerader Stäbe benötigen weiterhin gesonderte Behandlung; exportiert wird die lokale Stabverschiebung, nicht die globale X-/Y-Komponente.
 
 ## 3. Geometrie, Anzeige und Mausposition
 
