@@ -154,6 +154,7 @@ Sie beschreibt zu jeder Funktion: **Zweck**, **Moeglichkeiten** und **Grenzen/be
   - Erkennt automatisch Verzweigungsknoten, freie Enden und T-Stoesse.
   - Reihenfolge der Integration: (1) freie Enden zuerst, (2) `resolve_branch_nodes()` fasst an Verzweigungen ankommende Teilmomente zusammen, sobald nur noch ein Ast offen ist, (3) bei **symmetrischen** Profilen (`|Iyz| < 1e-5`) wird zusaetzlich an einem Symmetrieachsen-Schnittpunkt gestartet (fixiert den unbestimmten Schubfluss `q0` einer geschlossenen Zelle), danach erneut `resolve_branch_nodes()` – das behandelt auch **Mischprofile** (geschlossene Zelle mit angehaengten freien Aesten) korrekt.
   - Liefert `samples` (mit `tau_a`, `tau_b`, `tau`, `Sy`, `Sz`, `moment_*_density`, `torsion_sign`, `s`, ...) und `paths` (fuer die Pfeil-/Start-Markierungen im Schubverlaufsbild); jeder Pfad kennzeichnet den fachlichen Starttyp (`free` oder `symmetry`), sofern er an einem freien Rand bzw. an der Symmetrieachse beginnt.
+  - Verwendet fuer die Vorzeichenkonvention der Querkräfte den Schubfluss `q = -Q*S/I` und die Schubspannung `tau = -Q*S/(I*t)`.
   - Statische Momente und Momentendichten werden intern in der geometrischen KOS gespeichert und erst bei der Verlaufsdarstellung mit derselben Rotationsabbildung wie die gezeichnete KOS orientiert. Freie Integrationsanfaenge starten mit statischem Moment null.
 - **Grenzen:**
   - Fuer **unsymmetrische geschlossene Zellen** wird `q0` nicht ueber die allgemeine Vertraeglichkeitsgleichung (`∮ dq/t = 0`) bestimmt – der Restschnitt wird deterministisch mit Startwert 0 orientiert, das Ergebnis ist dann **nicht exakt**.
@@ -170,7 +171,8 @@ Sie beschreibt zu jeder Funktion: **Zweck**, **Moeglichkeiten** und **Grenzen/be
 - **Grenzen:** Die Fallback-Heuristik ist nur fuer einfache, aus zwei geraden Segmenten bestehende offene Profile sinnvoll; bei komplexeren Formen ohne eindeutigen Schnittpunkt wird `known = false` zurueckgegeben (Anzeige: "Symmetriepruefung offen").
 
 ### `berechneSchubMomentTabelle()`
-- **Zweck:** Pro Element aufgeschluesselte Tabelle der resultierenden Schubkraefte (`X-Last`, `Y-Last`) und deren Momentbeitrag um den Schwerpunkt, fuer Einheitslasten `Qa=1` und `Qb=1`.
+- **Zweck:** Pro Element aufgeschluesselte Tabelle der resultierenden Schubkraefte in den aktuell aktiven KOS-Achsen und deren Momentbeitrag um den Schwerpunkt, fuer Einheitslasten `Qa=1` und `Qb=1`.
+- **Moeglichkeiten:** Gibt hinter jeder Lastspalte die signierte resultierende Teilschubkraft und den signierten effektiven Hebelarm `r = M/F` in der aktuellen Laengeneinheit aus. Kleine nichtverschwindende Kraftwerte unter `0.01` in der Anzeigeeinheit werden exponentiell dargestellt; bei verschwindender Teilkraft wird kein Hebelarm angezeigt.
 - **Grenzen:** Nutzt dieselbe Sample-Basis wie `berechneDuenneSchubspannung`; bei unsymmetrischen geschlossenen Zellen daher mit denselben Einschraenkungen behaftet (q0 nicht exakt bestimmt).
 
 ### `berechneTorsionsResultat(moment)`

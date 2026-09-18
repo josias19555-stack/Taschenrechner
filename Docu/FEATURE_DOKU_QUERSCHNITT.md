@@ -115,6 +115,9 @@ Diese Datei dokumentiert alle funktionalen Features des Programms, ihre Möglich
 - Für Kontrollen stehen die integrierten Teilkräfte und Momentbeiträge je Element in einer Schubmomenttabelle bereit.
 - Bei einer Last aus platzierten Kräften können die beiden Querkraftkomponenten automatisch aus den Kraftresultierenden übernommen werden.
 - Bei symmetrischen geschlossenen Profilen wird der konstante Schubflussanteil $q_0$ über den Symmetrieansatz festgelegt; freie Äste eines Mischprofils werden vor der geschlossenen Zelle integriert.
+- Die Schubmomententabelle verwendet die aktuell aktive Querschnitts-KOS und zeigt hinter jeder Lastspalte den zugehörigen effektiven Hebelarm $r=M/F$.
+- Die Lastspalten zeigen die signierten Teilschubkräfte; kleine Werte unter $0{,}01$ werden exponentiell formatiert. Der Hebelarm bleibt signiert, damit $M=F\,r$ nachvollziehbar bleibt.
+- Die Schubspannungsanteile werden aus dem statischen Moment mit der Vorzeichenkonvention $q=-Q S/I$ beziehungsweise $\tau=-Q S/(I t)$ berechnet.
 
 **Grenzen:**
 - Die exakte Visualisierung und Verteilung des Schubflusses ist primär auf dünnwandige Profile zugeschnitten. Bei rein massiven Vollquerschnitten basiert die Berechnung auf einer schichtweisen Integration, die bei komplexen Geometrien (z.B. sternförmig) an die Grenzen der 1D-Balkentheorie stößt.

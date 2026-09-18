@@ -251,7 +251,8 @@ local function aktualisiereTorsionsverlauf(result)
     local max_total = 0
     for _, sample in ipairs(shear_results.samples) do
         local direction = result.closed and (sample.torsion_sign or 1) or (sample.direction or 1)
-        sample.tau_t = direction * q_t / math.max(sample.thickness or default_t, 1e-12)
+        local thickness = math.max(sample.thickness or default_t, 1e-12)
+        sample.tau_t = direction * (result.closed and q_t / thickness or q_t * thickness)
         if result.closed then
             sample.tau_total = (sample.tau or 0) + sample.tau_t
         else
@@ -268,7 +269,8 @@ local function torsionTauAtSample(sample)
         and torsion_results.M / math.max(2 * torsion_results.Am, 1e-12)
         or torsion_results.M / math.max(torsion_results.It, 1e-12)
     local direction = torsion_results.closed and (sample.torsion_sign or 1) or (sample.direction or 1)
-    return direction * q_t / math.max(sample.thickness or default_t, 1e-12)
+    local thickness = math.max(sample.thickness or default_t, 1e-12)
+    return direction * (torsion_results.closed and q_t / thickness or q_t * thickness)
 end
 
 local function combinedTauAtSample(sample)
@@ -1407,8 +1409,8 @@ local function berechneDuenneSchubspannung(Qa, Qb)
             local v = p1.v + f * dv
             local ds = length / sample_count
             local area = elem.t * ds
-            local tau_a = Qa * first_moment_a / math.max(math.abs(r.Iz * elem.t), 1e-12)
-            local tau_b = Qb * first_moment_b / math.max(math.abs(r.Iy * elem.t), 1e-12)
+            local tau_a = -Qa * first_moment_a / math.max(math.abs(r.Iz * elem.t), 1e-12)
+            local tau_b = -Qb * first_moment_b / math.max(math.abs(r.Iy * elem.t), 1e-12)
             local tau_total = tau_a + tau_b
             table.insert(samples, {u = u, v = v, tau_a = tau_a, tau_b = tau_b, tau = tau_total, Sy = first_moment_b, Sz = first_moment_a, moment_y_density = (v - r.zs) * elem.t, moment_z_density = (u - r.ys) * elem.t, thickness = elem.t, ds = ds, tangent_u = du / length, tangent_v = dv / length, display_normal_u = display_normal_u, display_normal_v = display_normal_v, segment = segment_index, path_id = path.id, parameter = f, s = path_s + f * length, direction = reverse and -1 or 1})
             if sample < sample_count then
@@ -1651,6 +1653,8 @@ local function berechneSchubMomentTabelle()
                 * (sample.thickness or 0) * (sample.ds or 0) * endpoint_weight
             if sample.segment then
                 result[sample.segment] = result[sample.segment] + math.abs(force)
+                local signed_force = result[sample.segment .. "_signed"] or 0
+                result[sample.segment .. "_signed"] = signed_force + force
                 local sample_u, sample_v = displayedVector(sample.u, sample.v)
                 local center_u, center_v = displayedVector(system_results.ys, system_results.zs)
                 local tangent_u, tangent_v = displayedVector(sample.tangent_u, sample.tangent_v)
@@ -1666,7 +1670,15 @@ local function berechneSchubMomentTabelle()
     local total_first, total_second = 0, 0
     for index = 1, #duenn_elemente do
         total_first, total_second = total_first + first_moment[index], total_second + second_moment[index]
-        rows[index] = {name = "D" .. index, first = first[index], second = second[index], moment_first = first_moment[index], moment_second = second_moment[index]}
+        local first_force = first[index .. "_signed"] or 0
+        local second_force = second[index .. "_signed"] or 0
+        rows[index] = {
+            name = "D" .. index,
+            first = first_force, second = second_force,
+            moment_first = first_moment[index], moment_second = second_moment[index],
+            arm_first = math.abs(first_force) > 1e-12 and first_moment[index] / first_force or nil,
+            arm_second = math.abs(second_force) > 1e-12 and second_moment[index] / second_force or nil
+        }
     end
     return {rows = rows, total_first = total_first, total_second = total_second}
 end
@@ -3195,20 +3207,30 @@ local function drawShearMomentTable(gc, w, h)
     gc:setFont("sansserif", "r", 9)
     local axis_a, axis_b = axes()
     gc:drawString("Einheitslast " .. axis_a .. " / " .. axis_b .. ", F [" .. force_unit .. "]", 8, 28)
-    gc:drawString("Element", 12, 44)
-    gc:drawString("X-Last", 70, 44)
-    gc:drawString("Y-Last", 155, 44)
+    gc:drawString(axis_a .. "-Last", 35, 44)
+    gc:drawString("Hebel", 90, 44)
+    gc:drawString(axis_b .. "-Last", 175, 44)
+    gc:drawString("Hebel", 235, 44)
+    local function formatSignedForce(value)
+        local displayed = value / unit_factor(force_unit)
+        if displayed ~= 0 and math.abs(displayed) < 0.01 then
+            return string.format("%.3e", displayed)
+        end
+        return formatLabel(displayed)
+    end
     local y = 62
     for _, row in ipairs(shear_moment_table.rows) do
-        gc:drawString(row.name, 12, y)
-        gc:drawString(formatLabel(row.first / unit_factor(force_unit)), 70, y)
-        gc:drawString(formatLabel(row.second / unit_factor(force_unit)), 155, y)
+        gc:drawString(row.name, 8, y)
+        gc:drawString(formatSignedForce(row.first), 35, y)
+        gc:drawString(row.arm_first and (formatLabel(display_length(row.arm_first)) .. " " .. length_unit) or "--", 90, y)
+        gc:drawString(formatSignedForce(row.second), 175, y)
+        gc:drawString(row.arm_second and (formatLabel(display_length(row.arm_second)) .. " " .. length_unit) or "--", 235, y)
         y = y + 18
     end
     gc:setFont("sansserif", "b", 9)
-    gc:drawString("M_ges", 12, y + 4)
-    gc:drawString(formatLabel(shear_moment_table.total_first / unit_factor(moment_unit)) .. " " .. moment_unit, 70, y + 4)
-    gc:drawString(formatLabel(shear_moment_table.total_second / unit_factor(moment_unit)) .. " " .. moment_unit, 155, y + 4)
+    gc:drawString("M_ges", 8, y + 4)
+    gc:drawString(formatLabel(shear_moment_table.total_first / unit_factor(moment_unit)) .. " " .. moment_unit, 90, y + 4)
+    gc:drawString(formatLabel(shear_moment_table.total_second / unit_factor(moment_unit)) .. " " .. moment_unit, 235, y + 4)
 end
 
 -- === KERNFLAECHE (K-Modus) ===

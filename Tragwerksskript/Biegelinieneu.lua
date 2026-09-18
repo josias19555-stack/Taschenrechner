@@ -896,13 +896,13 @@ exportULinienToTI = function(stab_index)
                 local expr = ""
 
                 if use_cas then
-                    -- CAS-Pfad: N_last(x) enthaelt x -> numerische Integration via TI-CAS
+                    -- CAS-Pfad: n(x) enthaelt x -> doppelte Integration via TI-CAS
                     -- u(x)*EA = c1*(1-x/L) + c2*(x/L)
-                    --         - integral(N_last(t), t, 0, x)
-                    --         + (x/L) * integral(N_last(t), t, 0, L)
+                    --         - integral((x-t)*n(t), t, 0, x)
+                    --         + (x/L) * integral((L-t)*n(t), t, 0, L)
                     local n_t = eq_n:gsub("x", "t")
-                    local int_0_L = "integral((" .. n_t .. "), t, 0, " .. L_str .. ")"
-                    local int_0_x = "integral((" .. n_t .. "), t, 0, x)"
+                    local int_0_L = "integral((" .. n_t .. ")*(" .. L_str .. "-t), t, 0, " .. L_str .. ")"
+                    local int_0_x = "integral((" .. n_t .. ")*(x-t), t, 0, x)"
                     expr = c1 .. "*(1-x/" .. L_str .. ") + " .. c2 .. "*(x/" .. L_str .. ") - " ..
                            int_0_x .. " + (x/" .. L_str .. ")*(" .. int_0_L .. ")"
                 else
@@ -924,15 +924,11 @@ exportULinienToTI = function(stab_index)
                     local nA_tot = n_const + nA_lin   -- N_last(0)
                     local nB_tot = n_const + nB_lin   -- N_last(L)
 
-                    -- integral(N_last(t), t=0..x)  mit linearer Variation:
-                    -- = nA_tot*x + (nB_tot-nA_tot)/(2*L) * x^2
-                    -- integral(N_last(t), t=0..L):
-                    -- = nA_tot*L + (nB_tot-nA_tot)/2 * L
-                    -- = (nA_tot + nB_tot)/2 * L
-                    local int_0_L_val = (nA_tot + nB_tot) / 2.0 * L
+                    -- Doppelte Integration einer konstanten/linearen Lastfunktion.
+                    local slope = (nB_tot - nA_tot) / L
+                    local int_0_L_val = nA_tot * L^2 / 2 + slope * L^3 / 6
 
-                    local load_expr = "-((" .. fN(nA_tot) .. ")*x + (("
-                                     .. fN(nB_tot) .. ")-(" .. fN(nA_tot) .. "))/(2*" .. L_str .. ")*x^2)"
+                    local load_expr = "-(" .. fN(nA_tot) .. ")*x^2/2-(" .. fN(slope) .. ")*x^3/6"
                     local corr_expr = "(x/" .. L_str .. ")*(" .. fN(int_0_L_val) .. ")"
 
                     expr = load_expr .. " + " .. corr_expr
@@ -1193,19 +1189,18 @@ local function neuGlobalAxialData()
             local L = neuMemberLength(stab)
             local EA = neuSymbolText(stab.EA, stab.EA_str)
             local n = getEqN(stab, stab._numeric_length or 1, fN_export, L):gsub("x", "t")
-            local function make(side, node, x, sign)
-                local u = {"1", "0"}
-                local v = {"0", "1"}
-                local part = "-integral((" .. n .. "),t,0,x)"
+            local function make(side, node, x)
+                local u = side == "A" and {"1", "0"} or {"0", "1"}
+                local part = "-integral((" .. n .. ")*(x-t),t,0,x)"
                 local axial = {"-1/((" .. L .. "))", "1/((" .. L .. "))"}
                 local ep = {stab = i, node = node, side = side, base = (i - 1) * 2,
-                    u = u, v = v, axial = axial, load_u = sign .. "(" .. part:gsub("x", "(" .. x .. ")") .. ")",
-                    load_n = sign .. "(-(" .. n:gsub("t", "(" .. x .. ")") .. "))", EA = EA}
+                    u = u, axial = axial, load_u = part:gsub("x", "(" .. x .. ")"),
+                    load_n = "-integral((" .. n .. "),t,0," .. x .. ")", EA = EA}
                 endpoints[#endpoints + 1] = ep
                 by_node[node] = by_node[node] or {}; by_node[node][#by_node[node] + 1] = ep
             end
-            make("A", stab.k1, "0", 1)
-            make("B", stab.k2, L, -1)
+            make("A", stab.k1, "0")
+            make("B", stab.k2, L)
         end
     end
     local rows, rhs, labels = {}, {}, {}
@@ -1217,7 +1212,7 @@ local function neuGlobalAxialData()
         for j = 2, #list do
             local ep = list[j]; local row = {}
             for k = 1, 2 do neuLinearAdd(row, ep.base + k, "(" .. ep.u[k] .. ")/(" .. ep.EA .. ")"); neuLinearAdd(row, ref.base + k, "-(" .. ref.u[k] .. ")/(" .. ref.EA .. ")") end
-            addEquation(row, ep.load_u .. "+(-(" .. ref.load_u .. "))", "K" .. node .. " u-Kompatibilität")
+            addEquation(row, "(" .. ep.load_u .. ")/(" .. ep.EA .. ")+(-((" .. ref.load_u .. ")/(" .. ref.EA .. ")))", "K" .. node .. " u-Kompatibilität")
         end
         local axial_fixed = false
         local k_node = knoten[node]
@@ -1227,7 +1222,7 @@ local function neuGlobalAxialData()
         if length > 0 then axial_fixed = (k_node.lager_x and math.abs(dx / length) > 1e-10) or (k_node.lager_y and math.abs(dy / length) > 1e-10) end
         if axial_fixed then
             local row = {}; for k = 1, 2 do neuLinearAdd(row, ref.base + k, "(" .. ref.u[k] .. ")/(" .. ref.EA .. ")") end
-            addEquation(row, ref.load_u, "K" .. node .. " u=0")
+            addEquation(row, "(" .. ref.load_u .. ")/(" .. ref.EA .. ")", "K" .. node .. " u=0")
         else
             local row = {}; local load_terms = {}
             for _, ep in ipairs(list) do
@@ -1235,7 +1230,24 @@ local function neuGlobalAxialData()
                 for k = 1, 2 do neuLinearAdd(row, ep.base + k, factor .. "*(" .. ep.axial[k] .. ")") end
                 load_terms[#load_terms + 1] = factor .. "*(" .. ep.load_n .. ")"
             end
-            addEquation(row, table.concat(load_terms, "+"), "K" .. node .. " N-Gleichgewicht")
+            local alpha = math.rad(k_node.f_winkel or 0)
+            local member_x, member_y = dx / length, dy / length
+            local spring_x = member_x * math.cos(alpha) + member_y * math.sin(alpha)
+            local spring_y = -member_x * math.sin(alpha) + member_y * math.cos(alpha)
+            local has_spring = k_node.cx_str or k_node.cy_str or (k_node.cx or 0) > 0 or (k_node.cy or 0) > 0
+            if has_spring then
+                local cx = neuSymbolText(k_node.cx, k_node.cx_str)
+                local cy = neuSymbolText(k_node.cy, k_node.cy_str)
+                local spring = "(" .. cx .. ")*" .. fN_export(spring_x * spring_x)
+                    .. "+(" .. cy .. ")*" .. fN_export(spring_y * spring_y)
+                for k = 1, 2 do
+                    neuLinearAdd(row, ref.base + k, "-(" .. spring .. ")*(" .. ref.u[k] .. ")/(" .. ref.EA .. ")")
+                end
+                load_terms[#load_terms + 1] = "-(" .. spring .. ")*(" .. ref.load_u .. ")/(" .. ref.EA .. ")"
+                addEquation(row, table.concat(load_terms, "+"), "K" .. node .. " N-Gleichgewicht + Feder")
+            else
+                addEquation(row, table.concat(load_terms, "+"), "K" .. node .. " N-Gleichgewicht")
+            end
         end
     end
     local unknowns = #staebe * 2
@@ -1247,18 +1259,27 @@ end
 
 local function neuExportGlobalAxial()
     if not math.eval then return false end
-    for i, stab in ipairs(staebe) do
-        local dx = knoten[stab.k2].x - knoten[stab.k1].x
-        local dy = knoten[stab.k2].y - knoten[stab.k1].y
-        if math.sqrt(dx * dx + dy * dy) > 0 and (stab.bogen_r or 0) == 0 and not stab.is_cut and not stab.is_virtual_parent then
+    local data = neuGlobalAxialData()
+    if not data or #data.endpoints == 0 then return false end
+    if not neuCasMatrix("lga", data.rows, true) then return false end
+    if not neuCasMatrix("lgb", data.rhs, true) then return false end
+    if not neuCasEval("lgc:=exact((lga)^(-1)*lgb)", "lgc") then return false end
+    local exported = {}
+    for _, endpoint in ipairs(data.endpoints) do
+        if not exported[endpoint.stab] then
+            local stab = staebe[endpoint.stab]
             local L = neuMemberLength(stab)
-            local start = stab.symb_u_start or fN_export(stab.v_local[1] or 0)
-            local finish = stab.symb_u_end or fN_export(stab.v_local[4] or 0)
-            local expression = "(" .. start .. ")*(1-x/(" .. L .. "))+(" .. finish .. ")*(x/(" .. L .. "))"
-            if not neuCasEval("uneu" .. i .. "(x):=" .. expression, "uneu" .. i) then return false end
+            local n = getEqN(stab, stab._numeric_length or 1, fN_export, L):gsub("x", "t")
+            local part = "-integral((" .. n .. ")*(x-t),t,0,x)"
+            local column = (endpoint.stab - 1) * 2
+            local expression = neuCleanTerm(part)
+                .. "+lgc[" .. (column + 1) .. ",1]*(1-x/(" .. L .. "))"
+                .. "+lgc[" .. (column + 2) .. ",1]*(x/(" .. L .. "))"
+            if not neuCasEval("uneu" .. endpoint.stab .. "(x):=" .. expression, "uneu" .. endpoint.stab) then return false end
+            exported[endpoint.stab] = true
         end
     end
-    neuExportStatus("Globale Laengslinie: " .. tostring(#staebe) .. " Staebe exportiert")
+    neuExportStatus("Globale Laengslinie: " .. tostring(#data.endpoints / 2) .. " Staebe exportiert")
     return true
 end
 
@@ -1398,7 +1419,7 @@ exportULinienNeuToTI = function(stab_index)
         if length > 0 and (s.bogen_r or 0) == 0 and not s.is_cut and not s.is_virtual_parent then
             local L = neuMemberLength(s)
             local n = getEqN(s, length, fN_export, L):gsub("x", "t")
-            local part = "-integral((" .. n .. "),t,0,x)"
+            local part = "-integral((" .. n .. ")*(x-t),t,0,x)"
             local rows = {{"1", "0"}, {"0", "1"}}
             local rhs = {"0", "0"}
             local c_num = dx / length

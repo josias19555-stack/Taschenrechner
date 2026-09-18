@@ -179,6 +179,12 @@ Diese Datei dokumentiert die wichtigsten Funktionen des gemeinsamen Tragwerksmod
 - **Möglichkeiten:** Berücksichtigt jede aktive translatorische oder rotatorische Feder als eine zusätzliche elastische Bindung, sofern am gleichen Freiheitsgrad kein ideales Lager sitzt. Grundlage für die Anzeige von `n` und die Stabilitäts-/Bestimmtheitskontrolle.
 - **Grenzen:** Die Zahl ist eine Modellierungsdiagnose; Federsteifigkeiten müssen positiv sein, und die Zählung ersetzt keine vollständige fachliche Prüfung von Sonderfällen oder der tatsächlichen Matrixrangprüfung.
 
+### Längslinienexport (`exportULinienToTI` / `exportULinienNeuToTI`)
+
+- **Zweck:** Erzeugt die axiale Verformungslinie aus den axialen Endverschiebungen und der axialen Streckenlast.
+- **Möglichkeiten:** Unterstützt konstante, linear veränderliche und CAS-auswertbare Lastfunktionen `n(x)`, auch im globalen Mehrstabexport. Der Lastanteil wird über `integral((x-t)*n(t),t,0,x)` doppelt integriert und in Kompatibilitäts- und Lagerbedingungen durch das jeweilige `EA` in eine Verschiebung umgerechnet; bei quadratischem `n(x)` entstehen dadurch die erwarteten Terme bis zur vierten Potenz. Der globale Ansatz verwendet Verschiebungskompatibilität, axiales Knotengleichgewicht `ΣN=0` und bei einer Knotenfeder `ΣN+c_parallel*u=0`.
+- **Grenzen:** Konzentrierte axiale Einzelkräfte innerhalb eines Stabes benötigen eine stückweise Darstellung; die Ausgabe setzt einen verfügbaren CAS voraus. Die axiale Mehrstabkopplung setzt an Übergangsknoten eine gemeinsame Stabachse voraus.
+
 ### `findZeroForceMembers()`
 
 - **Zweck:** Findet Nullstäbe in Fachwerken durch wiederholte lokale Gleichgewichtsregeln.

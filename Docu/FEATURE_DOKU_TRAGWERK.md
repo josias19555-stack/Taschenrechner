@@ -101,6 +101,8 @@ Stabgelenke können an Anfang und Ende getrennt definiert werden:
 
 Diese Gelenke beeinflussen sowohl das Gleichungssystem als auch die topologische Freiheitsgrad- und Kinematikprüfung. Aktive Federn in den drei Knotenfreiheitsgraden werden bei der topologischen Systemzahl zusätzlich als elastische Bindungen berücksichtigt; ein Freiheitsgrad mit idealem Lager wird dabei nicht doppelt gezählt.
 
+Der Export der Längslinie berücksichtigt den axialen Streckenlastanteil über eine doppelte Integration. Für eine Lastfunktion `n(x)` wird der Verformungsanteil proportional zu `integral((x-t)*n(t),t,0,x)` gebildet; der globale Mehrstabexport verwendet dafür das globale axiale Rand-LGS und verwirft die Lastpolynomterme nicht mehr. Axiale Knotenfedern werden im Rand-LGS mit `ΣN+c_parallel*u=0` berücksichtigt.
+
 ### 3.3 Federn
 
 Knotenfedern können für die drei Freiheitsgradtypen eingegeben werden:
