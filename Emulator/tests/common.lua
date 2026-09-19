@@ -52,6 +52,9 @@ function M.zahl(label, ist, soll, tol)
     return ok
 end
 
+-- Wahrheitspruefung mit optionaler Zusatzinfo
+function M.wahr(label, bedingung, info) M.pruef(bedingung and true or false, label .. (info ~= nil and ('  [' .. tostring(info) .. ']') or '')) end
+
 -- Abschnitt (Titel wird immer angezeigt)
 function M.abschnitt(titel)
     M.titel = titel
@@ -92,6 +95,7 @@ function M.reset(opts)
     M.cas.reset()
     autoKGV, zeigeN, sym_vars, symbolischer_modus = false, false, {}, false
     randDehnstarr = opts.dehnstarr or false   -- Vergleich mit FEM: EA endlich
+    randStarrDirekt = opts.starrDirekt or false   -- starre Staebe: Grenzwert-Methode (direkt: starr_direkt.lua)
     symbolFehler = nil
     rasterMass, rasterMass_str = opts.raster or 1, nil
     casToleranz = opts.casToleranz or 9     -- Referenzexport v_EI_stab rundet sonst auf 5 Stellen

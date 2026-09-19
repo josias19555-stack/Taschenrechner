@@ -66,6 +66,13 @@ Ein Stab verbindet zwei Knoten und besitzt unter anderem:
 
 Für Vergleichsrechnungen mit der Musterlösung wird standardmäßig $EA=10^{10}$ verwendet. Dieser Wert ist eine numerische Näherung für axial unnachgiebige Stäbe; ein tatsächlich endlicher $EA$ verändert bei Rahmen die Knotenverschiebungen und damit auch die Biegelinien.
 
+**Starre Stäbe:** Im Stabmenü, Seite 1, steht unter `EI` die Zeile `biegesteif` und unter `EA` die Zeile `dehnsteif` (Enter schaltet Ja/Nein). Ein biegesteifer Stab hat $EI \to \infty$, ein dehnsteifer $EA \to \infty$; die Eingabe von `EI` bzw. `EA` ist dann gesperrt (Anzeige `starr`). Beides wirkt überall:
+
+- **FEM, Diagramme, Auflager:** exakt über Zwangsbedingungen zwischen den Stabend-Verschiebungen (dehnsteif: $u_B-u_A=\varepsilon_T L$; biegesteif: $\varphi_A=\varphi_B-\kappa_T L$, $w_B-w_A+L\varphi_A=-\kappa_T L^2/2$). Die Schnittgrößen starrer Stäbe folgen aus den Zwangskräften (Lagrange-Multiplikatoren), nicht aus einer großen Ersatzsteifigkeit; weiche Federn daneben bleiben genau.
+- **Rand-LGS:** exakter Grenzwert, siehe 3.4.
+
+Zusätzlich gibt es im Obermenü, Seite 4, `Standard-EA dehnstarr` (ab Werk aus): Dann sind alle Stäbe dehnsteif, deren $EA$ nicht im Stabmenü eingegeben wurde. Ein im Stabmenü eingegebenes $EA$ nimmt den Stab aus (Anzeige `dehnsteif: Nein`); `Alle EA setzen` im Obermenü macht alle Stäbe wieder zu Standard-Stäben. Ein symbolisches $EA$ (z. B. `EA`) bleibt immer dehnbar.
+
 Ein Stab kann durch `F` umgedreht werden. Dabei werden Anfang und Ende vertauscht und die zugehörigen Anfangs- und Endlasten mitgetauscht.
 
 ### 2.3 Geradstäbe und Bögen
@@ -112,17 +119,26 @@ Knotenfedern können für die drei Freiheitsgradtypen eingegeben werden:
 
 Die Federwerte werden in das globale Gleichungssystem integriert. Ein Federwinkel kann für eine gedrehte Federorientierung hinterlegt werden.
 
-### 3.4 Verformungslinien über das Rand-LGS (`vne`, `uneu`, `randbed`)
+### 3.4 Verformungslinien über das Rand-LGS (`wneu`, `uneu`, `randbed`)
 
 Neben den Referenzexporten (`v_EI_stab_i`, `u_EA_stab_i` aus der FEM-Lösung) gibt es im Obermenü `O`, Seite 2, die Einträge `Neue Biegelinie (Rand-LGS)` und `Neue Längslinie (Rand-LGS)`. Beide rufen dieselbe Funktion (`neuRandLGS`): Für alle Stäbe wird der Ansatz `EI·w_i(x) = wp_i(x) + c1·x³/6 + c2·x²/2 + c3·x + c4` und `EA·u_i(x) = up_i(x) + C1·x + C2` gewählt; die 6 Konstanten je Stab folgen aus den Rand- und Übergangsbedingungen des ganzen Systems (Lager, auch gedrehte; Gelenke M/N/Q; Federn `cx`, `cy`, `cm`; Knotenlasten und -momente; Verträglichkeit der Stabenden an jedem Knoten). Das Gleichungssystem wird im CAS mit `simult` gelöst.
 
-Exportiert werden je Stab `vne_i(x) = EI·w_i(x)` und `uneu_i(x) = EA·u_i(x)` (lokale Koordinate `x_i` von 0 bis `L_i`, Zählrichtung vom ersten zum zweiten Knoten, `w` positiv in lokaler Querrichtung wie in den Diagrammen) sowie den Spaltenvektor `randbed` (`["…";"…"]`) mit allen verwendeten Bedingungen als lesbare Strings. Schnittgrößen werden dabei über die Ableitungen der Verformungen geschrieben: `-EIw'''` statt Q, `-EIw''` statt M, `EAu'` statt N, `-w'` statt φ (mit Temperatur `-EI(w''+κT)` bzw. `EA(u'-εT)`). Beispiele: `"w1(x1=0)=0"`, `"w1'(x1=0)=0"`, `"w1(x1=l)=w2(x2=0)"`, `"EIw2''(x2=0)=0"`, `"EIw1'''(x1=l)-EIw2'''(x2=0)+F=0"`, `"-EIw1''(x1=0)+cm*w1'(x1=0)=0"`. Die Funktionen sind exakt (keine Rundung); `approx(vne1(x))` liefert Dezimalzahlen. Im symbolischen Modus erscheinen die Stablängen als Vielfache der Referenzlänge (`x1=l`, `x2=(2*l)`), Lasten und Steifigkeiten als Symbole.
+Exportiert werden je Stab `wneu_i(x) = EI·w_i(x)` und `uneu_i(x) = EA·u_i(x)` (lokale Koordinate `x_i` von 0 bis `L_i`, Zählrichtung vom ersten zum zweiten Knoten, `w` positiv in lokaler Querrichtung wie in den Diagrammen) sowie den Spaltenvektor `randbed` (`["…";"…"]`) mit allen verwendeten Bedingungen als lesbare Strings. Schnittgrößen werden dabei über die Ableitungen der Verformungen geschrieben: `-EIw'''` statt Q, `-EIw''` statt M, `EAu'` statt N, `-w'` statt φ (mit Temperatur `-EI(w''+κT)` bzw. `EA(u'-εT)`). Beispiele: `"w1(x1=0)=0"`, `"w1'(x1=0)=0"`, `"w1(x1=l)=w2(x2=0)"`, `"EIw2''(x2=0)=0"`, `"EIw1'''(x1=l)-EIw2'''(x2=0)+F=0"`, `"-EIw1''(x1=0)+cm*w1'(x1=0)=0"`. Die Funktionen sind exakt (keine Rundung); `approx(wneu1(x))` liefert Dezimalzahlen. Im symbolischen Modus erscheinen die Stablängen als Vielfache der Referenzlänge (`x1=l`, `x2=(2*l)`), Lasten und Steifigkeiten als Symbole.
 
-**Dehnstarr (Standard an):** Obermenü `O`, Seite 4, `Rand-LGS dehnstarr`. Stäbe mit Zahlen-EA (auch der Standard `EA = 1e10`) werden als dehnstarr gerechnet, wie in der Handrechnung üblich: Im LGS steht `EA = EA_Zahl/rleps`, danach wird jede Konstante mit `limit(…, rleps, 0)` bestimmt. So verschwinden die EI/EA-Anteile (früher z. B. `ei*h*l/10000000000`), und Fälle, in denen sich N nach den Dehnsteifigkeiten verteilt (Horizontallast zwischen zwei Festlagern), bleiben lösbar. `uneu_i(x)` ist weiter `EA·u_i(x)`, solange das endlich bleibt (Stab axial gehalten, keine Temperaturdehnung); verschiebt sich ein dehnstarrer Stab als Ganzes (z. B. der Riegel eines verschieblichen Rahmens) oder dehnt er sich durch Temperatur, wird stattdessen `uneu_i(x) = u_i(x)` exportiert. Welche Stäbe dehnstarr sind und welche `uneu_i` Verschiebungen sind, steht im Spaltenvektor `randinfo`. Symbolisches EA (`EA_str = "EA"`) bleibt immer dehnbar. Eine behinderte Temperaturdehnung (unendliche Zwangskraft) führt zum Abbruch mit Meldung; dann dehnstarr ausschalten.
+**Starre Stäbe im Rand-LGS (biegesteif, dehnsteif, Standard-EA dehnstarr, siehe 2.2):** Obermenü `O`, Seite 4, `Starre Stäbe (Export)` wählt die Methode.
+
+- `direkt` (ab Werk): Ein starrer Stab bewegt sich nur als Starrkörper, $w = w_0 + w'_0 x - \kappa_T x^2/2$ bzw. $u = u_0 + \varepsilon_T x$; seine Schnittgrößen folgen aus dem Gleichgewicht. Das LGS ist exakt und linear, ohne Hilfssymbol und ohne Grenzwert, und deutlich schneller (Klausur TM2 Aufgabe 4 mit starrem Balken: etwa halbe Zeit, `simult` rund 20-mal schneller). `wneu`/`uneu` starrer Stäbe sind hier immer die Verschiebung (wie `wv`/`uv`). Halten sich starre Teile gegenseitig statisch unbestimmt (z. B. zwei starre Stäbe zwischen zwei Festlagern), ist das direkte LGS singulär; dann wird automatisch mit dem Grenzwert gerechnet und das in `randinfo` vermerkt.
+- `Grenzwert`: die bisherige Methode, siehe unten.
+
+Bei der Grenzwert-Methode steht im LGS für starre Stäbe `EI = 1/rleps` bzw. `EA = 1/rleps`, danach wird jede Konstante mit `limit(…, rleps, 0)` bestimmt, wie in der Handrechnung mit starren Stäben. So verschwinden die EI/EA-Anteile (früher z. B. `ei*h*l/10000000000`), und Fälle, in denen sich Kräfte nach den Steifigkeiten verteilen (Horizontallast zwischen zwei Festlagern), bleiben lösbar; gleich starre Stäbe teilen dann gleichmäßig. `wneu_i(x)` bzw. `uneu_i(x)` bleiben `EI·w_i` bzw. `EA·u_i`, solange das endlich ist (z. B. Kragarm, Stütze mit gehaltenem Fuß). Bewegt sich ein starrer Stab als Ganzes (Riegel eines verschieblichen Rahmens, starrer Balken auf Federn) oder durch Temperatur, wird stattdessen die Verschiebung `w_i(x)` bzw. `u_i(x)` exportiert. Welche Stäbe starr sind und welche Funktionen Verschiebungen sind, steht im Spaltenvektor `randinfo`. Eine behinderte Temperaturverformung eines starren Stabes (unendliche Zwangskraft) führt zum Abbruch mit Meldung.
+
+**Verschiebungen direkt:** Zusätzlich werden `wv_i(x) = w_i(x)` und `uv_i(x) = u_i(x)` exportiert (die Verschiebungen selbst, bei starren Stäben entsprechend). Damit lassen sich Klausurfragen wie „Bestimmen Sie $\Delta T$ so, dass sich Punkt A nicht verschiebt“ oder „… um 0,5 mm verschiebt“ direkt auf dem Rechner lösen, z. B. `solve(uv1(l)=0,dt)` oder `solve(wv2(2*l)=1/2,f)`. Voraussetzung ist, dass die gesuchte Größe als Symbol eingegeben wurde.
+
+**Temperatur symbolisch:** $T_{oben}$, $T_{unten}$, $\alpha_T$ und $h$ (Stabmenü, Seite 3) dürfen Symbole enthalten (z. B. `dt`, `t1`, `a`); das Menü zeigt den eingegebenen Text. Das Rand-LGS rechnet mit $\varepsilon_T = \alpha_T (T_o+T_u)/2$ und $\kappa_T = \alpha_T (T_u-T_o)/h$ exakt symbolisch. $h = 0$ bedeutet „kein Gradient“; eine gleichmäßige Erwärmung ($T_o = T_u$) braucht keine Höhe. Der Name `t` (auch `T`, der Rechner unterscheidet nicht) ist als Integrationsvariable reserviert, also z. B. `dt` verwenden; griechische Buchstaben werden nicht als Symbol erkannt (`a` statt `α`). Die symbolischen Diagrammbeschriftungen (Superposition) enthalten den Temperaturanteil nicht; darauf weist eine gelbe Box hin (ESC schließt sie, sie erscheint erst bei geänderten Temperatureingaben wieder).
 
 Symbolische Eingaben werden in den grafischen Menüs wieder als eingegebener Ausdruck angezeigt. Das betrifft insbesondere Knotenfedern wie `EI/l^3` sowie die global gesetzten Stabwerte `EI` und `EA`.
 
-**Grenzen:** Keine Bögen und keine KGV-Einheitszustände (Zustand 0 wählen). Mechanismen und Lasten in frei beweglichen Richtungen werden abgebrochen; die Meldung steht dann in `randbed` (`["Fehler: …"]`), alte `vne`/`uneu` werden vorher gelöscht. Eingaben mit Dezimalkomma (`1,5`) und e-Notation (`1e8`) werden für das CAS umgeschrieben. Mit ausgeschaltetem dehnstarr entstehen bei numerisch großen Steifigkeiten (Standard `EI = 1e8`, `EA = 1e10`) exakte, aber lange Brüche aus dem EI/EA-Verhältnis. Die Rundungsfunktion `eval_cas_string(…, true)` ist dafür nicht geeignet (6 Stellen, absolute Schwelle 1e-6). Der Referenzexport `v_EI_stab_i` rundet Koeffizienten auf `casToleranz` Stellen (Standard 5), was bei großen `x` Abweichungen bis etwa `1e-5·x³` ergibt; das Rand-LGS rundet nicht.
+**Grenzen:** Keine Bögen und keine KGV-Einheitszustände (Zustand 0 wählen). Mechanismen und Lasten in frei beweglichen Richtungen werden abgebrochen; die Meldung steht dann in `randbed` (`["Fehler: …"]`), alte `wneu`/`uneu` werden vorher gelöscht. Eingaben mit Dezimalkomma (`1,5`) und e-Notation (`1e8`) werden für das CAS umgeschrieben. Mit ausgeschaltetem dehnstarr entstehen bei numerisch großen Steifigkeiten (Standard `EI = 1e8`, `EA = 1e10`) exakte, aber lange Brüche aus dem EI/EA-Verhältnis. Die Rundungsfunktion `eval_cas_string(…, true)` ist dafür nicht geeignet (6 Stellen, absolute Schwelle 1e-6). Der Referenzexport `v_EI_stab_i` rundet Koeffizienten auf `casToleranz` Stellen (Standard 5), was bei großen `x` Abweichungen bis etwa `1e-5·x³` ergibt; das Rand-LGS rundet nicht.
 
 ## 4. Lasten
 
@@ -147,7 +163,7 @@ Unterstützt werden:
 
 Alle numerischen Eingabefelder akzeptieren mathematische Ausdrücke mit Dezimalkomma, Klammern, `+`, `-`, `*`, `/` und `^`; außerdem sind TI-Nspire-CAS-Funktionen wie `sqrt(...)` oder `sin(...)` möglich. Funktionale Eingaben können Variablen wie `x` enthalten. Wenn eine symbolische Eingabe erkannt wird, wechselt das Programm in den symbolischen Modus und versucht, die zugehörigen CAS-Ausdrücke zu erzeugen.
 
-Symbolische Trapezlasten (`q_A = 0`, `q_B = q`), Streckenlasten, Streckenmomente, Eigengewicht und Knotenlasten werden per Superposition exakt als Vielfache der Referenzlänge ausgegeben. Referenzlänge ist das eine Längensymbol der Geometrie; enthält die Geometrie kein Symbol, gilt automatisch ein Rasterabstand als `l` und alle Stablängen werden als Vielfache von `l` ausgegeben (Raster 0,5 m: Stab 2 m = `4*l`). Fälle, die der symbolische Modus nicht korrekt abbilden kann, brechen die Berechnung mit einer roten Meldung ab: Temperaturlasten, Lastfunktionen mit `x` (z. B. `q/l*x`), Bögen, mehr als ein Längensymbol in der Geometrie und Koordinaten, die kein reines Vielfaches des Längensymbols sind (z. B. `a+2`), das Symbol `t` (Integrationsvariable) sowie `EI`/`EA` in Feder- oder Lasttexten, wenn nicht alle Stäbe diese Steifigkeit symbolisch haben (sonst würde mit zwei verschiedenen Zahlenwerten gerechnet).
+Symbolische Trapezlasten (`q_A = 0`, `q_B = q`), Streckenlasten, Streckenmomente, Eigengewicht und Knotenlasten werden per Superposition exakt als Vielfache der Referenzlänge ausgegeben (Temperatur nur im Rand-LGS-Export, siehe 3.4). Referenzlänge ist das eine Längensymbol der Geometrie; enthält die Geometrie kein Symbol, gilt automatisch ein Rasterabstand als `l` und alle Stablängen werden als Vielfache von `l` ausgegeben (Raster 0,5 m: Stab 2 m = `4*l`). Fälle, die der symbolische Modus nicht korrekt abbilden kann, brechen die Berechnung mit einer roten Meldung ab: Temperatur oder Lastfunktionen mit `x` (z. B. `q/l*x`), Bögen, mehr als ein Längensymbol in der Geometrie und Koordinaten, die kein reines Vielfaches des Längensymbols sind (z. B. `a+2`), das Symbol `t` (Integrationsvariable) sowie `EI`/`EA` in Feder- oder Lasttexten, wenn nicht alle Stäbe diese Steifigkeit symbolisch haben (sonst würde mit zwei verschiedenen Zahlenwerten gerechnet).
 
 ### 4.3 Projektion globaler Linienlasten
 
@@ -184,7 +200,7 @@ Der Modus ist für ebene Fachwerke gedacht, bei denen die Stäbe im Wesentlichen
 
 ### 5.3 Starrmodus und statische Unbestimmtheit
 
-Der Starrmodus setzt hohe Standardwerte für $EA$ und $EI$ und dient zur Modellierung beziehungsweise Anzeige eines nahezu starren Systems. Das ist keine exakte unendlich steife Formulierung.
+Der Starrmodus setzt hohe Standardwerte für $EA$ und $EI$ und dient zur Modellierung beziehungsweise Anzeige eines nahezu starren Systems. Das ist keine exakte unendlich steife Formulierung; exakt starre Stäbe gibt es über `biegesteif`/`dehnsteif` im Stabmenü (siehe 2.2).
 
 Das Programm warnt bei einem kinematischen System. Bei einem starren und gleichzeitig statisch unbestimmten System erscheint ebenfalls eine gesonderte Warnung.
 
@@ -285,7 +301,7 @@ Erkannte Nullstäbe werden für die Darstellung markiert. Der Algorithmus wieder
 - Arbeitssatzdaten,
 - Schnittkraftfunktionen,
 - globale LGS-Matrix,
-- Verformungslinien aus dem Rand-LGS (`vne_i`, `uneu_i`, `randbed`).
+- Verformungslinien aus dem Rand-LGS (`wneu_i`, `uneu_i`, `randbed`).
 
 Typische gespeicherte Variablen sind `sys_k`, `sys_f`, `sys_u`, `ggw_a`, `ggw_b`, `ggw_x`, `ggw_eqs` sowie stabspezifische Matrizen und Funktionen.
 
@@ -317,7 +333,12 @@ Für gerade Stäbe können analytische CAS-Funktionen für $N(x)$, $Q(x)$, $M(x)
 - `h`: System automatisch in den sichtbaren Bereich einpassen.
 - `f`: Richtung eines unter dem Cursor befindlichen Stabs umkehren.
 - `+`/`-`: Zoom ändern.
-- `Esc`: Eingabe, Menü oder Sondermodus abbrechen.
+- **Gelbe Hinweisbox** (nach der Berechnung, das Ergebnis ist gültig; ESC schließt sie, sie erscheint erst bei geänderten Hinweisen oder Temperatureingaben wieder):
+  - Temperatur mit $T_o \ne T_u$, aber $h = 0$: Es wirkt nur die mittlere Erwärmung $(T_o+T_u)/2$, keine Krümmung.
+  - Temperatur im symbolischen Modus: Die Diagrammbeschriftungen enthalten den Temperaturanteil nicht, der Export schon.
+  - Symbolischer Modus: Ein Stab hat ein Zahlen-EI (bzw. -EA), während andere Steifigkeiten symbolisch sind, und wird laut FEM tatsächlich auf Biegung (bzw. Normalkraft) beansprucht. Das Ergebnis mischt dann Zahl und Symbol (z. B. `3·l²·ea + 125000000`, wobei 125000000 aus EI = 10⁸ stammt). Abhilfe: Pendelstab mit Gelenken an beiden Enden, EI/EA symbolisch, biegesteif/dehnsteif bzw. Standard-EA dehnstarr.
+- `Esc`: Eingabe, Menü oder Sondermodus abbrechen. Warnhinweise („System ist kinematisch!“, „Starrmodus & statisch unbestimmt!“, Hinweisbox, „Symbolischer Modus nicht möglich“) schließt ein `Esc`, sofern kein Menü und keine Eingabe darüber liegt; eine neue Berechnung zeigt sie wieder. Beim symbolischen Modus bleibt die Sperre bestehen (Rand-LGS-Export bricht weiter ab), nur die Box verschwindet.
+- Die Werte „Alle EA setzen“ / „Alle EI setzen“ im Obermenü gelten für alle vorhandenen Stäbe und als Vorgabe für neu gezeichnete Stäbe, auch als Symbol (z. B. `EA`).
 - `Backspace`: Eingabe löschen oder das ausgewählte Element entfernen.
 
 ### Einstellungsgruppen

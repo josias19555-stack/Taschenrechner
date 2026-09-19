@@ -1,4 +1,4 @@
--- Rand-LGS (vne_i, uneu_i) gegen die FEM-Loesung desselben Systems.
+-- Rand-LGS (wneu_i, uneu_i) gegen die FEM-Loesung desselben Systems.
 -- Viele Systemtypen: Lager, Gelenke, Federn, gedrehte Lager, Lastarten, Temperatur, Rahmen.
 -- Stabenden: gegen die exakten FEM-Knotenwerte v_local (Toleranz 1e-8 relativ).
 -- Stabinneres: gegen den Referenzexport v_EI_stab. Dieser wandelt grosse Brueche absichtlich in
@@ -25,14 +25,14 @@ local function run(title, K, S, opts)
         local k1, k2 = getKnoten()[s.k1], getKnoten()[s.k2]
         local L = math.sqrt((k2.x - k1.x) ^ 2 + (k2.y - k1.y) ^ 2)
         -- Stabenden: exakte FEM-Knotenwerte (w, EA*u)
-        vergleich(string.format('Stab %d EI*w(0)', i), ev('vne' .. i .. '(0)'), (s.v_local[2] or 0) * s.EI, TOL_KNOTEN)
-        vergleich(string.format('Stab %d EI*w(L)', i), ev('vne' .. i .. '(' .. L .. ')'), (s.v_local[5] or 0) * s.EI, TOL_KNOTEN)
+        vergleich(string.format('Stab %d EI*w(0)', i), ev('wneu' .. i .. '(0)'), (s.v_local[2] or 0) * s.EI, TOL_KNOTEN)
+        vergleich(string.format('Stab %d EI*w(L)', i), ev('wneu' .. i .. '(' .. L .. ')'), (s.v_local[5] or 0) * s.EI, TOL_KNOTEN)
         vergleich(string.format('Stab %d EA*u(0)', i), ev('uneu' .. i .. '(0)'), (s.v_local[1] or 0) * s.EA, TOL_KNOTEN)
         vergleich(string.format('Stab %d EA*u(L)', i), ev('uneu' .. i .. '(' .. L .. ')'), (s.v_local[4] or 0) * s.EA, TOL_KNOTEN)
         -- Stabinneres: Referenzexport
         for _, t in ipairs({ 1 / 3, 2 / 3 }) do
             local x = t * L
-            vergleich(string.format('Stab %d EI*w(%.3f)', i, x), ev('vne' .. i .. '(' .. x .. ')'), ev('v_EI_stab' .. i .. '(' .. x .. ')'), TOL_INNEN)
+            vergleich(string.format('Stab %d EI*w(%.3f)', i, x), ev('wneu' .. i .. '(' .. x .. ')'), ev('v_EI_stab' .. i .. '(' .. x .. ')'), TOL_INNEN)
         end
     end
 end

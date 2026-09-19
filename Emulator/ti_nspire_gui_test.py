@@ -111,7 +111,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--full-cycle",
         action="store_true",
-        help="reload code, set script, enter/calculate the frame, export, and inspect vne1 in CAS",
+        help="reload code, set script, enter/calculate the frame, export, and inspect wneu1 in CAS",
     )
     parser.add_argument(
         "--calibration-screenshot",
@@ -637,15 +637,15 @@ def place_frame_with_supports(output_dir: Path, run_id: str) -> None:
     pyautogui.hotkey("ctrl", "right")
     time.sleep(1.0)
     for index in range(1, 3):
-        pyautogui.write(f"vne{index}(x)", interval=0.04)
+        pyautogui.write(f"wneu{index}(x)", interval=0.04)
         pyautogui.press("enter")
         time.sleep(1.0)
-    capture(output_dir, run_id, "calculator_vne1_vne2")
-    pyautogui.write("vne3(x)", interval=0.04)
+    capture(output_dir, run_id, "calculator_wneu1_wneu2")
+    pyautogui.write("wneu3(x)", interval=0.04)
     pyautogui.press("enter")
     time.sleep(1.0)
-    capture(output_dir, run_id, "calculator_vne1_vne2_vne3")
-    print("[calculator] displayed vne1(x), vne2(x), screenshot, then vne3(x) and screenshot")
+    capture(output_dir, run_id, "calculator_wneu1_wneu2_wneu3")
+    print("[calculator] displayed wneu1(x), wneu2(x), screenshot, then wneu3(x) and screenshot")
     pyautogui.hotkey("ctrl", "left")
     time.sleep(1.0)
     capture(output_dir, run_id, "tragwerk_after_calculator")
@@ -775,7 +775,7 @@ def run(args: argparse.Namespace) -> int:
 
     if args.full_cycle:
         if not args.run or args.dry_run:
-            print("[full-cycle] reload-code -> set-script -> Statik -> frame -> export -> CAS vne1")
+            print("[full-cycle] reload-code -> set-script -> Statik -> frame -> export -> CAS wneu1")
             print(f"Completed: {run_id}")
             return 0
         if not focus_ti_nspire_window():
@@ -800,10 +800,10 @@ def run(args: argparse.Namespace) -> int:
         calibrated_reenter_frame(output_dir, run_id)
         pyautogui.hotkey("ctrl", "right")
         time.sleep(1.0)
-        pyautogui.write("vne1(x)", interval=0.05)
+        pyautogui.write("wneu1(x)", interval=0.05)
         pyautogui.press("enter")
         time.sleep(2.0)
-        capture(output_dir, run_id, "full_cycle_cas_vne1")
+        capture(output_dir, run_id, "full_cycle_cas_wneu1")
         print(f"Completed: {run_id}")
         return 0
 

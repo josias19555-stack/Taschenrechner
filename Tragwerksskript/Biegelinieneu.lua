@@ -30,7 +30,12 @@ offsetY = 106
 
 rasterMass = 1.0   
 defEA = 1e10
-randDehnstarr = true   -- Rand-LGS: Staebe mit Zahlen-EA dehnstarr rechnen (Grenzwert EA -> unendlich)
+randDehnstarr = false  -- Standard-EA dehnstarr: alle Staebe ohne eigenes EA (Stabmenue) gelten als dehnsteif
+randStarrDirekt = true -- Rand-LGS: starre Staebe direkt (Starrkoerper + Gleichgewicht) statt Grenzwert EA, EI -> unendlich
+symbolFehlerOffen = false   -- Hinweisbox zu symbolFehler sichtbar (ESC schliesst sie, der Fehler bleibt bestehen)
+hinweisListe = {}           -- Hinweise nach der Berechnung (gelbe Box, ESC schliesst sie)
+hinweisOffen = false
+hinweisSig, hinweisQuittiert = nil, nil   -- nach ESC erst bei geaenderten Hinweisen/Eingaben wieder zeigen
 defEI = 1e8        
 autoKGV = false    
 zeigeN = true      
@@ -121,7 +126,7 @@ end
 local function erstelleStab(k1_idx, k2_idx)
     return { 
         k1 = k1_idx, k2 = k2_idx, 
-        EA = defEA, EI = defEI, bogen_r = 0, 
+        EA = defEA, EI = defEI, EA_str = defEA_str, EI_str = defEI_str, biegesteif = false, dehnsteif = false, bogen_r = 0, 
         q_str = "0", q_pts = nil, q_max = 0,
         n_str = "0", n_pts = nil, n_max = 0,
         m_str = "0", m_pts = nil, m_max = 0,
@@ -823,7 +828,7 @@ exportBiegelinienToTI = function(stab_index)
             local s = staebe[i]
             local dx, dy = knoten[s.k2].x - knoten[s.k1].x, knoten[s.k2].y - knoten[s.k1].y; local L = math.sqrt(dx^2 + dy^2)
             if L > 0 then
-                local EI = s.EI
+                local EI = stabEI(s)
                 local qA, qB = s.q_A, s.q_B 
                 local va = (math.abs(s.v_local[2] or 0) < 1e-12) and 0 or s.v_local[2]
                 local phia = (math.abs(s.v_local[3] or 0) < 1e-12) and 0 or s.v_local[3]
@@ -906,7 +911,7 @@ exportULinienToTI = function(stab_index)
             local dy = knoten[s.k2].y - knoten[s.k1].y
             local L  = math.sqrt(dx^2 + dy^2)
             if L > 0 and (s.bogen_r or 0) == 0 then
-                local EA = s.EA
+                local EA = stabEA(s)
 
                 -- Lokale Verschiebungen an den Stabenden (aus FEM-Loesung)
                 local ua = (math.abs(s.v_local[1] or 0) < 1e-12) and 0 or s.v_local[1]
@@ -1031,6 +1036,33 @@ local function neuGrenzwert(expr)
     return res
 end
 
+-- Starre Staebe: biegesteif (EI -> unendlich) und dehnsteif (EA -> unendlich) je Stab im Stabmenue;
+-- randDehnstarr macht zusaetzlich alle Staebe mit Standard-EA dehnsteif (Zahl, nicht im Stabmenue
+-- eingegeben). Rand-LGS: exakter Grenzwert; FEM: exakte Zwangsbedingungen (baueZwangsbedingungen).
+-- stabEA/stabEI (STARR_FAKTOR mal groesste Steifigkeit der nicht starren Staebe) dienen nur der
+-- Nachbearbeitung (Zeichnung, Referenzexporte), nicht der Steifigkeitsmatrix. Global fuer on.paint.
+STARR_FAKTOR = 1e6
+function stabBiegesteif(s) return s.biegesteif and true or false end
+function stabDehnsteif(s)
+    if s.dehnsteif then return true end
+    return (randDehnstarr and not s.EA_manuell and neuIstZahlText(s.EA_str)) and true or false
+end
+local function starrReferenz(feld, istStarr)
+    local ref = 0
+    for _, t in ipairs(staebe) do
+        if not istStarr(t) and type(t[feld]) == "number" then ref = math.max(ref, t[feld]) end
+    end
+    if ref <= 0 then ref = ((feld == "EA") and defEA or defEI) or 1 end
+    return ref
+end
+-- Steifigkeit in der Steifigkeitsmatrix: der starre Anteil ist 0, ihn ersetzen die Zwangsbedingungen
+-- (sonst Ausloeschung neben weichen Federn). Im PvV-Modus gibt es keine Zwangsbedingungen.
+function stabEA_K(s) if stabDehnsteif(s) and not return_kinematic_mode then return 0 end return s.EA end
+function stabEI_K(s) if stabBiegesteif(s) and not return_kinematic_mode then return 0 end return s.EI end
+-- sehr grosse Ersatzwerte nur fuer die Nachbearbeitung (Zeichnung, Referenzexporte)
+function stabEA(s) if stabDehnsteif(s) then return STARR_FAKTOR * starrReferenz("EA", stabDehnsteif) end return s.EA end
+function stabEI(s) if stabBiegesteif(s) then return STARR_FAKTOR * starrReferenz("EI", stabBiegesteif) end return s.EI end
+
 -- Stablaenge als CAS-Text: symbolisch als Vielfaches der Referenzlaenge, sonst als Zahl
 local function neuMemberLength(stab)
     local k1, k2 = knoten[stab.k1], knoten[stab.k2]
@@ -1063,7 +1095,7 @@ local function neuCasEval(command, name)
             
         end
         neuShowMessage("OK " .. (name or "Ausdruck"))
-        if name and (name:find("^vne") or name:find("^uneu")) then
+        if name and (name:find("^wneu") or name:find("^uneu")) then
             local check_result
             local check_ok, check_err = pcall(function()
                 check_result = math.eval("string(" .. name .. "(0))")
@@ -1105,12 +1137,12 @@ end
 --   Kinematik: u, w, phi der Stabenden vertraeglich bzw. N=0 / Q=0 / M=0 am Gelenk
 --   Statik:    Lagerbedingung oder Gleichgewicht aus Stabendkraeften,
 --              Knotenlast (last_x/last_y/last_m, Winkel last_w) und Federn (cx, cy, cm)
--- Geloest wird mit simult(); exportiert werden vne_i(x) = EI*w_i(x),
+-- Geloest wird mit simult(); exportiert werden wneu_i(x) = EI*w_i(x),
 -- uneu_i(x) = EA*u_i(x) und die Bedingungsliste randbed (Strings).
--- Dehnstarr (randDehnstarr, Standard an): Staebe mit Zahlen-EA bekommen EA = EA_Zahl/rleps,
--- alle Konstanten werden mit limit(..., rleps, 0) bestimmt. Bleibt EA*u endlich (Stab axial
--- gehalten, keine Temperaturdehnung), wird uneu_i = EA*u_i exportiert, sonst uneu_i = u_i
--- (Starrkoerperverschiebung plus Temperaturdehnung). randinfo beschreibt, was gilt.
+-- Starre Staebe (stabDehnsteif / stabBiegesteif): EA bzw. EI = 1/rleps, alle Konstanten werden mit
+-- limit(..., rleps, 0) bestimmt. Bleibt EA*u bzw. EI*w endlich (Stab nicht als Ganzes verschoben
+-- bzw. verdreht, keine Temperaturdehnung/-kruemmung), wird wie sonst EA*u bzw. EI*w exportiert,
+-- sonst u_i(x) bzw. w_i(x) (Starrkoerperbewegung plus Temperaturanteil). randinfo beschreibt, was gilt.
 -- =====================================================================
 
 -- Linearform: sum c[j]*x_j + k, alle Eintraege als CAS-Strings
@@ -1239,51 +1271,83 @@ local function neuSkaliert(str, num, fmt)
     return "(" .. str .. ")*" .. fmt(num)
 end
 
+-- Temperatur eines Stabes als CAS-Texte (auch symbolisch): kappaT = alpha*(Tu-To)/h,
+-- epsT = alpha*(To+Tu)/2; nil, wenn der Anteil 0 ist. h = 0 heisst: kein Gradient.
+local function neuTemperatur(s)
+    local function gesetzt(str, wert) return (type(str) == "string" and str ~= "" and str ~= "0") or (wert or 0) ~= 0 end
+    if not (gesetzt(s.To_str, s.To) or gesetzt(s.Tu_str, s.Tu)) then return nil, nil end
+    local To, Tu = neuSymbolText(s.To, s.To_str), neuSymbolText(s.Tu, s.Tu_str)
+    local al = neuSymbolText(s.alpha, s.alpha_str)
+    local eTs = neuExakt("(" .. al .. ")*((" .. To .. ")+(" .. Tu .. "))/2")
+    if eTs == "0" then eTs = nil end
+    local kTs = nil
+    if gesetzt(s.h_str, s.h) then
+        kTs = neuExakt("(" .. al .. ")*((" .. Tu .. ")-(" .. To .. "))/(" .. neuSymbolText(s.h, s.h_str) .. ")")
+        if kTs == "0" then kTs = nil end
+    end
+    return kTs, eTs
+end
+
+-- true, wenn ein Lasttext nur aus Zahlen besteht und 0 ergibt (spart CAS-Integrale unbelasteter Staebe)
+local function neuIstNull(expr)
+    local t = tostring(expr or "0"):gsub("%s", "")
+    if t:find("[^%d%.%+%-%*/%^%(%)]") then return false end
+    local f = (loadstring or load)("return " .. t)
+    if not f then return false end
+    local ok, v = pcall(f)
+    return ok and type(v) == "number" and v == 0
+end
+
 -- Stabdaten fuer das Rand-LGS: Laenge, Richtung, Steifigkeiten, Lastfunktionen, Stabendgroessen
-local function neuStabDaten(i, s, base)
+local function neuStabDaten(i, s, base, direkt)
     local k1, k2 = knoten[s.k1], knoten[s.k2]
     local dx, dy = k2.x - k1.x, k2.y - k1.y
     local L = math.sqrt(dx * dx + dy * dy)
     local Ls = neuMemberLength(s)
-    local EI = neuSymbolText(s.EI, s.EI_str)
-    local EA = neuSymbolText(s.EA, s.EA_str)
-    local EAzahl = EA
-    local starr = randDehnstarr and neuIstZahlText(s.EA_str) and (s.EA or 0) > 0
-    if starr then EA = "(" .. EA .. "/" .. RL_EPS .. ")" end
+    -- starre Staebe: Grenzwert-Methode mit Steifigkeit 1/rleps (danach rleps -> 0) oder direkt:
+    -- biegesteif w = c4 + c3*x - kappaT*x^2/2, dehnsteif u = C2 + epsT*x; Schnittgroessen wie sonst
+    local starrI, starr = stabBiegesteif(s), stabDehnsteif(s)
+    local dirI, dirA = starrI and direkt, starr and direkt
+    local EI = (starrI and not direkt) and ("(1/" .. RL_EPS .. ")") or neuSymbolText(s.EI, s.EI_str)
+    local EA = (starr and not direkt) and ("(1/" .. RL_EPS .. ")") or neuSymbolText(s.EA, s.EA_str)
     local q = getEqQ(s, L, fN_export, Ls)
     local n = getEqN(s, L, fN_export, Ls)
     local m = "(" .. neuCasText(s.m_str or "0") .. ")"
     local qt, mt, nt = q:subx("t"), m:subx("t"), n:subx("t")
-    local hasM = not (m == "(0)" or m == "()")
-    local kT, eT = 0, 0
-    if (s.h or 0) > 0 and ((s.To or 0) ~= 0 or (s.Tu or 0) ~= 0) then
-        kT = (s.alpha or 0) * ((s.Tu or 0) - (s.To or 0)) / s.h
-        eT = (s.alpha or 0) * ((s.To or 0) + (s.Tu or 0)) / 2
-    end
+    local hasM = not (m == "(0)" or m == "()" or neuIstNull(m))
+    local qNull, nNull = neuIstNull(q), neuIstNull(n)
+    local kTs, eTs = neuTemperatur(s)
     -- Partikulaere Anteile als Funktionen von x
-    local wp = "integral((" .. qt .. ")*(x-t)^3,t,0,x)/6"
-    local wp1 = "integral((" .. qt .. ")*(x-t)^2,t,0,x)/2"
-    local wp2 = "integral((" .. qt .. ")*(x-t),t,0,x)"
+    local wp, wp1, wp2 = "0", "0", "0"
+    if not qNull then
+        wp = "integral((" .. qt .. ")*(x-t)^3,t,0,x)/6"
+        wp1 = "integral((" .. qt .. ")*(x-t)^2,t,0,x)/2"
+        wp2 = "integral((" .. qt .. ")*(x-t),t,0,x)"
+    end
     if hasM then
         wp = wp .. "+integral((" .. mt .. ")*(x-t)^2,t,0,x)/2"
         wp1 = wp1 .. "+integral((" .. mt .. ")*(x-t),t,0,x)"
         wp2 = wp2 .. "+integral((" .. mt .. "),t,0,x)"
     end
-    if kT ~= 0 then
-        wp = wp .. "-(" .. EI .. ")*" .. neuZahl(kT) .. "*x^2/2"
-        wp1 = wp1 .. "-(" .. EI .. ")*" .. neuZahl(kT) .. "*x"
+    if kTs then
+        wp = wp .. "-(" .. EI .. ")*(" .. kTs .. ")*x^2/2"
+        wp1 = wp1 .. "-(" .. EI .. ")*(" .. kTs .. ")*x"
     end
-    local iq = "integral((" .. qt .. "),t,0,x)"
-    local up = "-integral((" .. nt .. ")*(x-t),t,0,x)"
-    if eT ~= 0 then up = up .. "+(" .. EA .. ")*" .. neuZahl(eT) .. "*x" end
-    local inn = "integral((" .. nt .. "),t,0,x)"
+    local iq = qNull and "0" or ("integral((" .. qt .. "),t,0,x)")
+    local up = nNull and "0" or ("-integral((" .. nt .. ")*(x-t),t,0,x)")
+    if eTs then up = up .. "+(" .. EA .. ")*(" .. eTs .. ")*x" end
+    local inn = nNull and "0" or ("integral((" .. nt .. "),t,0,x)")
     local Lx = "(" .. Ls .. ")"
-    local function beiL(expr) return neuExakt(expr:subx(Lx)) end
+    local function beiL(expr)
+        if expr == "0" then return "0" end
+        return neuExakt(expr:subx(Lx))
+    end
     local d = {
-        i = i, s = s, L = L, Ls = Ls, EI = EI, EA = EA, base = base, starr = starr, EAzahl = EAzahl, eT = eT,
+        i = i, s = s, L = L, Ls = Ls, EI = EI, EA = EA, base = base, starr = starr, starrI = starrI, kTs = kTs, eTs = eTs,
         tx = dx / L, ty = dy / L, nx = -dy / L, ny = dx / L,
         wp = wp, up = up,
-        WPL = beiL(wp), WP1L = beiL(wp1), WP2L = beiL(wp2), IQL = beiL(iq), UPL = beiL(up), INL = beiL(inn),
+        WPL = dirI and "0" or beiL(wp), WP1L = dirI and "0" or beiL(wp1), WP2L = beiL(wp2), IQL = beiL(iq),
+        UPL = dirA and "0" or beiL(up), INL = beiL(inn),
     }
     local c1, c2, c3, c4, C1, C2 = base + 1, base + 2, base + 3, base + 4, base + 5, base + 6
     local function nm(g, x) return g .. i .. "(x" .. i .. "=" .. x .. ")" end
@@ -1293,25 +1357,32 @@ local function neuStabDaten(i, s, base)
         if temp then return vor .. "(" .. basis .. temp .. ")" end
         return vor .. basis
     end
-    local tM = (kT ~= 0) and ("+" .. fN_export(kT)) or nil
-    local tN = (eT ~= 0) and ("-" .. fN_export(eT)) or nil
+    local tM = kTs and ("+" .. rlKlammer(kTs)) or nil
+    local tN = eTs and ("-" .. rlKlammer(eTs)) or nil
     -- Ende A (x = 0)
     local A = {}
-    A.w = rlGroesse(nm("w", "0"), rlEinheit(c4, "1/(" .. EI .. ")"))
-    A.phi = rlGroesse(nmAbl("", "w", "'", "0"), rlEinheit(c3, "-1/(" .. EI .. ")"), -1)
+    A.w = rlGroesse(nm("w", "0"), rlEinheit(c4, dirI and "1" or ("1/(" .. EI .. ")")))
+    A.phi = rlGroesse(nmAbl("", "w", "'", "0"), rlEinheit(c3, dirI and "-1" or ("-1/(" .. EI .. ")")), -1)
     A.M = rlGroesse(nmAbl("EI", "w", "''", "0", tM), rlEinheit(c2, "-1"), -1)
     A.Q = rlGroesse(nmAbl("EI", "w", "'''", "0"), rlEinheit(c1, "-1"), -1)
-    A.u = rlGroesse(nm("u", "0"), rlEinheit(C2, "1/(" .. EA .. ")"))
+    A.u = rlGroesse(nm("u", "0"), rlEinheit(C2, dirA and "1" or ("1/(" .. EA .. ")")))
     A.N = rlGroesse(nmAbl("EA", "u", "'", "0", tN), rlEinheit(C1, "1"))
     -- Ende B (x = L)
     local B = {}
-    local lw = rlNeu()
-    lw.c[c1] = "(" .. Lx .. "^3/6)/(" .. EI .. ")"; lw.c[c2] = "(" .. Lx .. "^2/2)/(" .. EI .. ")"
-    lw.c[c3] = Lx .. "/(" .. EI .. ")"; lw.c[c4] = "1/(" .. EI .. ")"; lw.k = "(" .. d.WPL .. ")/(" .. EI .. ")"
+    local lw, lphi = rlNeu(), rlNeu()
+    if dirI then
+        -- starr: w(L) = c4 + c3*L - kappaT*L^2/2, phi(L) = -c3 + kappaT*L
+        lw.c[c3] = Lx; lw.c[c4] = "1"
+        if kTs then lw.k = "-(" .. kTs .. ")*" .. Lx .. "^2/2" end
+        lphi.c[c3] = "-1"
+        if kTs then lphi.k = "(" .. kTs .. ")*" .. Lx end
+    else
+        lw.c[c1] = "(" .. Lx .. "^3/6)/(" .. EI .. ")"; lw.c[c2] = "(" .. Lx .. "^2/2)/(" .. EI .. ")"
+        lw.c[c3] = Lx .. "/(" .. EI .. ")"; lw.c[c4] = "1/(" .. EI .. ")"; lw.k = "(" .. d.WPL .. ")/(" .. EI .. ")"
+        lphi.c[c1] = "-(" .. Lx .. "^2/2)/(" .. EI .. ")"; lphi.c[c2] = "-" .. Lx .. "/(" .. EI .. ")"
+        lphi.c[c3] = "-1/(" .. EI .. ")"; lphi.k = "-(" .. d.WP1L .. ")/(" .. EI .. ")"
+    end
     B.w = rlGroesse(nm("w", Ls), lw)
-    local lphi = rlNeu()
-    lphi.c[c1] = "-(" .. Lx .. "^2/2)/(" .. EI .. ")"; lphi.c[c2] = "-" .. Lx .. "/(" .. EI .. ")"
-    lphi.c[c3] = "-1/(" .. EI .. ")"; lphi.k = "-(" .. d.WP1L .. ")/(" .. EI .. ")"
     B.phi = rlGroesse(nmAbl("", "w", "'", Ls), lphi, -1)
     local lM = rlNeu()
     lM.c[c1] = "-" .. Lx; lM.c[c2] = "-1"; lM.k = "-(" .. d.WP2L .. ")"
@@ -1320,7 +1391,13 @@ local function neuStabDaten(i, s, base)
     lQ.c[c1] = "-1"; lQ.k = "-(" .. d.IQL .. ")"
     B.Q = rlGroesse(nmAbl("EI", "w", "'''", Ls), lQ, -1)
     local lu = rlNeu()
-    lu.c[C1] = Lx .. "/(" .. EA .. ")"; lu.c[C2] = "1/(" .. EA .. ")"; lu.k = "(" .. d.UPL .. ")/(" .. EA .. ")"
+    if dirA then
+        -- starr: u(L) = C2 + epsT*L
+        lu.c[C2] = "1"
+        if eTs then lu.k = "(" .. eTs .. ")*" .. Lx end
+    else
+        lu.c[C1] = Lx .. "/(" .. EA .. ")"; lu.c[C2] = "1/(" .. EA .. ")"; lu.k = "(" .. d.UPL .. ")/(" .. EA .. ")"
+    end
     B.u = rlGroesse(nm("u", Ls), lu)
     local lN = rlNeu()
     lN.c[C1] = "1"; lN.k = "-(" .. d.INL .. ")"
@@ -1515,36 +1592,20 @@ local function neuFehler(text)
     return false
 end
 
--- Hauptfunktion: LGS aufstellen, loesen, Funktionen und Bedingungsliste exportieren
-local function neuRandLGS()
-    neuShowMessage("Rand-LGS gestartet")
-    if not math.eval then neuExportStatus("Fehler: CAS nicht verfuegbar!"); return false end
-    -- alte Ergebnisse loeschen, damit nach einem Abbruch nichts Veraltetes stehen bleibt
-    local alt = { "randbed", "randinfo", RL_EPS }
-    for i = 1, math.max(30, #staebe) do alt[#alt + 1] = "vne" .. i; alt[#alt + 1] = "uneu" .. i end
-    pcall(math.eval, "DelVar " .. table.concat(alt, ","))
-    if #staebe == 0 then return neuFehler("Keine Staebe vorhanden") end
-    if symbolFehler then return neuFehler("Symbolischer Modus: " .. symbolFehler) end
-    if KGV_Zustand and KGV_Zustand > 0 then
-        return neuFehler("Rand-LGS nicht im KGV-Einheitszustand X" .. KGV_Zustand .. " (Zustand 0 waehlen)")
-    end
-    for i, s in ipairs(staebe) do
-        local k1, k2 = knoten[s.k1], knoten[s.k2]
-        local L = math.sqrt((k2.x - k1.x) ^ 2 + (k2.y - k1.y) ^ 2)
-        if (s.bogen_r or 0) ~= 0 and L > 0 and math.abs(s.bogen_r) >= L / 2 then
-            return neuFehler("Stab " .. i .. ": Boegen werden vom Rand-LGS nicht unterstuetzt")
-        end
-    end
+-- LGS aufstellen, loesen und exportieren. direkt = true: starre Staebe ohne Grenzwert (Starrkoerperbewegung
+-- plus Gleichgewicht). Rueckgabe true oder false, { text, singulaer }.
+local function neuRandLGSLoesen(direkt, methodeInfo)
+    local function fehler(text, singulaer) return false, { text = text, singulaer = singulaer } end
     -- Stabdaten
     local bars = {}
     for i, s in ipairs(staebe) do
         local k1, k2 = knoten[s.k1], knoten[s.k2]
         local L = math.sqrt((k2.x - k1.x) ^ 2 + (k2.y - k1.y) ^ 2)
         if L > 0 and not s.is_cut and not s.is_virtual_parent then
-            bars[#bars + 1] = neuStabDaten(i, s, #bars * 6)
+            bars[#bars + 1] = neuStabDaten(i, s, #bars * 6, direkt)
         end
     end
-    if #bars == 0 then return neuFehler("Kein gueltiger Stab") end
+    if #bars == 0 then return fehler("Kein gueltiger Stab") end
     -- Stabenden je Knoten
     local byNode = {}
     for _, d in ipairs(bars) do
@@ -1560,7 +1621,7 @@ local function neuRandLGS()
     for kidx = 1, #knoten do
         if byNode[kidx] then neuKnotenBedingungen(kidx, knoten[kidx], byNode[kidx], conds, extra) end
     end
-    if extra.fehler then return neuFehler(extra.fehler) end
+    if extra.fehler then return fehler(extra.fehler) end
     local nUnknown = extra.n
     -- Zeilen aufbauen
     local rows, texts = {}, {}
@@ -1568,16 +1629,16 @@ local function neuRandLGS()
         rows[#rows + 1] = rlBedZeile(cond)
         texts[#texts + 1] = rlBedText(cond)
     end
-    neuShowMessage(#rows .. " Bedingungen, " .. nUnknown .. " Unbekannte")
+    neuShowMessage(#rows .. " Bedingungen, " .. nUnknown .. " Unbekannte" .. (direkt and " (starre Staebe direkt)" or ""))
     if #rows ~= nUnknown then
-        return neuFehler("Rand-LGS nicht quadratisch: " .. #rows .. " Bedingungen, " .. nUnknown .. " Unbekannte")
+        return fehler("Rand-LGS nicht quadratisch: " .. #rows .. " Bedingungen, " .. nUnknown .. " Unbekannte")
     end
     -- Vorelimination und Loesung
     local values, rest = neuVorElimination(rows)
     local restIdx = {}
     for j = 1, nUnknown do if not values[j] then restIdx[#restIdx + 1] = j end end
     if #rest ~= #restIdx then
-        return neuFehler("Rand-LGS singulaer (" .. #rest .. " Gleichungen fuer " .. #restIdx .. " Unbekannte): System kinematisch?")
+        return fehler("Rand-LGS singulaer (" .. #rest .. " Gleichungen fuer " .. #restIdx .. " Unbekannte): System kinematisch?", true)
     end
     if #restIdx > 0 then
         local aRows, bRows = {}, {}
@@ -1592,7 +1653,7 @@ local function neuRandLGS()
         local ok, res = pcall(neuCasString, cmd)
         if not ok or not res or res:sub(1, 2) ~= "[[" then
             local msg = tostring(res):gsub("^.-__ERROR__", ""):gsub("^[^%s]-:%d+: ", "")
-            return neuFehler("Rand-LGS nicht loesbar (" .. msg:sub(1, 50) .. "): System kinematisch?")
+            return fehler("Rand-LGS nicht loesbar (" .. msg:sub(1, 50) .. "): System kinematisch?", true)
         end
         local body = res:sub(3, -3)
         local c = 0
@@ -1600,72 +1661,137 @@ local function neuRandLGS()
             c = c + 1
             if restIdx[c] then values[restIdx[c]] = v end
         end
-        if c ~= #restIdx then return neuFehler("Rand-LGS: unerwartete Loesung " .. res:sub(1, 40)) end
+        if c ~= #restIdx then return fehler("Rand-LGS: unerwartete Loesung " .. res:sub(1, 40)) end
     end
-    -- Dehnstarr: Grenzwert rleps -> 0 fuer alle Konstanten. C2 = EA*u(0) eines dehnstarren Stabs
-    -- ist nur endlich, wenn der Stab axial gehalten ist; sonst wird u(x) exportiert.
-    local starrListe, uListe = {}, {}
-    local uStarr = {}   -- Stab -> Text von EA_Zahl*u(0) (Grenzwert von rleps*C2)
-    for _, d in ipairs(bars) do if d.starr then starrListe[#starrListe + 1] = tostring(d.i) end end
-    if #starrListe > 0 then
-        neuShowMessage("Dehnstarr: Grenzwert EA -> unendlich fuer Stab " .. table.concat(starrListe, ","))
-        local istC2 = {}
-        for _, d in ipairs(bars) do if d.starr then istC2[d.base + 6] = d end end
+    local dehnListe, biegeListe, uListe, wListe = {}, {}, {}, {}
+    local uStarr, wStarr, spezial = {}, {}, {}
+    for _, d in ipairs(bars) do
+        if d.starr then dehnListe[#dehnListe + 1] = tostring(d.i); spezial[d.base + 6] = { d = d, art = "u" } end
+        if d.starrI then
+            biegeListe[#biegeListe + 1] = tostring(d.i)
+            spezial[d.base + 3] = { d = d, art = "w" }; spezial[d.base + 4] = { d = d, art = "w" }
+        end
+    end
+    if #dehnListe + #biegeListe > 0 and not direkt then
+        -- Grenzwert rleps -> 0 fuer alle Konstanten. C2 = EA*u(0) bzw. c3, c4 (EI*w-Anteile der
+        -- Starrkoerperbewegung) sind nur endlich, wenn sich der Stab nicht als Ganzes bewegt; sonst
+        -- werden u(x) bzw. w(x) exportiert.
+        neuShowMessage("Starre Staebe: Grenzwert fuer dehnsteif " .. table.concat(dehnListe, ",") .. " / biegesteif " .. table.concat(biegeListe, ","))
+        local teil = {}
+        for j, sp in pairs(spezial) do
+            teil[j] = neuGrenzwert(RL_EPS .. "*(" .. (values[j] or "0") .. ")")
+            if not teil[j] then return fehler("Starrer Stab " .. sp.d.i .. ": Grenzwert nicht bestimmbar") end
+        end
+        for _, d in ipairs(bars) do
+            local b = d.base
+            if d.starr and not (teil[b + 6] == "0" and not d.eTs) then uStarr[d.i] = teil[b + 6] end
+            if d.starrI and not (teil[b + 3] == "0" and teil[b + 4] == "0" and not d.kTs) then wStarr[d.i] = { teil[b + 3], teil[b + 4] } end
+        end
         for j = 1, nUnknown do
-            local v = values[j] or "0"
-            local d = istC2[j]
-            if d then
-                local u0 = neuGrenzwert(RL_EPS .. "*(" .. v .. ")")
-                if not u0 then return neuFehler("Dehnstarr: Grenzwert fuer Stab " .. d.i .. " nicht bestimmbar (dehnstarr ausschalten)") end
-                if u0 == "0" and d.eT == 0 then
-                    values[j] = neuGrenzwert(v)
-                else
-                    uStarr[d.i] = u0
-                    values[j] = "0"
-                end
+            local sp = spezial[j]
+            if sp and ((sp.art == "u" and uStarr[sp.d.i]) or (sp.art == "w" and wStarr[sp.d.i])) then
+                values[j] = "0"   -- wird nicht gebraucht, Export ueber u(x) bzw. w(x)
             else
-                values[j] = neuGrenzwert(v)
-            end
-            if not values[j] then
-                return neuFehler("Dehnstarr: unendliche Zwangskraft (z. B. Temperatur in axial gehaltenem Stab), dehnstarr ausschalten")
+                values[j] = neuGrenzwert(values[j] or "0")
+                if not values[j] then
+                    return fehler("Starre Staebe: unendliche Zwangskraft (z. B. Temperatur in gehaltenem starrem Stab)")
+                end
             end
         end
     else
-        -- Konstanten exakt bereinigen (keine Rundung)
-        for j = 1, nUnknown do values[j] = neuExakt(values[j] or "0") end
+        -- Konstanten stammen aus exact(simult(...)); vereinfacht wird erst beim Export der Funktionen
+        for j = 1, nUnknown do values[j] = values[j] or "0" end
+        if direkt then
+            -- direkt: die Konstanten starrer Staebe sind die Starrkoerperbewegung selbst
+            for _, d in ipairs(bars) do
+                local b = d.base
+                if d.starrI then wStarr[d.i] = { values[b + 3], values[b + 4] } end
+                if d.starr then uStarr[d.i] = values[b + 6] end
+            end
+        end
     end
     local count = 0
     for _, d in ipairs(bars) do
         local b = d.base
-        local ew = d.wp .. "+(" .. values[b + 1] .. ")*x^3/6+(" .. values[b + 2] .. ")*x^2/2+(" .. values[b + 3] .. ")*x+(" .. values[b + 4] .. ")"
-        local eu
+        local ew, eu
+        if wStarr[d.i] then
+            -- EI*w unendlich bzw. starr: w(x) = -kappaT*x^2/2 + Starrkoerperbewegung
+            ew = "-(" .. (d.kTs or "0") .. ")*x^2/2+(" .. wStarr[d.i][1] .. ")*x+(" .. wStarr[d.i][2] .. ")"
+            wListe[#wListe + 1] = d.i
+        else
+            ew = d.wp .. "+(" .. values[b + 1] .. ")*x^3/6+(" .. values[b + 2] .. ")*x^2/2+(" .. values[b + 3] .. ")*x+(" .. values[b + 4] .. ")"
+        end
         if uStarr[d.i] then
-            -- EA*u unendlich: Verschiebung u(x) = epsT*x + u(0)
-            eu = "(" .. neuZahl(d.eT) .. ")*x+(" .. uStarr[d.i] .. ")/(" .. d.EAzahl .. ")"
+            -- EA*u unendlich bzw. starr: u(x) = epsT*x + u(0)
+            eu = "(" .. (d.eTs or "0") .. ")*x+(" .. uStarr[d.i] .. ")"
             uListe[#uListe + 1] = d.i
         else
             eu = d.up .. "+(" .. values[b + 5] .. ")*x+(" .. values[b + 6] .. ")"
         end
-        -- exakt (keine Rundung); auf dem Rechner bei Bedarf approx(vne1(x)) verwenden
-        if not neuCasEval("vne" .. d.i .. "(x):=" .. neuExakt(ew), "vne" .. d.i) then return false end
-        if not neuCasEval("uneu" .. d.i .. "(x):=" .. neuExakt(eu), "uneu" .. d.i) then return false end
+        -- exakt (keine Rundung); auf dem Rechner bei Bedarf approx(wneu1(x)) verwenden
+        if not neuCasEval("wneu" .. d.i .. "(x):=" .. neuExakt(ew), "wneu" .. d.i) then return fehler("Export wneu" .. d.i .. " fehlgeschlagen") end
+        if not neuCasEval("uneu" .. d.i .. "(x):=" .. neuExakt(eu), "uneu" .. d.i) then return fehler("Export uneu" .. d.i .. " fehlgeschlagen") end
+        -- Verschiebungen direkt (z. B. solve(uv2(l)=0,dt) oder solve(wv1(l)=1/2,f)):
+        -- EI*w bzw. EA*u geteilt durch die Steifigkeit; starre Staebe ohne Starrkoerperbewegung: 0
+        local wv = wStarr[d.i] and ew or (d.starrI and "0" or ("(" .. ew .. ")/(" .. d.EI .. ")"))
+        local uv = uStarr[d.i] and eu or (d.starr and "0" or ("(" .. eu .. ")/(" .. d.EA .. ")"))
+        if not neuCasEval("wv" .. d.i .. "(x):=" .. neuExakt(wv), "wv" .. d.i) then return fehler("Export wv" .. d.i .. " fehlgeschlagen") end
+        if not neuCasEval("uv" .. d.i .. "(x):=" .. neuExakt(uv), "uv" .. d.i) then return fehler("Export uv" .. d.i .. " fehlgeschlagen") end
         count = count + 1
     end
     -- Hinweise zur Bedeutung der Funktionen
     local info = {}
-    if #starrListe > 0 then
-        info[#info + 1] = "dehnstarr (EA->unendlich): Stab " .. table.concat(starrListe, ",")
-        for _, i in ipairs(uListe) do info[#info + 1] = "uneu" .. i .. "(x)=u" .. i .. "(x), da EA*u unendlich" end
-    else
-        info[#info + 1] = "dehnbar: vne_i(x)=EI*w_i(x), uneu_i(x)=EA*u_i(x)"
-    end
+    if #dehnListe > 0 then info[#info + 1] = "dehnsteif (EA->unendlich): Stab " .. table.concat(dehnListe, ",") end
+    if #biegeListe > 0 then info[#info + 1] = "biegesteif (EI->unendlich): Stab " .. table.concat(biegeListe, ",") end
+    local grund = direkt and " (starr)" or ", da EI*w unendlich"
+    for _, i in ipairs(wListe) do info[#info + 1] = "wneu" .. i .. "(x)=w" .. i .. "(x)" .. grund end
+    grund = direkt and " (starr)" or ", da EA*u unendlich"
+    for _, i in ipairs(uListe) do info[#info + 1] = "uneu" .. i .. "(x)=u" .. i .. "(x)" .. grund end
+    if #info == 0 then info[1] = "keine starren Staebe: wneu_i(x)=EI*w_i(x), uneu_i(x)=EA*u_i(x)" end
+    if methodeInfo then info[#info + 1] = methodeInfo end
+    info[#info + 1] = "Verschiebungen: wv_i(x)=w_i(x), uv_i(x)=u_i(x)"
     for i, t in ipairs(info) do info[i] = '"' .. t .. '"' end
     pcall(math.eval, "randinfo:=[" .. table.concat(info, ";") .. "]")
     -- Bedingungsliste als Strings
     local quoted = {}
     for i, t in ipairs(texts) do quoted[i] = '"' .. t .. '"' end
     pcall(math.eval, "randbed:=[" .. table.concat(quoted, ";") .. "]")   -- Spaltenvektor aus Strings
-    neuExportStatus("Rand-LGS: " .. count .. " Staebe, " .. #texts .. " Bedingungen -> vne_i(x)=EI*w, uneu_i(x)=EA*u, randbed")
+    neuExportStatus("Rand-LGS: " .. count .. " Staebe, " .. #texts .. " Bedingungen -> wneu_i(x)=EI*w, uneu_i(x)=EA*u, wv_i(x)=w, uv_i(x)=u, randbed")
+    return true
+end
+
+-- Hauptfunktion: Pruefungen, alte Ergebnisse loeschen, loesen (starre Staebe direkt, bei gegenseitig
+-- statisch unbestimmten starren Teilen automatisch ueber den Grenzwert)
+local function neuRandLGS()
+    neuShowMessage("Rand-LGS gestartet")
+    if not math.eval then neuExportStatus("Fehler: CAS nicht verfuegbar!"); return false end
+    -- alte Ergebnisse loeschen, damit nach einem Abbruch nichts Veraltetes stehen bleibt
+    local alt = { "randbed", "randinfo", RL_EPS }
+    for i = 1, math.max(30, #staebe) do
+        alt[#alt + 1] = "wneu" .. i; alt[#alt + 1] = "uneu" .. i; alt[#alt + 1] = "wv" .. i; alt[#alt + 1] = "uv" .. i
+    end
+    pcall(math.eval, "DelVar " .. table.concat(alt, ","))
+    if #staebe == 0 then return neuFehler("Keine Staebe vorhanden") end
+    if symbolFehler then return neuFehler("Symbolischer Modus: " .. symbolFehler) end
+    if KGV_Zustand and KGV_Zustand > 0 then
+        return neuFehler("Rand-LGS nicht im KGV-Einheitszustand X" .. KGV_Zustand .. " (Zustand 0 waehlen)")
+    end
+    local hatStarr = false
+    for i, s in ipairs(staebe) do
+        local k1, k2 = knoten[s.k1], knoten[s.k2]
+        local L = math.sqrt((k2.x - k1.x) ^ 2 + (k2.y - k1.y) ^ 2)
+        if (s.bogen_r or 0) ~= 0 and L > 0 and math.abs(s.bogen_r) >= L / 2 then
+            return neuFehler("Stab " .. i .. ": Boegen werden vom Rand-LGS nicht unterstuetzt")
+        end
+        if stabBiegesteif(s) or stabDehnsteif(s) then hatStarr = true end
+    end
+    local direkt = hatStarr and randStarrDirekt
+    local ok, err = neuRandLGSLoesen(direkt, hatStarr and (direkt and "starre Staebe: direkt" or "starre Staebe: Grenzwert") or nil)
+    if not ok and direkt and err and err.singulaer then
+        neuShowMessage("Starre Staebe direkt singulaer (gegenseitig statisch unbestimmt): Grenzwert-Methode")
+        ok, err = neuRandLGSLoesen(false, "starre Staebe: Grenzwert (direkt singulaer, starre Teile gegenseitig statisch unbestimmt)")
+    end
+    if not ok then return neuFehler(err and err.text or "Rand-LGS fehlgeschlagen") end
     return true
 end
 
@@ -2573,7 +2699,12 @@ local function getFesteinspannkraefte(stab, L, ignoreCondensation)
         M_k = M_k + (casToNumber(math.eval("approx(integral(("..eq_m..")*(2*x/"..L_s.."-3*x^2/("..L_s.."^2)),x,0,"..L_s.."))")) or 0)
     end
     
-    if stab.h > 0 then local N_t, M_t = stab.EA * stab.alpha * ((stab.To+stab.Tu)/2), stab.EI * stab.alpha * ((stab.Tu-stab.To)/stab.h); N_i = N_i + N_t; N_k = N_k - N_t; M_i = M_i + M_t; M_k = M_k - M_t end
+    if (stab.To or 0) ~= 0 or (stab.Tu or 0) ~= 0 then
+        -- gleichmaessiger Anteil immer, Temperaturgradient nur mit Hoehe h > 0
+        local N_t = stabEA_K(stab) * (stab.alpha or 0) * ((stab.To + stab.Tu) / 2)
+        local M_t = ((stab.h or 0) > 0) and (stabEI_K(stab) * (stab.alpha or 0) * ((stab.Tu - stab.To) / stab.h)) or 0
+        N_i = N_i + N_t; N_k = N_k - N_t; M_i = M_i + M_t; M_k = M_k - M_t
+    end
     
     if not ignoreCondensation then
         if stab.n_gelenk_A and stab.n_gelenk_B then N_i = 0; N_k = 0 
@@ -2602,10 +2733,11 @@ local function berechneStabMatrix(stab)
     local k1, k2 = knoten[stab.k1], knoten[stab.k2]
     local dx, dy = k2.x - k1.x, k2.y - k1.y; local L = math.sqrt(dx^2 + dy^2)
     if L == 0 then return nil end
-    local EA_L, EI12, EI6, EI4, EI2 = stab.EA/L, (12*stab.EI)/(L^3), (6*stab.EI)/(L^2), (4*stab.EI)/L, (2*stab.EI)/L
+    local EA_s, EI_s = stabEA_K(stab), stabEI_K(stab)
+    local EA_L, EI12, EI6, EI4, EI2 = EA_s/L, (12*EI_s)/(L^3), (6*EI_s)/(L^2), (4*EI_s)/L, (2*EI_s)/L
     local k_loc = { {EA_L,0,0,-EA_L,0,0}, {0,EI12,-EI6,0,-EI12,-EI6}, {0,-EI6,EI4,0,EI6,EI2}, {-EA_L,0,0,EA_L,0,0}, {0,-EI12,EI6,0,EI12,EI6}, {0,-EI6,EI2,0,EI6,EI4} }
     if stab.n_gelenk_A or stab.n_gelenk_B then k_loc[1][1]=0; k_loc[1][4]=0; k_loc[4][1]=0; k_loc[4][4]=0 end
-    if stab.q_gelenk_A or stab.q_gelenk_B then for i=1,6 do k_loc[2][i]=0; k_loc[5][i]=0; k_loc[i][2]=0; k_loc[i][5]=0 end; k_loc[3][3]=stab.EI/L; k_loc[3][6]=-stab.EI/L; k_loc[6][3]=-stab.EI/L; k_loc[6][6]=stab.EI/L end
+    if stab.q_gelenk_A or stab.q_gelenk_B then for i=1,6 do k_loc[2][i]=0; k_loc[5][i]=0; k_loc[i][2]=0; k_loc[i][5]=0 end; k_loc[3][3]=EI_s/L; k_loc[3][6]=-EI_s/L; k_loc[6][3]=-EI_s/L; k_loc[6][6]=EI_s/L end
     local c, s = dx/L, -dy/L; local T = { {c,-s,0,0,0,0}, {s,c,0,0,0,0}, {0,0,1,0,0,0}, {0,0,0,c,-s,0}, {0,0,0,s,c,0}, {0,0,0,0,0,1} }
     local TK = buildKnotenTransform(stab)
     return matMult(matMult(TK, matMult(matMult(matTrans(T), k_loc), T)), matTrans(TK)), k_loc
@@ -2645,6 +2777,208 @@ end
 
 local cached_factored_K = nil
 
+-- ============================================================================
+-- Starre Staebe in der FEM: exakte Zwangsbedingungen statt grosser Ersatzsteifigkeit
+--   dehnsteif:  u_B - u_A = epsT*L
+--   biegesteif: phi_A - phi_B = -kappaT*L,  w_B - w_A + L*phi_A = -kappaT*L^2/2   (phi = -w')
+-- Geloest wird im Unterraum der zulaessigen Verschiebungen u = Tz*ur + u0, die Kondition bleibt
+-- wie ohne starre Staebe. Die Stabkraefte starrer Staebe folgen aus K*u + C'*lambda = F.
+-- ============================================================================
+glob_zwang = nil   -- je Stab lokale Zusatz-Endkraefte aus den Zwangsbedingungen
+
+local function starrTemperatur(s)
+    local kT, eT = 0, 0
+    if (s.To or 0) ~= 0 or (s.Tu or 0) ~= 0 then
+        eT = (s.alpha or 0) * ((s.To or 0) + (s.Tu or 0)) / 2
+        if (s.h or 0) > 0 then kT = (s.alpha or 0) * ((s.Tu or 0) - (s.To or 0)) / s.h end
+    end
+    return kT, eT
+end
+
+-- Zeilen { c = {[Freiheitsgrad] = Wert}, g, stab, cl (lokale Zeile), leer } fuer alle starren Staebe
+local function baueZwangsbedingungen(ids)
+    local zeilen = {}
+    for i, s in ipairs(staebe) do
+        local bieg, dehn = stabBiegesteif(s), stabDehnsteif(s)
+        if (bieg or dehn) and not s.is_cut and not s.is_virtual_parent and ids[i] then
+            local k1, k2 = knoten[s.k1], knoten[s.k2]
+            local dx, dy = k2.x - k1.x, k2.y - k1.y; local L = math.sqrt(dx^2 + dy^2)
+            if L > 0 then
+                local c, sn = dx/L, -dy/L
+                local T = { {c,-sn,0,0,0,0}, {sn,c,0,0,0,0}, {0,0,1,0,0,0}, {0,0,0,c,-sn,0}, {0,0,0,sn,c,0}, {0,0,0,0,0,1} }
+                local A = matMult(T, matTrans(buildKnotenTransform(s)))   -- lokale Endverschiebungen = A * Element-Freiheitsgrade
+                local kT, eT = starrTemperatur(s)
+                local lokal = {}
+                if dehn and not (s.n_gelenk_A or s.n_gelenk_B) then lokal[#lokal + 1] = { cl = {-1, 0, 0, 1, 0, 0}, g = eT * L } end
+                if bieg then
+                    lokal[#lokal + 1] = { cl = {0, 0, 1, 0, 0, -1}, g = -kT * L }
+                    if not (s.q_gelenk_A or s.q_gelenk_B) then lokal[#lokal + 1] = { cl = {0, -1, L, 0, 1, 0}, g = -kT * L * L / 2 } end
+                end
+                local id = ids[i]
+                for _, z in ipairs(lokal) do
+                    local row, leer = {}, true
+                    for j = 1, 6 do
+                        local v = 0
+                        for k = 1, 6 do v = v + z.cl[k] * A[k][j] end
+                        if id[j] > 0 and math.abs(v) > 1e-14 then row[id[j]] = (row[id[j]] or 0) + v; leer = false end
+                    end
+                    zeilen[#zeilen + 1] = { c = row, g = z.g, stab = i, cl = z.cl, leer = leer }
+                end
+            end
+        end
+    end
+    return zeilen
+end
+
+-- kleines dichtes LGS mit Spaltenpivot; nil, wenn singulaer
+local function gaussLoesen(A, b)
+    local n = #b
+    local M = {}
+    for i = 1, n do M[i] = {}; for j = 1, n do M[i][j] = A[i][j] end; M[i][n + 1] = b[i] end
+    for k = 1, n do
+        local p, best = k, math.abs(M[k][k])
+        for i = k + 1, n do if math.abs(M[i][k]) > best then p, best = i, math.abs(M[i][k]) end end
+        if best < 1e-300 then return nil end
+        M[k], M[p] = M[p], M[k]
+        for i = k + 1, n do
+            local f = M[i][k] / M[k][k]
+            if f ~= 0 then for j = k, n + 1 do M[i][j] = M[i][j] - f * M[k][j] end end
+        end
+    end
+    local x = {}
+    for i = n, 1, -1 do
+        local s = M[i][n + 1]
+        for j = i + 1, n do s = s - M[i][j] * x[j] end
+        x[i] = s / M[i][i]
+    end
+    return x
+end
+
+-- Zwangsbedingungen eliminieren und reduziertes System faktorisieren
+local function faktorisiereMitZwang(K, zeilen)
+    local n = #K
+    local R, kept, pivot, istPivot = {}, {}, {}, {}
+    for _, z in ipairs(zeilen) do
+        if not z.leer then
+            local d, norm = {}, 0
+            for j = 1, n do d[j] = z.c[j] or 0; norm = math.max(norm, math.abs(d[j])) end
+            local g = z.g
+            -- bisherige Pivotspalten aus der Zeile entfernen
+            for r = 1, #R do
+                local f = d[pivot[r]]
+                if f ~= 0 then for j = 1, n do d[j] = d[j] - f * R[r].d[j] end; g = g - f * R[r].g end
+            end
+            local p, best = nil, 0
+            for j = 1, n do if not istPivot[j] and math.abs(d[j]) > best then p, best = j, math.abs(d[j]) end end
+            if p and best > 1e-9 * math.max(norm, 1e-300) then
+                local inv = 1 / d[p]
+                for j = 1, n do d[j] = d[j] * inv end; g = g * inv
+                -- Pivot aus den frueheren Zeilen entfernen (reduzierte Stufenform)
+                for r = 1, #R do
+                    local f = R[r].d[p]
+                    if f ~= 0 then for j = 1, n do R[r].d[j] = R[r].d[j] - f * d[j] end; R[r].g = R[r].g - f * g end
+                end
+                R[#R + 1] = { d = d, g = g }; pivot[#R] = p; istPivot[p] = true
+                kept[#kept + 1] = z
+            end
+        end
+    end
+    -- u = Tz*ur + u0: unabhaengige Freiheitsgrade durchnummerieren
+    local idx, nr = {}, 0
+    for j = 1, n do if not istPivot[j] then nr = nr + 1; idx[j] = nr end end
+    local Tz, u0 = {}, {}
+    for i = 1, n do Tz[i] = {}; for a = 1, nr do Tz[i][a] = 0 end; u0[i] = 0 end
+    for j = 1, n do if idx[j] then Tz[j][idx[j]] = 1 end end
+    for r = 1, #R do
+        local pr = pivot[r]
+        u0[pr] = R[r].g
+        for j = 1, n do if idx[j] and R[r].d[j] ~= 0 then Tz[pr][idx[j]] = -R[r].d[j] end end
+    end
+    local fact = nil
+    if nr > 0 then
+        local KT = {}
+        for i = 1, n do
+            KT[i] = {}
+            for a = 1, nr do
+                local s = 0
+                for j = 1, n do local t = Tz[j][a]; if t ~= 0 then s = s + K[i][j] * t end end
+                KT[i][a] = s
+            end
+        end
+        local Kr = {}
+        for a = 1, nr do
+            Kr[a] = {}
+            for b = 1, nr do
+                local s = 0
+                for i = 1, n do local t = Tz[i][a]; if t ~= 0 then s = s + t * KT[i][b] end end
+                Kr[a][b] = s
+            end
+        end
+        fact = factorLGS(Kr)
+        if not fact then return nil end
+    end
+    return { zwang = true, fact = fact, Tz = Tz, u0 = u0, nr = nr, n = n, K = K, zeilen = kept }
+end
+
+-- Loesung mit Zwang; setzt glob_zwang (lokale Zusatz-Endkraefte je starrem Stab)
+local function loeseMitZwang(zf, F)
+    local n, nr, Tz, K, u0 = zf.n, zf.nr, zf.Tz, zf.K, zf.u0
+    local Fm = {}
+    for i = 1, n do
+        local s = F[i] or 0
+        for j = 1, n do if u0[j] ~= 0 then s = s - K[i][j] * u0[j] end end
+        Fm[i] = s
+    end
+    local ur = {}
+    if nr > 0 then
+        local Fr = {}
+        for a = 1, nr do
+            local s = 0
+            for i = 1, n do local t = Tz[i][a]; if t ~= 0 then s = s + t * Fm[i] end end
+            Fr[a] = s
+        end
+        ur = solveFactoredLGS(zf.fact, Fr)
+        if not ur then return nil end
+    end
+    local u = {}
+    for i = 1, n do
+        local s = u0[i]
+        for a = 1, nr do local t = Tz[i][a]; if t ~= 0 then s = s + t * ur[a] end end
+        u[i] = s
+    end
+    -- Lagrange-Multiplikatoren: (C C') lambda = C (F - K u)
+    local r = {}
+    for i = 1, n do
+        local s = F[i] or 0
+        for j = 1, n do s = s - K[i][j] * u[j] end
+        r[i] = s
+    end
+    local m = #zf.zeilen
+    local A, b = {}, {}
+    for p = 1, m do
+        local cp = zf.zeilen[p].c
+        local s = 0
+        for j, v in pairs(cp) do s = s + v * r[j] end
+        b[p] = s
+        A[p] = {}
+        for q = 1, m do
+            local cq, t = zf.zeilen[q].c, 0
+            for j, v in pairs(cp) do if cq[j] then t = t + v * cq[j] end end
+            A[p][q] = t
+        end
+    end
+    local lambda = (m > 0) and gaussLoesen(A, b) or {}
+    local kraefte = {}
+    for p = 1, m do
+        local z, l = zf.zeilen[p], (lambda and lambda[p]) or 0
+        local f = kraefte[z.stab] or {0, 0, 0, 0, 0, 0}
+        for k = 1, 6 do f[k] = f[k] + z.cl[k] * l end
+        kraefte[z.stab] = f
+    end
+    glob_zwang = kraefte
+    return u
+end
+
 berechneSystemGleichungen = function(checkKinematicsOnly, useCache)
     anzahlGleichungen = 0; glob_Legend = {}
     for i, k in ipairs(knoten) do
@@ -2675,7 +3009,8 @@ berechneSystemGleichungen = function(checkKinematicsOnly, useCache)
 
     if useCache and cached_factored_K and cached_factored_K.n == anzahlGleichungen and not return_kinematic_mode then
         glob_F = F
-        local u = solveFactoredLGS(cached_factored_K, F)
+        local u
+        if cached_factored_K.zwang then u = loeseMitZwang(cached_factored_K, F) else glob_zwang = nil; u = solveFactoredLGS(cached_factored_K, F) end
         if not u then return nil, stabID end
         for i = 1, #u do if u[i] ~= u[i] or math.abs(u[i]) > 1e10 then return nil, stabID end end
         glob_u = u; return u, stabID
@@ -2706,14 +3041,22 @@ berechneSystemGleichungen = function(checkKinematicsOnly, useCache)
         for i = 1, anzahlGleichungen do K[i][i] = K[i][i] + 1.0 end
     end
     
-    local fact = factorLGS(K)
+    -- starre Staebe als exakte Zwangsbedingungen (nicht im PvV-Modus)
+    local zeilen, hatZwang = {}, false
+    if not return_kinematic_mode then
+        zeilen = baueZwangsbedingungen(stabID)
+        for _, z in ipairs(zeilen) do if not z.leer then hatZwang = true end end
+    end
+    local fact
+    if hatZwang then fact = faktorisiereMitZwang(K, zeilen) else fact = factorLGS(K) end
     if checkKinematicsOnly and not return_kinematic_mode then return fact ~= nil, stabID end
     
     if not checkKinematicsOnly and not return_kinematic_mode then cached_factored_K = fact end
     
     glob_K = K; glob_F = F; 
     if not fact then return nil, stabID end
-    local u = solveFactoredLGS(fact, F)
+    local u
+    if hatZwang then u = loeseMitZwang(fact, F) else glob_zwang = nil; u = solveFactoredLGS(fact, F) end
     if not u then return nil, stabID end
     if return_kinematic_mode then
         local max_u = 0
@@ -2743,17 +3086,21 @@ local function berechneAlleSchnittgroessen(u)
                 local v_l = matMult(T, v_g)
                 local N_i_o, Q_i_o, M_i_o, N_k_o, Q_k_o, M_k_o = getFesteinspannkraefte(stab, L, true)
                 local p_orig = { {N_i_o}, {Q_i_o}, {M_i_o}, {N_k_o}, {Q_k_o}, {M_k_o} }
-                local EA_L = stab.EA / L; local EI12 = 12*stab.EI/L^3
+                local EA_s, EI_s = stabEA_K(stab), stabEI_K(stab)
+                local EA_L = EA_s / L; local EI12 = 12*EI_s/L^3
+                -- starre Staebe: keine Verformung aus den Festeinspannkraeften am Gelenk
+                local EA_Lr = stabDehnsteif(stab) and math.huge or EA_L
+                local EI12r = stabBiegesteif(stab) and math.huge or EI12
                 
                 local true_v_l = {v_l[1][1], v_l[2][1], v_l[3][1], v_l[4][1], v_l[5][1], v_l[6][1]}
-                if stab.n_gelenk_A and not stab.n_gelenk_B then true_v_l[1] = true_v_l[4] - N_i_o / EA_L
-                elseif stab.n_gelenk_B and not stab.n_gelenk_A then true_v_l[4] = true_v_l[1] - N_k_o / EA_L
+                if stab.n_gelenk_A and not stab.n_gelenk_B then true_v_l[1] = true_v_l[4] - N_i_o / EA_Lr
+                elseif stab.n_gelenk_B and not stab.n_gelenk_A then true_v_l[4] = true_v_l[1] - N_k_o / EA_Lr
                 elseif stab.n_gelenk_A and stab.n_gelenk_B then true_v_l[1] = true_v_l[4] end
-                if stab.q_gelenk_A and not stab.q_gelenk_B then true_v_l[2] = true_v_l[5] + (L/2)*true_v_l[3] + (L/2)*true_v_l[6] - Q_i_o / EI12
-                elseif stab.q_gelenk_B and not stab.q_gelenk_A then true_v_l[5] = true_v_l[2] - (L/2)*true_v_l[3] - (L/2)*true_v_l[6] - Q_k_o / EI12
+                if stab.q_gelenk_A and not stab.q_gelenk_B then true_v_l[2] = true_v_l[5] + (L/2)*true_v_l[3] + (L/2)*true_v_l[6] - Q_i_o / EI12r
+                elseif stab.q_gelenk_B and not stab.q_gelenk_A then true_v_l[5] = true_v_l[2] - (L/2)*true_v_l[3] - (L/2)*true_v_l[6] - Q_k_o / EI12r
                 elseif stab.q_gelenk_A and stab.q_gelenk_B then true_v_l[2] = true_v_l[5] + (L/2)*(true_v_l[3] + true_v_l[6]) end
                 
-                local EI6 = 6*stab.EI/L^2; local EI4 = 4*stab.EI/L; local EI2 = 2*stab.EI/L
+                local EI6 = 6*EI_s/L^2; local EI4 = 4*EI_s/L; local EI2 = 2*EI_s/L
                 local k_orig = {
                     { EA_L,      0,         0,       -EA_L,      0,         0       },
                     { 0,         EI12,     -EI6,      0,        -EI12,     -EI6     },
@@ -2764,7 +3111,8 @@ local function berechneAlleSchnittgroessen(u)
                 }
                 local true_v_l_col = {{true_v_l[1]}, {true_v_l[2]}, {true_v_l[3]}, {true_v_l[4]}, {true_v_l[5]}, {true_v_l[6]}}
                 local s_orig = matMult(k_orig, true_v_l_col)
-                for j = 1, 6 do stab.s_local[j] = s_orig[j][1] + p_orig[j][1]; stab.v_local[j] = true_v_l[j] end
+                local zk = glob_zwang and glob_zwang[i]   -- Zwangskraefte starrer Staebe (Lagrange-Multiplikatoren)
+                for j = 1, 6 do stab.s_local[j] = s_orig[j][1] + p_orig[j][1] + (zk and zk[j] or 0); stab.v_local[j] = true_v_l[j] end
                 
                 local N_i, Q_i, M_i, N_k, Q_k, M_k = getFesteinspannkraefte(stab, L, false)
                 local p_fest = { {N_i}, {Q_i}, {M_i}, {N_k}, {Q_k}, {M_k} }
@@ -2982,7 +3330,8 @@ local function injectVirtualArcs()
                                       cx=0, cy=0, cm=0, f_winkel=0})
                 local new_node_idx = #knoten
                 local v_stab = erstelleStab(prev_node_idx, new_node_idx)
-                v_stab.EA = s.EA; v_stab.EI = s.EI
+                v_stab.EA = s.EA; v_stab.EI = s.EI; v_stab.EA_str = s.EA_str; v_stab.EI_str = s.EI_str
+                v_stab.biegesteif, v_stab.dehnsteif, v_stab.EA_manuell = s.biegesteif, s.dehnsteif, s.EA_manuell
                 v_stab.is_virtual = true; v_stab.parent_idx = i
                 if j == 1 then 
                     v_stab.gelenk_A = s.gelenk_A 
@@ -2993,7 +3342,8 @@ local function injectVirtualArcs()
                 prev_node_idx = new_node_idx
             end
             local v_stab_last = erstelleStab(prev_node_idx, s.k2)
-            v_stab_last.EA = s.EA; v_stab_last.EI = s.EI
+            v_stab_last.EA = s.EA; v_stab_last.EI = s.EI; v_stab_last.EA_str = s.EA_str; v_stab_last.EI_str = s.EI_str
+            v_stab_last.biegesteif, v_stab_last.dehnsteif, v_stab_last.EA_manuell = s.biegesteif, s.dehnsteif, s.EA_manuell
             v_stab_last.is_virtual = true; v_stab_last.parent_idx = i
             v_stab_last.gelenk_B = s.gelenk_B
             v_stab_last.n_gelenk_B = s.n_gelenk_B
@@ -3215,7 +3565,7 @@ rechneAktuellesSystem = function()
         if not all_rigid then
             all_rigid = true
             for _, s in ipairs(staebe) do
-                if s.EA < 1e7 or s.EI < 1e7 then
+                if stabEA(s) < 1e7 or stabEI(s) < 1e7 then
                     all_rigid = false
                     break
                 end
@@ -3303,8 +3653,9 @@ local function runSymbolicSuperposition()
             local pow_v, pow_phi = 3, 2
             if input_type == "Moment" or input_type == "DistMoment" then pow_v, pow_phi = 2, 1 elseif input_type == "DistLoad" then pow_v, pow_phi = 4, 3 end
             
-            local c1_out = s.v_local[2] * s.EI; local c2_out = -s.v_local[3] * s.EI
-            local vb_out = s.v_local[5] * s.EI; local phib_out = -s.v_local[6] * s.EI
+            local EI_s = stabEI(s)
+            local c1_out = s.v_local[2] * EI_s; local c2_out = -s.v_local[3] * EI_s
+            local vb_out = s.v_local[5] * EI_s; local phib_out = -s.v_local[6] * EI_s
             
             if math.abs(c1_out) > 1e-6 then s.symb_start.c1 = s.symb_start.c1 .. string.format(" + %s*(%s)*(%s)^%d", numToSymFrac(c1_out / (input_dummy * L_dummy^pow_v)), input_str, L_sym, pow_v) end
             if math.abs(c2_out) > 1e-6 then s.symb_start.c2 = s.symb_start.c2 .. string.format(" + %s*(%s)*(%s)^%d", numToSymFrac(c2_out / (input_dummy * L_dummy^pow_phi)), input_str, L_sym, pow_phi) end
@@ -3392,15 +3743,19 @@ local function pruefeSymbolischenModus(geo_list)
             local feld = (low == "ei") and "EI_str" or "EA_str"
             for i, s in ipairs(staebe) do
                 local txt = (s[feld] or ""):lower()
-                if not txt:find("%f[%w_]" .. low .. "%f[^%w_]") then
-                    return "Stab " .. i .. ": " .. name .. " benutzt, aber " .. feld:sub(1, 2) .. " des Stabs nicht symbolisch"
+                local starr = (low == "ei" and stabBiegesteif(s)) or (low == "ea" and stabDehnsteif(s))
+                if not starr and not txt:find("%f[%w_]" .. low .. "%f[^%w_]") then
+                    local g = feld:sub(1, 2)
+                    return "Symbol " .. g .. " kommt vor, aber Stab " .. i .. " hat " .. g .. " als Zahl. " .. g .. " fuer alle Staebe symbolisch setzen."
                 end
             end
         end
     end
     for i, s in ipairs(staebe) do
-        if (s.To or 0) ~= 0 or (s.Tu or 0) ~= 0 then
-            return "Stab " .. i .. ": Temperatur nicht symbolisch moeglich"
+        for _, f in ipairs({ s.To_str, s.Tu_str, s.alpha_str, s.h_str }) do
+            if type(f) == "string" and f:hasx() then
+                return "Stab " .. i .. ": Temperatur als Funktion von x nicht moeglich"
+            end
         end
         for _, f in ipairs({ s.q_str, s.n_str, s.m_str, s.gx_str, s.gy_str }) do
             if type(f) == "string" and f:hasx() then
@@ -3454,6 +3809,10 @@ local function checkSymbolischerModus()
         local vi = checkStr(s.EI_str); if vi then s.EI = vi end
         local vgx = checkStr(s.gx_str); if vgx then s.gx = vgx end
         local vgy = checkStr(s.gy_str); if vgy then s.gy = vgy end
+        local vto = checkStr(s.To_str); if vto then s.To = vto end
+        local vtu = checkStr(s.Tu_str); if vtu then s.Tu = vtu end
+        local val = checkStr(s.alpha_str); if val then s.alpha = val end
+        local vh = checkStr(s.h_str); if vh then s.h = vh end
     end
     if #geo_list == 0 then
         symbLSym, symbLDummy = "l", rasterMass
@@ -3461,6 +3820,74 @@ local function checkSymbolischerModus()
         symbLSym, symbLDummy = geo_list[1], sym_vars[geo_list[1]] or 1.0
     end
     if symbolischer_modus then symbolFehler = pruefeSymbolischenModus(geo_list) end
+    symbolFehlerOffen = symbolFehler ~= nil
+end
+
+-- Hinweise nach der Berechnung (keine Fehler, das Ergebnis ist gueltig):
+--  * Temperatur mit To ~= Tu, aber h = 0: nur die mittlere Erwaermung wirkt
+--  * Temperatur im symbolischen Modus: Diagrammbeschriftungen ohne Temperaturanteil
+--  * symbolischer Modus: Zahl-EI bzw. Zahl-EA neben symbolischen Steifigkeiten (Ergebnis mischt Zahl
+--    und Symbol), nur fuer Staebe, bei denen die Groesse laut FEM tatsaechlich beansprucht wird
+local function sammleHinweise()
+    local liste, sig = {}, {}
+    local tempStaebe, ohneH = false, {}
+    for i, s in ipairs(staebe) do
+        local To, Tu = s.To_str or tostring(s.To or 0), s.Tu_str or tostring(s.Tu or 0)
+        if (To ~= "" and To ~= "0") or (Tu ~= "" and Tu ~= "0") then
+            tempStaebe = true
+            sig[#sig + 1] = i .. ":" .. To .. "," .. Tu .. "," .. tostring(s.alpha_str or s.alpha) .. "," .. tostring(s.h_str or s.h)
+            local hNull = (s.h or 0) == 0 and (not s.h_str or s.h_str == "" or s.h_str == "0")
+            if hNull and To ~= Tu then ohneH[#ohneH + 1] = tostring(i) end
+        end
+    end
+    if #ohneH > 0 then
+        liste[#liste + 1] = "Stab " .. table.concat(ohneH, ", ") .. ": To und Tu verschieden, aber h = 0. Es wirkt nur die mittlere Erwaermung (To+Tu)/2, keine Kruemmung. Fuer die Kruemmung h eingeben."
+    end
+    if symbolischer_modus and tempStaebe then
+        liste[#liste + 1] = "Temperatur symbolisch: Diagrammwerte ohne Temperaturanteil. Vollstaendig im Export (wneu, uneu, wv, uv)."
+    end
+    if symbolischer_modus and not warnungKinematisch then
+        -- gibt es ueberhaupt symbolische Steifigkeiten (Stab-EI/EA oder Federn)?
+        local symbolisch = false
+        for _, s in ipairs(staebe) do
+            if (not stabBiegesteif(s) and not neuIstZahlText(s.EI_str)) or (not stabDehnsteif(s) and not neuIstZahlText(s.EA_str)) then symbolisch = true end
+        end
+        for _, k in ipairs(knoten) do
+            for _, t in ipairs({ k.cx_str, k.cy_str, k.cm_str }) do
+                if type(t) == "string" and t ~= "" and not neuIstZahlText(t) then symbolisch = true end
+            end
+        end
+        if symbolisch then
+            local maxK = 0
+            for _, s in ipairs(staebe) do
+                if s.s_local then for j = 1, 6 do maxK = math.max(maxK, math.abs(s.s_local[j] or 0)) end end
+            end
+            local tol = 1e-9 * maxK
+            local eiListe, eaListe = {}, {}
+            for i, s in ipairs(staebe) do
+                local sl = s.s_local
+                if sl and maxK > 0 and not s.is_cut and not s.is_virtual_parent then
+                    local pendel = (s.gelenk_A or knoten[s.k1].gelenk) and (s.gelenk_B or knoten[s.k2].gelenk)
+                    local biegung = math.max(math.abs(sl[2] or 0), math.abs(sl[3] or 0), math.abs(sl[5] or 0), math.abs(sl[6] or 0))
+                    if not stabBiegesteif(s) and neuIstZahlText(s.EI_str) and not pendel and biegung > tol then
+                        eiListe[#eiListe + 1] = tostring(i)
+                    end
+                    if not stabDehnsteif(s) and neuIstZahlText(s.EA_str) and math.max(math.abs(sl[1] or 0), math.abs(sl[4] or 0)) > tol then
+                        eaListe[#eaListe + 1] = tostring(i)
+                    end
+                end
+            end
+            if #eiListe > 0 then
+                liste[#liste + 1] = "Stab " .. table.concat(eiListe, ", ") .. ": EI ist eine Zahl, andere Steifigkeiten sind symbolisch; das Ergebnis mischt Zahl und Symbol. Pendelstab: Gelenke an beiden Enden setzen, sonst EI symbolisch eingeben oder biegesteif."
+            end
+            if #eaListe > 0 then
+                liste[#liste + 1] = "Stab " .. table.concat(eaListe, ", ") .. ": EA ist eine Zahl, andere Steifigkeiten sind symbolisch; das Ergebnis mischt Zahl und Symbol. Dehnsteif bzw. Standard-EA dehnstarr einschalten oder EA symbolisch eingeben."
+            end
+        end
+    end
+    hinweisListe = liste
+    hinweisSig = (#liste > 0) and (table.concat(liste, "|") .. "#" .. table.concat(sig, ";")) or nil
+    hinweisOffen = hinweisSig ~= nil and hinweisSig ~= hinweisQuittiert
 end
 
 local function clearOldCASVars()
@@ -3483,6 +3910,7 @@ local function starteBerechnung()
     checkSymbolischerModus()
     if symbolFehler then
         -- Symbolischer Modus kann dieses System nicht korrekt abbilden: abbrechen statt falsche Ergebnisse
+        hinweisListe, hinweisOffen = {}, false
         systemBerechnet = false
         print("Symbolischer Modus: " .. symbolFehler)
         platform.window:invalidate()
@@ -3501,6 +3929,7 @@ local function starteBerechnung()
     runSymbolicSuperposition()
     rechneAktuellesSystem() -- Restore the numeric system state after superposition iterations
     precalcSymbolicLabels()
+    sammleHinweise()
     systemBerechnet = true
     print("Berechnung erfolgreich!")
 end
@@ -4181,9 +4610,9 @@ local function getMenuMaxZeile()
     if menuTyp == "knoten" then
         if menuSeite == 1 then return 6 elseif menuSeite == 2 then return 4 elseif menuSeite == 3 then return 4 elseif menuSeite == 4 then return 8 else return 6 end
     elseif menuTyp == "stab" then
-        if menuSeite == 1 then return 6 elseif menuSeite == 2 then return 4 elseif menuSeite == 3 then return 8 elseif menuSeite == 6 then return 6 elseif menuSeite == 7 then return 7 else return 6 end
+        if menuSeite == 1 then return 8 elseif menuSeite == 2 then return 4 elseif menuSeite == 3 then return 8 elseif menuSeite == 6 then return 6 elseif menuSeite == 7 then return 7 else return 6 end
     elseif menuTyp == "obermenue" then
-        if menuSeite == 1 then return 8 elseif menuSeite == 2 then return 9 elseif menuSeite == 3 then return 8 elseif menuSeite == 4 then return 3 else return 3 end
+        if menuSeite == 1 then return 8 elseif menuSeite == 2 then return 9 elseif menuSeite == 3 then return 8 elseif menuSeite == 4 then return 4 else return 3 end
     elseif menuTyp == "pvv_knoten" then
         return 4
     elseif menuTyp == "pvv_stab" then
@@ -4222,24 +4651,33 @@ function on.enterKey()
                 if menuZeile == 3 then s.n_gelenk_A = not s.n_gelenk_A; sys_changed = true; platform.window:invalidate(); return end; if menuZeile == 4 then s.n_gelenk_B = not s.n_gelenk_B; sys_changed = true; platform.window:invalidate(); return end
                 if menuZeile == 5 then s.q_gelenk_A = not s.q_gelenk_A; sys_changed = true; platform.window:invalidate(); return end; if menuZeile == 6 then s.q_gelenk_B = not s.q_gelenk_B; sys_changed = true; platform.window:invalidate(); return end
             elseif menuSeite == 7 then if menuZeile == 7 then exportStabToTI(menuIndex); menuOffen = false; platform.window:invalidate(); return end end
-            
-            if eingabeModus then
+            -- Seite 1: Zeile 2 biegesteif, Zeile 4 dehnsteif umschalten; EI bzw. EA sind dann gesperrt
+            local umgeschaltet = false
+            if menuSeite == 1 and not eingabeModus then
+                if menuZeile == 2 then s.biegesteif = not s.biegesteif; sys_changed = true; umgeschaltet = true
+                elseif menuZeile == 4 then s.dehnsteif = not s.dehnsteif; sys_changed = true; umgeschaltet = true
+                elseif (menuZeile == 1 and s.biegesteif) or (menuZeile == 3 and s.dehnsteif) then platform.window:invalidate(); return end
+            end
+
+            if umgeschaltet then
+                -- keine Eingabe oeffnen
+            elseif eingabeModus then
                 local z, s_val = evalInput(eingabeText, true)
                 if z then
-                    if menuSeite == 1 then if menuZeile==1 and z > 0 then s.EI=z; sys_changed = true; s.EI_str=s_val end; if menuZeile==2 and z > 0 then s.EA=z; sys_changed = true; s.EA_str=s_val end; if menuZeile==6 then s.bogen_r=z; sys_changed = true; s.bogen_r_str=s_val end
-                    elseif menuSeite == 3 then if menuZeile==1 then s.q_A=z; sys_changed = true; s.q_A_str=s_val end; if menuZeile==2 then s.q_B=z; sys_changed = true; s.q_B_str=s_val end; if menuZeile==3 then s.n_A=z; sys_changed = true; s.n_A_str=s_val end; if menuZeile==4 then s.n_B=z; sys_changed = true; s.n_B_str=s_val end; if menuZeile==5 then s.To=z; sys_changed = true end; if menuZeile==6 then s.Tu=z; sys_changed = true end; if menuZeile==7 then s.alpha=z; sys_changed = true end; if menuZeile==8 then s.h=z; sys_changed = true end end
+                    if menuSeite == 1 then if menuZeile==1 and z > 0 then s.EI=z; sys_changed = true; s.EI_str=s_val end; if menuZeile==3 and z > 0 then s.EA=z; sys_changed = true; s.EA_str=s_val; s.EA_manuell = true end; if menuZeile==8 then s.bogen_r=z; sys_changed = true; s.bogen_r_str=s_val end
+                    elseif menuSeite == 3 then if menuZeile==1 then s.q_A=z; sys_changed = true; s.q_A_str=s_val end; if menuZeile==2 then s.q_B=z; sys_changed = true; s.q_B_str=s_val end; if menuZeile==3 then s.n_A=z; sys_changed = true; s.n_A_str=s_val end; if menuZeile==4 then s.n_B=z; sys_changed = true; s.n_B_str=s_val end; if menuZeile==5 then s.To=z; sys_changed = true; s.To_str=s_val end; if menuZeile==6 then s.Tu=z; sys_changed = true; s.Tu_str=s_val end; if menuZeile==7 then s.alpha=z; sys_changed = true; s.alpha_str=s_val end; if menuZeile==8 then s.h=z; sys_changed = true; s.h_str=s_val end end
                 end
                 
-                if menuSeite == 1 and (menuZeile >= 3 and menuZeile <= 5) then
-                    if menuZeile == 3 then
+                if menuSeite == 1 and (menuZeile >= 5 and menuZeile <= 7) then
+                    if menuZeile == 5 then
                         s.q_str = neuCasText(eingabeText)
                         local check_num = evalInput(eingabeText)
                         if check_num then sys_changed = true; s.q = check_num else s.q = 0; sys_changed = true end
-                    elseif menuZeile == 4 then
+                    elseif menuZeile == 6 then
                         s.n_str = neuCasText(eingabeText)
                         local check_num = evalInput(eingabeText)
                         if check_num then sys_changed = true; s.n = check_num else s.n = 0; sys_changed = true end
-                    elseif menuZeile == 5 then
+                    elseif menuZeile == 7 then
                         s.m_str = neuCasText(eingabeText)
                         local check_num = evalInput(eingabeText)
                         if check_num then sys_changed = true; s.m = check_num else s.m = 0; sys_changed = true end
@@ -4314,13 +4752,13 @@ function on.enterKey()
                     if eingabeModus then
                         eingabeModus = false
                         if menuZeile == 1 then local v, s_val = evalInput(eingabeText, true); if v and v > 0 then rasterMass = v; sys_changed = true; rasterMass_str = s_val end
-                        elseif menuZeile == 2 then local v, s_val = evalInput(eingabeText, true); if v and v > 0 then defEA = v; sys_changed = true; defEA_str = s_val; for _, s in ipairs(staebe) do s.EA = defEA; s.EA_str = s_val end end
+                        elseif menuZeile == 2 then local v, s_val = evalInput(eingabeText, true); if v and v > 0 then defEA = v; sys_changed = true; defEA_str = s_val; for _, s in ipairs(staebe) do s.EA = defEA; s.EA_str = s_val; s.EA_manuell = nil end end
                         elseif menuZeile == 3 then local v, s_val = evalInput(eingabeText, true); if v and v > 0 then defEI = v; sys_changed = true; defEI_str = s_val; for _, s in ipairs(staebe) do s.EI = defEI; s.EI_str = s_val end end
                         end
                         if starteBerechnung then starteBerechnung() end
                     else eingabeModus, eingabeText = true, "" end
                 else
-                    if menuZeile == 4 then defEA, defEI = 1e8, 1e8; sys_changed = true; defEA_str, defEI_str = "1e8", "1e8"; for _, s in ipairs(staebe) do s.EA = defEA; s.EI = defEI; s.EA_str = defEA_str; s.EI_str = defEI_str end; menuOffen = false
+                    if menuZeile == 4 then defEA, defEI = 1e8, 1e8; sys_changed = true; defEA_str, defEI_str = "1e8", "1e8"; for _, s in ipairs(staebe) do s.EA = defEA; s.EI = defEI; s.EA_str = defEA_str; s.EI_str = defEI_str; s.EA_manuell = nil end; menuOffen = false
                     elseif menuZeile == 5 then autoKGV = not autoKGV; if not autoKGV then KGV_Zustand = -1; applyKGVZustand(-1); if #knoten > 0 then rechneAktuellesSystem() end end; platform.window:invalidate()
                     elseif menuZeile == 6 then zeigeN = not zeigeN; platform.window:invalidate()
                     elseif menuZeile == 7 then schnittAnzeigeModus = (schnittAnzeigeModus == "Hover") and "Start&End" or "Hover"; platform.window:invalidate()
@@ -4371,6 +4809,10 @@ function on.enterKey()
                     eingabeModus, eingabeText = true, ""
                 elseif menuZeile == 3 then
                     randDehnstarr = not randDehnstarr
+                    sys_changed = true
+                    platform.window:invalidate()
+                elseif menuZeile == 4 then
+                    randStarrDirekt = not randStarrDirekt
                     platform.window:invalidate()
                 end
             end
@@ -4452,7 +4894,15 @@ function on.backspaceKey()
 end
 
 function on.escapeKey()
-    warnungKinematisch = false; warnungStarrBestimmt = false
+    -- Reihenfolge wie auf dem Bildschirm von oben nach unten: Eingabe/Menue, Warnhinweise, dann Modi.
+    -- Ein ESC schliesst alle sichtbaren Warnhinweise und tut sonst nichts.
+    local warnungOffen = (symbolFehler and symbolFehlerOffen) or warnungKinematisch or warnungStarrBestimmt or hinweisOffen
+    if warnungOffen and not eingabeModus and not menuOffen then
+        symbolFehlerOffen = false; warnungKinematisch = false; warnungStarrBestimmt = false
+        if hinweisOffen then hinweisOffen = false; hinweisQuittiert = hinweisSig end
+        platform.window:invalidate()
+        return
+    end
     if ansichtsModus == "P" then
         if in_pvv_release then ansichtsModus = "V" elseif pvvModus then ansichtsModus = "System" else ansichtsModus = "System" end
         platform.window:invalidate()
@@ -5830,7 +6280,7 @@ function on.paint(gc)
         local u_homogen = (s.v_local[1] or 0)*(1-x/L_m) + (s.v_local[4] or 0)*(x/L_m)
         local u_part_class_EA = -(nA*x^2/2 + (nB-nA)*x^3/(6*L_m)) + (x/L_m) * (nA*L_m^2/2 + (nB-nA)*L_m^2/6)
         local u_part_cas_EA = (s.u_cas_pts_EA and s.u_cas_pts_EA[j+1]) or 0
-        return u_homogen + (u_part_class_EA + u_part_cas_EA) / s.EA
+        return u_homogen + (u_part_class_EA + u_part_cas_EA) / stabEA(s)
     end
 
     local max_val = 0
@@ -5858,7 +6308,7 @@ function on.paint(gc)
                         elseif ansichtsModus == "M" then val = M0 + Q0*x - s.m*x - (qA*(x^2)/2 + (qB-qA)*(x^3)/(6*L_m)) - cas_M_drop
                         elseif ansichtsModus == "U" then val = get_u_val(s, x, L_m, j, nA, nB)
                         elseif ansichtsModus == "W" and not skip_diagram then
-                            local EI = s.EI
+                            local EI = stabEI(s)
                             local c1 = (s.v_local[2] or 0) * EI
                             local c2 = -(s.v_local[3] or 0) * EI
                             local c3 = (s.v_local[5] or 0) * EI
@@ -6729,7 +7179,7 @@ function on.paint(gc)
                     elseif ansichtsModus == "M" then val = M0 + Q0*x - s.m*x - (qA*(x^2)/2 + (qB-qA)*(x^3)/(6*L_m)) - cas_M_drop
                     elseif ansichtsModus == "U" then val = get_u_val(s, x, L_m, j, nA, nB)
                     elseif ansichtsModus == "W" then
-                        local EI = s.EI
+                        local EI = stabEI(s)
                         local c1 = (s.v_local[2] or 0) * EI
                         local c2 = -(s.v_local[3] or 0) * EI
                         local c3 = (s.v_local[5] or 0) * EI
@@ -8091,19 +8541,57 @@ function on.paint(gc)
         end
     end
 
-    if symbolFehler then
-        local boxW, boxH = math.min(b - 20, 300), 48; local boxX, boxY = math.floor((b - boxW) / 2), math.floor((h - boxH) / 2)
+    -- Warnhinweise; ESC schliesst sie (on.escapeKey), eine neue Berechnung zeigt sie wieder
+    if symbolFehler and symbolFehlerOffen then
+        local boxW = math.min(b - 20, 300)
+        -- Meldung auf Boxbreite umbrechen
+        gc:setFont("sansserif", "r", 9)
+        local zeilen, zeile = {}, ""
+        for wort in symbolFehler:gmatch("%S+") do
+            local probe = (zeile == "") and wort or (zeile .. " " .. wort)
+            if zeile ~= "" and gc:getStringWidth(probe) > boxW - 16 then zeilen[#zeilen + 1] = zeile; zeile = wort else zeile = probe end
+        end
+        if zeile ~= "" then zeilen[#zeilen + 1] = zeile end
+        local boxH = 28 + 14 * #zeilen
+        local boxX, boxY = math.floor((b - boxW) / 2), math.floor((h - boxH) / 2)
         gc:setColorRGB(255, 0, 0); gc:fillRect(boxX, boxY, boxW, boxH); gc:setColorRGB(255, 255, 255); gc:drawRect(boxX, boxY, boxW, boxH)
         gc:setFont("sansserif", "b", 10); gc:drawString("Symbolischer Modus nicht moeglich:", boxX + 8, boxY + 6)
-        gc:setFont("sansserif", "r", 9); gc:drawString(symbolFehler, boxX + 8, boxY + 26)
+        gc:setFont("sansserif", "r", 9)
+        for zi, z in ipairs(zeilen) do gc:drawString(z, boxX + 8, boxY + 12 + 14 * zi) end
+        gc:drawString("[Esc]", boxX + boxW - 34, boxY + 6)
     elseif warnungKinematisch then
-        local boxW, boxH = math.min(b - 20, 180), 36; local boxX, boxY = math.floor((b - boxW) / 2), math.floor((h - boxH) / 2)
+        local boxW, boxH = math.min(b - 20, 210), 36; local boxX, boxY = math.floor((b - boxW) / 2), math.floor((h - boxH) / 2)
         gc:setColorRGB(255, 0, 0); gc:fillRect(boxX, boxY, boxW, boxH); gc:setColorRGB(255, 255, 255); gc:drawRect(boxX, boxY, boxW, boxH)
         gc:setFont("sansserif", "b", 10); gc:drawString("System ist kinematisch!", boxX + 8, boxY + 12)
+        gc:setFont("sansserif", "r", 9); gc:drawString("[Esc]", boxX + boxW - 34, boxY + 12)
     elseif warnungStarrBestimmt then
-        local boxW, boxH = math.min(b - 20, 240), 36; local boxX, boxY = math.floor((b - boxW) / 2), math.floor((h - boxH) / 2)
+        local boxW, boxH = math.min(b - 20, 270), 36; local boxX, boxY = math.floor((b - boxW) / 2), math.floor((h - boxH) / 2)
         gc:setColorRGB(255, 165, 0); gc:fillRect(boxX, boxY, boxW, boxH); gc:setColorRGB(0, 0, 0); gc:drawRect(boxX, boxY, boxW, boxH)
         gc:setFont("sansserif", "b", 10); gc:drawString("Starrmodus & statisch unbestimmt!", boxX + 8, boxY + 12)
+        gc:setFont("sansserif", "r", 9); gc:drawString("[Esc]", boxX + boxW - 34, boxY + 12)
+    elseif hinweisOffen and #hinweisListe > 0 then
+        local boxW = math.min(b - 20, 300)
+        gc:setFont("sansserif", "r", 9)
+        local zeilen = {}
+        for hi, text in ipairs(hinweisListe) do
+            if hi > 1 then zeilen[#zeilen + 1] = "" end
+            local zeile = ""
+            for wort in text:gmatch("%S+") do
+                local probe = (zeile == "") and wort or (zeile .. " " .. wort)
+                if zeile ~= "" and gc:getStringWidth(probe) > boxW - 16 then zeilen[#zeilen + 1] = zeile; zeile = wort else zeile = probe end
+            end
+            if zeile ~= "" then zeilen[#zeilen + 1] = zeile end
+        end
+        local boxH = math.min(28 + 13 * #zeilen, h - 10)
+        local boxX, boxY = math.floor((b - boxW) / 2), math.floor((h - boxH) / 2)
+        gc:setColorRGB(255, 235, 150); gc:fillRect(boxX, boxY, boxW, boxH); gc:setColorRGB(0, 0, 0); gc:drawRect(boxX, boxY, boxW, boxH)
+        gc:setFont("sansserif", "b", 10); gc:drawString("Hinweis:", boxX + 8, boxY + 6)
+        gc:setFont("sansserif", "r", 9)
+        for zi, z in ipairs(zeilen) do
+            local y = boxY + 12 + 13 * zi
+            if y + 12 <= boxY + boxH then gc:drawString(z, boxX + 8, y) end
+        end
+        gc:drawString("[Esc]", boxX + boxW - 34, boxY + 6)
     end
     
     if pvvPrompt then
@@ -8164,9 +8652,9 @@ function on.paint(gc)
                 end
                 menueHoehe = cy + 20
             else
-                if menuSeite == 1 then menueHoehe = 160 elseif menuSeite == 2 then menueHoehe = 120 elseif menuSeite == 3 then menueHoehe = 200 elseif menuSeite == 6 then menueHoehe = 160 elseif menuSeite == 7 then menueHoehe = 180 else menueHoehe = 160 end
+                if menuSeite == 1 then menueHoehe = 200 elseif menuSeite == 2 then menueHoehe = 120 elseif menuSeite == 3 then menueHoehe = 200 elseif menuSeite == 6 then menueHoehe = 160 elseif menuSeite == 7 then menueHoehe = 180 else menueHoehe = 160 end
             end
-        elseif menuTyp == "obermenue" then if menuSeite == 1 then menueHoehe = 220 elseif menuSeite == 2 then menueHoehe = 220 elseif menuSeite == 3 then menueHoehe = 240 else menueHoehe = 100 end
+        elseif menuTyp == "obermenue" then if menuSeite == 1 then menueHoehe = 220 elseif menuSeite == 2 then menueHoehe = 220 elseif menuSeite == 3 then menueHoehe = 240 else menueHoehe = 120 end
         elseif menuTyp == "pvv_knoten" then menueHoehe = 120
         elseif menuTyp == "pvv_stab" then menueHoehe = 160 end
 
@@ -8527,14 +9015,20 @@ function on.paint(gc)
             else
                 gc:drawString("Stab " .. menuIndex .. " < S." .. menuSeite .. "/7 >", b - 160, 15); gc:setFont("sansserif", "r", 9)
                 if menuSeite == 1 then
-                    gc:drawString("EI (kNm2):", b - 160, 40); gc:drawString("EA (kN):", b - 160, 60); gc:drawString("Last q(x):", b - 160, 80); gc:drawString("Last n(x):", b - 160, 100); gc:drawString("Momentenlast m:", b - 160, 120); gc:drawString("Bogen Radius R:", b - 160, 140)
+                    gc:drawString("EI (kNm2):", b - 160, 40); gc:drawString("  biegesteif:", b - 160, 60); gc:drawString("EA (kN):", b - 160, 80); gc:drawString("  dehnsteif:", b - 160, 100)
+                    gc:drawString("Last q(x):", b - 160, 120); gc:drawString("Last n(x):", b - 160, 140); gc:drawString("Momentenlast m:", b - 160, 160); gc:drawString("Bogen Radius R:", b - 160, 180)
                     gc:setColorRGB(0, 0, 255)
-                    if menuZeile == 1 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 40) else gc:drawString(s.EI_str or tostring(s.EI), b - 60, 40) end
-                    if menuZeile == 2 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 60) else gc:drawString(s.EA_str or tostring(s.EA), b - 60, 60) end
-                    if menuZeile == 3 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 80) else gc:drawString(s.q_str or "0", b - 60, 80) end
-                    if menuZeile == 4 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 100) else gc:drawString(s.n_str or "0", b - 60, 100) end
-                    if menuZeile == 5 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 120) else gc:drawString(s.m_str or tostring(s.m), b - 60, 120) end
-                    if menuZeile == 6 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 140) else gc:drawString(tostring(s.bogen_r or 0), b - 60, 140) end
+                    -- EI/EA starrer Staebe gesperrt (grau); dehnsteif ueber Standard-EA als "(Std.)"
+                    if s.biegesteif then gc:setColorRGB(150, 150, 150); gc:drawString("starr", b - 60, 40); gc:setColorRGB(0, 0, 255)
+                    elseif menuZeile == 1 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 40) else gc:drawString(s.EI_str or tostring(s.EI), b - 60, 40) end
+                    gc:drawString(s.biegesteif and "Ja" or "Nein", b - 60, 60)
+                    if s.dehnsteif then gc:setColorRGB(150, 150, 150); gc:drawString("starr", b - 60, 80); gc:setColorRGB(0, 0, 255)
+                    elseif menuZeile == 3 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 80) else gc:drawString(s.EA_str or tostring(s.EA), b - 60, 80) end
+                    gc:drawString(s.dehnsteif and "Ja" or (stabDehnsteif(s) and "Ja (Std.)" or "Nein"), b - 60, 100)
+                    if menuZeile == 5 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 120) else gc:drawString(s.q_str or "0", b - 60, 120) end
+                    if menuZeile == 6 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 140) else gc:drawString(s.n_str or "0", b - 60, 140) end
+                    if menuZeile == 7 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 160) else gc:drawString(s.m_str or tostring(s.m), b - 60, 160) end
+                    if menuZeile == 8 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 180) else gc:drawString(tostring(s.bogen_r or 0), b - 60, 180) end
                 elseif menuSeite == 2 then
                     gc:drawString("Global pX:", b - 160, 40); gc:drawString("pX projiziert:", b - 160, 60); gc:drawString("Global pY:", b - 160, 80); gc:drawString("pY projiziert:", b - 160, 100)
                     gc:setColorRGB(0, 0, 255)
@@ -8550,10 +9044,10 @@ function on.paint(gc)
                     if menuZeile == 2 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 60) else gc:drawString(s.q_B_str or tostring(s.q_B or 0), b - 60, 60) end
                     if menuZeile == 3 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 80) else gc:drawString(s.n_A_str or tostring(s.n_A or 0), b - 60, 80) end
                     if menuZeile == 4 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 100) else gc:drawString(s.n_B_str or tostring(s.n_B or 0), b - 60, 100) end
-                    if menuZeile == 5 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 120) else gc:drawString(tostring(s.To), b - 60, 120) end
-                    if menuZeile == 6 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 140) else gc:drawString(tostring(s.Tu), b - 60, 140) end
-                    if menuZeile == 7 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 160) else gc:drawString(tostring(s.alpha), b - 60, 160) end
-                    if menuZeile == 8 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 180) else gc:drawString(tostring(s.h), b - 60, 180) end
+                    if menuZeile == 5 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 120) else gc:drawString(s.To_str or tostring(s.To), b - 60, 120) end
+                    if menuZeile == 6 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 140) else gc:drawString(s.Tu_str or tostring(s.Tu), b - 60, 140) end
+                    if menuZeile == 7 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 160) else gc:drawString(s.alpha_str or tostring(s.alpha), b - 60, 160) end
+                    if menuZeile == 8 and eingabeModus then gc:drawString(eingabeText .. "_", b - 60, 180) else gc:drawString(s.h_str or tostring(s.h), b - 60, 180) end
                 elseif menuSeite == 4 then
                     gc:drawString("M-Gelenk Start:", b - 160, 40); gc:drawString("M-Gelenk Ende:", b - 160, 60); gc:drawString("N-Gelenk Start:", b - 160, 80); gc:drawString("N-Gelenk Ende:", b - 160, 100); gc:drawString("Q-Gelenk Start:", b - 160, 120); gc:drawString("Q-Gelenk Ende:", b - 160, 140)
                     gc:setColorRGB(0, 0, 255)
@@ -8883,9 +9377,13 @@ function on.paint(gc)
                     gc:drawString(string.format("%.2f", verlaufSkalierung or 1), b - 80, 60)
                 end
                 gc:setColorRGB(0, 0, 0)
-                gc:drawString("Rand-LGS dehnstarr:", b - 200, 80)
+                gc:drawString("Standard-EA dehnstarr:", b - 200, 80)
                 if menuZeile == 3 then gc:setColorRGB(200, 0, 0) else gc:setColorRGB(0, 0, 255) end
                 gc:drawString(randDehnstarr and "An" or "Aus", b - 80, 80)
+                gc:setColorRGB(0, 0, 0)
+                gc:drawString("Starre Staebe (Export):", b - 200, 100)
+                if menuZeile == 4 then gc:setColorRGB(200, 0, 0) else gc:setColorRGB(0, 0, 255) end
+                gc:drawString(randStarrDirekt and "direkt" or "Grenzwert", b - 80, 100)
             end
         end
     end

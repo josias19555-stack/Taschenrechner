@@ -154,7 +154,11 @@ end)
 case('[H] Symbolisch: nicht abbildbare Eingaben muessen einen Fehler melden', function()
     solveSymb({ pinned(node(0)), roller(node(4)) }, { bar(1, 2, { q = 1, q_str = 'q', To = 10, Tu = 20, h = 0.5 }) })
     write('           Meldung: ' .. tostring(symbolFehler) .. '\n')
-    check('Temperatur -> Fehler', symbolFehler and symbolFehler:find('Temperatur') and 1 or 0, 1)
+    -- Temperatur ist im symbolischen Modus inzwischen erlaubt (Export symbolisch, Hinweis zu den Diagrammen)
+    check('Temperatur -> kein Fehler, Hinweis offen', (symbolFehler == nil and hinweisOffen) and 1 or 0, 1)
+    solveSymb({ pinned(node(0)), roller(node(4)) }, { bar(1, 2, { q = 1, q_str = 'q', To = 1, To_str = 'dt*x', Tu = 20, h = 0.5 }) })
+    write('           Meldung: ' .. tostring(symbolFehler) .. '\n')
+    check('Temperatur f(x) -> Fehler', symbolFehler and symbolFehler:find('Temperatur') and 1 or 0, 1)
     solveSymb({ pinned(node(0)), roller(node(4)) }, { bar(1, 2, { q_str = 'q*x', q = 0 }) })
     write('           Meldung: ' .. tostring(symbolFehler) .. '\n')
     check('Lastfunktion q*x -> Fehler', symbolFehler and symbolFehler:find('Lastfunktion') and 1 or 0, 1)
@@ -167,7 +171,7 @@ case('[H] Symbolisch: nicht abbildbare Eingaben muessen einen Fehler melden', fu
     check('reine Streckenlast q -> kein Fehler', symbolFehler == nil and 1 or 0, 1)
 end)
 
--- Vergleich Rand-LGS (vne/uneu) gegen den FEM-Referenzexport (v_EI_stab, v_local) an Stabenden und Drittelspunkten
+-- Vergleich Rand-LGS (wneu/uneu) gegen den FEM-Referenzexport (v_EI_stab, v_local) an Stabenden und Drittelspunkten
 local function rlVergleich(name, nodes, bars)
     casToleranz = 9   -- Referenzexport rundet auf casToleranz Stellen
     local K, S = solve(nodes, bars)
@@ -181,7 +185,7 @@ local function rlVergleich(name, nodes, bars)
         local L = math.sqrt((k2.x - k1.x) ^ 2 + (k2.y - k1.y) ^ 2)
         for _, t in ipairs({ 1 / 3, 1 }) do
             local x = t * L
-            check(string.format('%s: vne%d(%.3g) = v_EI_stab%d', name, i, x, i), ev('vne' .. i .. '(' .. x .. ')-v_EI_stab' .. i .. '(' .. x .. ')'), 0, nil, 1e-5)
+            check(string.format('%s: wneu%d(%.3g) = v_EI_stab%d', name, i, x, i), ev('wneu' .. i .. '(' .. x .. ')-v_EI_stab' .. i .. '(' .. x .. ')'), 0, nil, 1e-5)
         end
         check(string.format('%s: uneu%d(L) = EA*u_b', name, i), ev('uneu' .. i .. '(' .. L .. ')') - (s.v_local[4] or 0) * s.EA, 0, nil, 1e-5)
     end
@@ -224,7 +228,7 @@ end)
 case('[K] Rand-LGS symbolisch und Fehlerfaelle', function()
     solveSymb({ pinned(node(0)), roller(node(4)) }, { bar(1, 2, { q = 1, q_str = 'q', EI_str = 'EI', EA_str = 'EA' }) })
     check('symbolisch: Rand-LGS loesbar', exportBiegelinienNeuToTI() and 1 or 0, 1)
-    check('symbolisch: vne1(2l) = 5*q*(4l)^4/384 = 10/3*q*l^4', ev('expand(vne1(2*l) - 10/3*q*l^4)'), 0)
+    check('symbolisch: wneu1(2l) = 5*q*(4l)^4/384 = 10/3*q*l^4', ev('expand(wneu1(2*l) - 10/3*q*l^4)'), 0)
     write('           randbed = ' .. tostring(math.eval('string(randbed)')) .. '\n')
     -- Mechanismus: Balken nur mit Gelenklager links -> singulaer, keine Ausnahme
     solve({ pinned(node(0)), node(2) }, { bar(1, 2, { q = 1, q_str = '1' }) })
@@ -250,7 +254,7 @@ case('[L] Befunde der Rand-LGS-Verifikation', function()
     check("neuCasText('1e8') = '1*10^(8)'", neuCasText('1e8') == '1*10^(8)' and 1 or 0, 1)
     solve({ fixed(node(0)), node(2) }, { bar(1, 2, { q = 1.5, q_str = '1,5' }) })
     check("Dezimalkomma q='1,5': Rand-LGS loesbar", exportBiegelinienNeuToTI() and 1 or 0, 1)
-    check("Dezimalkomma q='1,5': vne1(2) = qL^4/8 = 3", ev('vne1(2)'), 3)
+    check("Dezimalkomma q='1,5': wneu1(2) = qL^4/8 = 3", ev('wneu1(2)'), 3)
     -- M6 randbed: Stab 2 rueckwaerts gezeichnet -> M2(B) = -M1(B)
     local kz = { pinned(node(0)), roller(node(2)), roller(node(4)) }
     solve(kz, { bar(1, 2, { q = 1, q_str = '1' }), bar(3, 2, { q = 1, q_str = '1' }) })
@@ -265,15 +269,15 @@ case('[L] Befunde der Rand-LGS-Verifikation', function()
     --  wegen Symmetrie ist Q in der Mitte ohnehin 0: EI*w = q*x^2*(L-x)^2/24)
     solve(kq, { bar(1, 2, { q = 1, q_str = '1', q_gelenk_B = true }), bar(2, 3, { q = 1, q_str = '1', q_gelenk_A = true }) })
     check('Q-Gelenke am Mittelknoten: Rand-LGS loesbar', exportBiegelinienNeuToTI() and 1 or 0, 1)
-    check('  vne1(2/3) = q x^2 (L-x)^2/24 = 0.20576', ev('vne1(2/3)'), (2/3)^2 * (10/3)^2 / 24)
-    check('  vne1(2) = qL^4/384 = 2/3', ev('vne1(2)'), 2 / 3)
-    check('  vne2(0) = 2/3', ev('vne2(0)'), 2 / 3)
+    check('  wneu1(2/3) = q x^2 (L-x)^2/24 = 0.20576', ev('wneu1(2/3)'), (2/3)^2 * (10/3)^2 / 24)
+    check('  wneu1(2) = qL^4/384 = 2/3', ev('wneu1(2)'), 2 / 3)
+    check('  wneu2(0) = 2/3', ev('wneu2(0)'), 2 / 3)
     -- N1: nach Abbruch keine veralteten Funktionen
     solve({ pinned(node(0)), node(2) }, { bar(1, 2, { q = 1, q_str = '1' }) })
     exportBiegelinienNeuToTI()
     local rbf = tostring(math.eval('string(randbed)'))
     check('Abbruch: randbed enthaelt Fehlermeldung', rbf:find('Fehler', 1, true) and 1 or 0, 1)
-    check('Abbruch: vne1 geloescht', type(ev('vne1(1)')) == 'number' and 0 or 1, 1)
+    check('Abbruch: wneu1 geloescht', type(ev('wneu1(1)')) == 'number' and 0 or 1, 1)
     write('           randbed = ' .. rbf .. '\n')
 end)
 
@@ -289,7 +293,7 @@ case('[M] Symbolischer Modus: reservierte/inkonsistente Symbole', function()
     check('Feder EI/l^3 mit EI am Stab -> ok', symbolFehler == nil and 1 or 0, 1)
     check('  Rand-LGS loesbar', exportBiegelinienNeuToTI() and 1 or 0, 1)
     -- Kragarm 2l, Feder c = EI/l^3 am Ende: EI*w = F*L^3/3 / (1 + c*L^3/(3EI)) mit L=2l -> 8/3 F l^3 / (1+8/3) = 8/11 F l^3
-    check('  vne1(2l) = 8/11*F*l^3', ev('expand(vne1(2*l) - 8/11*f*l^3)'), 0)
+    check('  wneu1(2l) = 8/11*F*l^3', ev('expand(wneu1(2*l) - 8/11*f*l^3)'), 0)
     -- schraeger Stab symbolisch bei zahlenFormat 2: Laenge sqrt(2)*l
     zahlenFormat = 2
     local ks = { fixed(node(0, 0)), node(1, 1) }; ks[2].last_y_str = 'F'; ks[2].last_y = 1

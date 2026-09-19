@@ -16,6 +16,10 @@ local REIHEN = {
     { name = 'Symbolischer Modus', datei = dir .. 'symbolisch.lua' },
     { name = 'Rand-LGS gegen FEM', datei = dir .. 'randlgs_fem.lua' },
     { name = 'Rand-LGS dehnstarr (EA -> unendlich)', datei = dir .. 'dehnstarr.lua' },
+    { name = 'Starre Staebe (biegesteif, dehnsteif)', datei = dir .. 'starr.lua' },
+    { name = 'Starre Staebe: direkt gegen Grenzwert', datei = dir .. 'starr_direkt.lua' },
+    { name = 'Temperatur (auch symbolisch)', datei = dir .. 'temperatur.lua' },
+    { name = 'Oberflaeche Tragwerk (ESC, Obermenue)', datei = dir .. 'oberflaeche.lua' },
     { name = 'Querschnitt (Handrechnung, Oberflaeche)', datei = dir .. 'querschnitt.lua' },
 }
 

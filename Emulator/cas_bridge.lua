@@ -152,6 +152,18 @@ _G.exportULinienNeuToTI = exportULinienNeuToTI
 _G.exportSchnittkraefteToTI = exportSchnittkraefteToTI
 _G.rechneAktuellesSystem = rechneAktuellesSystem
 _G.berechneSystemGleichungen = berechneSystemGleichungen
+-- lokale Oberflaechenzustaende lesen/setzen (auswahl = false setzt nil)
+_G.uiZustand = function(t)
+    t = t or {}
+    if t.auswahl ~= nil then auswahl = t.auswahl or nil end
+    if t.warnungKinematisch ~= nil then warnungKinematisch = t.warnungKinematisch end
+    if t.warnungStarrBestimmt ~= nil then warnungStarrBestimmt = t.warnungStarrBestimmt end
+    if t.pvvPrompt ~= nil then pvvPrompt = t.pvvPrompt end
+    if t.pvvModus ~= nil then pvvModus = t.pvvModus end
+    if t.in_pvv_release ~= nil then in_pvv_release = t.in_pvv_release end
+    return { auswahl = auswahl, warnungKinematisch = warnungKinematisch, warnungStarrBestimmt = warnungStarrBestimmt,
+             pvvPrompt = pvvPrompt, pvvModus = pvvModus, in_pvv_release = in_pvv_release }
+end
 ]]
     assert(loadstring(code .. hook .. '\n' .. (extra_hook or ''), '=' .. path))()
     return path

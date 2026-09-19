@@ -1,4 +1,4 @@
--- Rand-LGS (vne_i = EI*w_i, uneu_i = EA*u_i) gegen Lehrbuchformeln: Balkensysteme S1-S12.
+-- Rand-LGS (wneu_i = EI*w_i, uneu_i = EA*u_i) gegen Lehrbuchformeln: Balkensysteme S1-S12.
 -- Geprueft werden w, phi, M, Q, EA*u und N an mehreren Stellen je Stab.
 -- Ableitungen: der SymPy-Emulator kennt kein d(); die Polynome werden daher exakt interpoliert
 -- (simult mit 7 bzw. 4 Stuetzstellen) und die Koeffizienten exakt abgeleitet.
@@ -60,13 +60,13 @@ local function run(title, K, S, body)
     T.abschnitt(title)
     if not T.rechne(K, S) or not T.randLGS() then return end
     for i = 1, #S do
-        T.info('   vne' .. i .. '(x)  = ' .. tostring(evs('vne' .. i .. '(x)')))
+        T.info('   wneu' .. i .. '(x)  = ' .. tostring(evs('wneu' .. i .. '(x)')))
         T.info('   uneu' .. i .. '(x) = ' .. tostring(evs('uneu' .. i .. '(x)')))
     end
     local coefW, coefU = {}, {}
     local function Ls(i) local k1, k2 = K[S[i].k1], K[S[i].k2]; return fracStr(math.sqrt((k2.x - k1.x) ^ 2 + (k2.y - k1.y) ^ 2)) end
     local function cw(i)
-        if not coefW[i] then local c, err = polyCoef('vne' .. i, Ls(i), 6); coefW[i] = c or {}; if not c then T.pruef(false, 'Interpolation vne' .. i .. ': ' .. tostring(err)) end end
+        if not coefW[i] then local c, err = polyCoef('wneu' .. i, Ls(i), 6); coefW[i] = c or {}; if not c then T.pruef(false, 'Interpolation wneu' .. i .. ': ' .. tostring(err)) end end
         return coefW[i]
     end
     local function cu(i)
@@ -74,7 +74,7 @@ local function run(title, K, S, body)
         return coefU[i]
     end
     local H = {}
-    function H.w(i, x, exp) check(string.format('EI*w%d(%s)', i, xstr(x)), ev('vne' .. i .. '(' .. xstr(x) .. ')'), exp) end
+    function H.w(i, x, exp) check(string.format('EI*w%d(%s)', i, xstr(x)), ev('wneu' .. i .. '(' .. xstr(x) .. ')'), exp) end
     function H.phi(i, x, exp) check(string.format('phi%d(%s)', i, xstr(x)), div(neg(polyD(cw(i), 1, xstr(x))), S[i].EI), exp) end
     function H.M(i, x, exp) check(string.format('M%d(%s)', i, xstr(x)), neg(polyD(cw(i), 2, xstr(x))), exp) end
     function H.Q(i, x, exp) check(string.format('Q%d(%s)', i, xstr(x)), neg(polyD(cw(i), 3, xstr(x))), exp) end

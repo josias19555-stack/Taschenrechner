@@ -1,4 +1,4 @@
--- Rand-LGS (vne_i = EI*w_i, uneu_i = EA*u_i) gegen Handrechnung: Rahmen (1)-(9).
+-- Rand-LGS (wneu_i = EI*w_i, uneu_i = EA*u_i) gegen Handrechnung: Rahmen (1)-(9).
 -- Weltkoordinaten: x nach rechts, y nach UNTEN. Lokal: x von k1 nach k2, n = (-dy, dx)/L,
 -- phi = -w', M = -EI w'', Q = M', N = EA u'.
 -- Aufruf: luajit Emulator/tests/rahmen_hand.lua [Filter, z. B. "2 Zweigelenk"]
@@ -92,9 +92,9 @@ end
 local function lcheck(F, Hk, Hc, EA, EIc, EIb, h, L)
     local v1, u1, v2, u2 = lhand(F, Hk, Hc, EA, EIc, EIb, h, L)
     local H = Hk + Hc
-    local c1 = compare('Stuetze EI*w', 'vne1', h, v1, 4)
+    local c1 = compare('Stuetze EI*w', 'wneu1', h, v1, 4)
     local cu1 = compare('Stuetze EA*u', 'uneu1', h, u1, 2)
-    local c2 = compare('Riegel EI*w', 'vne2', L, v2, 4)
+    local c2 = compare('Riegel EI*w', 'wneu2', L, v2, 4)
     local cu2 = compare('Riegel EA*u', 'uneu2', L, u2, 2)
     if c1 and c2 and cu1 and cu2 then
         check('w_Riegelende', F * L ^ 3 / (3 * EIb) + F * L ^ 2 * h / EIc + H * h ^ 2 * L / (2 * EIc) + F * h / EA, polyval(c2, L) / EIb)
@@ -126,11 +126,11 @@ fall('2 Zweigelenk', function()
     local S = { bar(1, 2, { EI = EI, EA = EA }), bar(2, 3, { EI = EI, EA = EA }), bar(3, 4, { EI = EI, EA = EA }) }
     if not run('(2) Zweigelenkrahmen h=3 L=4 EI=1 EA=1e9, H=1 an linker Ecke', K, S) then return end
     local delta = H * h ^ 2 * (2 * h + L) / (12 * EI)
-    local c1 = compare('linke Stuetze EI*w', 'vne1', h, { 0, H * h * (3 * h + L) / 12, 0, -H / 12, 0 }, 4)
+    local c1 = compare('linke Stuetze EI*w', 'wneu1', h, { 0, H * h * (3 * h + L) / 12, 0, -H / 12, 0 }, 4)
     compare('linke Stuetze EA*u', 'uneu1', h, { 0, H * h / L, 0 }, 2)
-    local c2 = compare('Riegel EI*w', 'vne2', L, { 0, H * h * L / 12, -H * h / 4, H * h / (6 * L), 0 }, 4)
+    local c2 = compare('Riegel EI*w', 'wneu2', L, { 0, H * h * L / 12, -H * h / 4, H * h / (6 * L), 0 }, 4)
     compare('Riegel EA*u', 'uneu2', L, { EA * delta, -H / 2, 0 }, 2)
-    local c3 = compare('rechte Stuetze EI*w', 'vne3', h, { -H * h ^ 2 * (2 * h + L) / 12, H * h * L / 12, H * h / 4, -H / 12, 0 }, 4)
+    local c3 = compare('rechte Stuetze EI*w', 'wneu3', h, { -H * h ^ 2 * (2 * h + L) / 12, H * h * L / 12, H * h / 4, -H / 12, 0 }, 4)
     compare('rechte Stuetze EA*u', 'uneu3', h, { H * h ^ 2 / L, -H * h / L, 0 }, 2)
     if c1 and c2 and c3 then
         check('Eckverschiebung delta = H h^2 (2h+L)/(12 EI)', delta, polyval(c1, h) / EI)
@@ -151,13 +151,13 @@ fall('3 Dreigelenk', function()
                 bar(3, 4, { EI = EI, EA = EA, q = q, q_str = tostring(q) }), bar(4, 5, { EI = EI, EA = EA }) }
     if not run('(3) Dreigelenkrahmen h=3 L=6, q=1 auf Riegel, Gelenk in Riegelmitte', K, S) then return end
     local d0 = EI * q * L * h / (2 * EA)
-    local c1 = compare('linke Stuetze EI*w', 'vne1', h, { 0, -q * L ^ 2 * h / 48, 0, q * L ^ 2 / (48 * h), 0 }, 4)
+    local c1 = compare('linke Stuetze EI*w', 'wneu1', h, { 0, -q * L ^ 2 * h / 48, 0, q * L ^ 2 / (48 * h), 0 }, 4)
     compare('linke Stuetze EA*u', 'uneu1', h, { 0, -q * L / 2, 0 }, 2)
-    local c2 = compare('Riegel links EI*w', 'vne2', L / 2, { d0, q * L ^ 2 * h / 24, q * L ^ 2 / 16, -q * L / 12, q / 24 }, 4)
+    local c2 = compare('Riegel links EI*w', 'wneu2', L / 2, { d0, q * L ^ 2 * h / 24, q * L ^ 2 / 16, -q * L / 12, q / 24 }, 4)
     local cu2 = compare('Riegel links EA*u', 'uneu2', L / 2, { q * L ^ 3 / (16 * h), -q * L ^ 2 / (8 * h), 0 }, 2)
-    local c3 = compare('Riegel rechts EI*w', 'vne3', L / 2, { q * L ^ 4 / 128 + q * L ^ 3 * h / 48 + d0, -(q * L ^ 3 / 48 + q * L ^ 2 * h / 24), 0, 0, q / 24 }, 4)
+    local c3 = compare('Riegel rechts EI*w', 'wneu3', L / 2, { q * L ^ 4 / 128 + q * L ^ 3 * h / 48 + d0, -(q * L ^ 3 / 48 + q * L ^ 2 * h / 24), 0, 0, q / 24 }, 4)
     compare('Riegel rechts EA*u', 'uneu3', L / 2, { 0, -q * L ^ 2 / (8 * h), 0 }, 2)
-    local c4 = compare('rechte Stuetze EI*w', 'vne4', h, { 0, -q * L ^ 2 * h / 24, q * L ^ 2 / 16, -q * L ^ 2 / (48 * h), 0 }, 4)
+    local c4 = compare('rechte Stuetze EI*w', 'wneu4', h, { 0, -q * L ^ 2 * h / 24, q * L ^ 2 / 16, -q * L ^ 2 / (48 * h), 0 }, 4)
     compare('rechte Stuetze EA*u', 'uneu4', h, { q * L * h / 2, -q * L / 2, 0 }, 2)
     if c1 and c2 and c3 and c4 and cu2 then
         check('Eckmoment links = -q L^2/8', -q * L ^ 2 / 8, -d2(c1, h))
@@ -189,9 +189,9 @@ fall('4 Schraeg', function()
     local u1L = N1 * L1 / EA
     local Ux, Uy = u1L / r2 + w1L / r2, -u1L / r2 + w1L / r2
     local v2 = { EI2 * Uy, -EI2 * phi1L, F * b / 2, -F / 6, 0 }
-    local c1 = compare('Schraegstab EI*w', 'vne1', L1, v1, 4)
+    local c1 = compare('Schraegstab EI*w', 'wneu1', L1, v1, 4)
     local cu1 = compare('Schraegstab EA*u', 'uneu1', L1, { 0, N1, 0 }, 2)
-    local c2 = compare('Riegel EI*w', 'vne2', b, v2, 4)
+    local c2 = compare('Riegel EI*w', 'wneu2', b, v2, 4)
     local cu2 = compare('Riegel EA*u', 'uneu2', b, { EA * Ux, H, 0 }, 2)
     if c1 and c2 and cu1 and cu2 then
         local ux1 = (polyval(cu1, L1) / EA) / r2 + (polyval(c1, L1) / EI1) / r2
@@ -221,11 +221,11 @@ fall('5 T-Knoten', function()
     local Q1, Q2, Q3 = 6 * EI1 * th / a ^ 2, 6 * EI2 * th / b ^ 2, 6 * EI3 * th / c ^ 2
     local N1, N2, N3 = -Q3 * b / (a + b), Q3 * a / (a + b), Q1 - Q2
     local ux, uy = N1 * a / EA, -N3 * c / EA
-    local c1 = compare('Stab links EI*w', 'vne1', a, { 0, 0, EI1 * th / a, -EI1 * th / a ^ 2, 0 }, 4)
+    local c1 = compare('Stab links EI*w', 'wneu1', a, { 0, 0, EI1 * th / a, -EI1 * th / a ^ 2, 0 }, 4)
     compare('Stab links EA*u', 'uneu1', a, { 0, N1, 0 }, 2)
-    local c2 = compare('Stab rechts EI*w', 'vne2', b, { 0, -EI2 * th, 2 * EI2 * th / b, -EI2 * th / b ^ 2, 0 }, 4)
+    local c2 = compare('Stab rechts EI*w', 'wneu2', b, { 0, -EI2 * th, 2 * EI2 * th / b, -EI2 * th / b ^ 2, 0 }, 4)
     compare('Stab rechts EA*u', 'uneu2', b, { EA * ux, N2, 0 }, 2)
-    local c3 = compare('Stab unten EI*w', 'vne3', c, { 0, -EI3 * th, 2 * EI3 * th / c, -EI3 * th / c ^ 2, 0 }, 4)
+    local c3 = compare('Stab unten EI*w', 'wneu3', c, { 0, -EI3 * th, 2 * EI3 * th / c, -EI3 * th / c ^ 2, 0 }, 4)
     compare('Stab unten EA*u', 'uneu3', c, { EA * uy, N3, 0 }, 2)
     if c1 and c2 and c3 then
         check('theta = M0/(4 sum EI/L)', th, -d1(c2, 0) / EI2)
@@ -248,11 +248,11 @@ fall('6 Eckgelenk', function()
     local S = { bar(1, 2, { EI = EI, EA = EA }), bar(2, 3, { EI = EI, EA = EA }), bar(3, 4, { EI = EI, EA = EA }) }
     if not run('(6) Zweigelenkrahmen mit Vollgelenk an rechter Ecke, H=1', K, S) then return end
     local delta = H * h ^ 2 * (h + L) / (3 * EI)
-    local c1 = compare('linke Stuetze EI*w', 'vne1', h, { 0, H * h ^ 2 / 2 + H * h * L / 3, 0, -H / 6, 0 }, 4)
+    local c1 = compare('linke Stuetze EI*w', 'wneu1', h, { 0, H * h ^ 2 / 2 + H * h * L / 3, 0, -H / 6, 0 }, 4)
     compare('linke Stuetze EA*u', 'uneu1', h, { 0, H * h / L, 0 }, 2)
-    local c2 = compare('Riegel EI*w', 'vne2', L, { 0, H * h * L / 3, -H * h / 2, H * h / (6 * L), 0 }, 4)
+    local c2 = compare('Riegel EI*w', 'wneu2', L, { 0, H * h * L / 3, -H * h / 2, H * h / (6 * L), 0 }, 4)
     compare('Riegel EA*u', 'uneu2', L, { EA * delta, 0, 0 }, 2)
-    local c3 = compare('Pendelstuetze EI*w', 'vne3', h, { -EI * delta, EI * delta / h, 0, 0, 0 }, 4)
+    local c3 = compare('Pendelstuetze EI*w', 'wneu3', h, { -EI * delta, EI * delta / h, 0, 0, 0 }, 4)
     compare('Pendelstuetze EA*u', 'uneu3', h, { H * h ^ 2 / L, -H * h / L, 0 }, 2)
     if c1 and c2 and c3 then
         check('delta = H h^2 (h+L)/(3 EI)', delta, polyval(c1, h) / EI)
