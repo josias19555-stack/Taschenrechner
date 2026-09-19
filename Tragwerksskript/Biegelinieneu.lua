@@ -8,12 +8,29 @@ local hoverObj = nil
 local hoverTyp = nil
 local mouseX, mouseY = 0, 0
 
-pxProMeter = 30    
+-- Laufvariable x nur als eigenstaendigen Bezeichner behandeln (nicht in exp, max, q_x, x0 ...).
+-- "2x" bleibt erlaubt. Als String-Methoden (s:subx / s:hasx), damit keine Upvalues verbraucht werden.
+local function isVarXAt(str, pos)
+    local prev = pos > 1 and str:sub(pos - 1, pos - 1) or ""
+    local nxt = str:sub(pos + 1, pos + 1)
+    return not prev:match("[%a_]") and not nxt:match("[%w_]")
+end
+function string.subx(str, repl)
+    return (str:gsub("()x", function(pos) if isVarXAt(str, pos) then return repl end end))
+end
+function string.hasx(str)
+    if not str then return false end
+    for pos in str:gmatch("()x") do if isVarXAt(str, pos) then return true end end
+    return false
+end
+
+pxProMeter = 30
 offsetX = 160      
 offsetY = 106      
 
 rasterMass = 1.0   
 defEA = 1e10
+randDehnstarr = true   -- Rand-LGS: Staebe mit Zahlen-EA dehnstarr rechnen (Grenzwert EA -> unendlich)
 defEI = 1e8        
 autoKGV = false    
 zeigeN = true      
@@ -188,7 +205,7 @@ local function getDummyNumeric(text)
             if ok then
                 if type(res) == "number" then return res end
                 if type(res) == "string" and not string.find(res, "undef") then
-                    return tonumber(res:gsub(",", "."))
+                    return tonumber((res:gsub(",", ".")))
                 end
             end
         end
@@ -202,6 +219,22 @@ local function casWithDummySymbols(text)
         if sym_vars[word] then return "(" .. tostring(sym_vars[word]) .. ")" end
         return word
     end)
+end
+
+-- Eingabetext fuer das CAS aufbereiten: Dezimalkomma auf Klammerebene 0 -> Punkt
+-- (max(1,2) bleibt), e-Notation 1e8 -> 1*10^(8) (der TI liest "e" sonst als Variable).
+local function neuCasText(text)
+    if type(text) ~= "string" then return text end
+    local out, depth = {}, 0
+    for i = 1, #text do
+        local ch = text:sub(i, i)
+        if ch == "(" then depth = depth + 1 elseif ch == ")" then depth = depth - 1 end
+        if ch == "," and depth <= 0 then ch = "." end
+        out[#out + 1] = ch
+    end
+    local res = table.concat(out)
+    res = res:gsub("%f[%w_%.](%d+%.?%d*)[eE]([%+%-]?%d+)%f[^%w_]", function(m, e) return m .. "*10^(" .. tonumber(e) .. ")" end)
+    return res
 end
 
 local function evalInput(text, keep_str)
@@ -228,7 +261,7 @@ local function evalInput(text, keep_str)
         if ok then
             if type(res) == "number" then return res, text end
             if type(res) == "string" and not string.find(res, "undef") then
-                local n = tonumber(res:gsub(",", "."))
+                local n = tonumber((res:gsub(",", ".")))
                 if n then return n, text end
             end
         end
@@ -278,14 +311,14 @@ function smartToFracStr(v, tol)
     
     if zahlenFormat ~= 3 then
         -- 1. Try a STRICT rational fraction first (to catch exact rational numbers like 0.8, 13/200, 41/200, 11/150, 77/600 etc.)
-        local strict_frac = floatToFrac_lua(v, 1e-5, 10000)
+        local strict_frac = floatToFrac_lua(v, 1e-9 * math.max(1, math.abs(v)), 10000)
         if strict_frac then return strict_frac end
         
         -- 2. Try square root of a simple fraction (using a slightly looser tolerance because numeric squaring amplifies errors)
         local sq = v * v
         if zahlenFormat == 1 and sq <= 10000 then
-            local sq_frac = floatToFrac_lua(sq, 1e-4, 2000)
-            if sq_frac then
+            local sq_frac = floatToFrac_lua(sq, 1e-9 * math.max(1, sq), 2000)   -- nur echte Wurzeln, keine Naeherungen wie sqrt(21)/10 fuer 0.4583
+            if sq_frac and sq_frac ~= "0" then
                 local sign = v < 0 and "-" or ""
                 local num_str, den_str = sq_frac:match("^(%d+)/(%d+)$")
                 local num = tonumber(num_str) or tonumber(sq_frac)
@@ -360,6 +393,21 @@ local function fN_export(n)
     return str
 end
 
+-- Referenzlaenge des symbolischen Modus (bestimmt in checkSymbolischerModus):
+-- symbLSym ist das Laengensymbol, symbLDummy sein Zahlenwert in der numerischen Rechnung.
+-- Ohne Symbol in der Geometrie gilt ein Rasterabstand als l.
+symbLSym, symbLDummy = "l", 1.0
+function symbLaenge(L)
+    local scale = L / (symbLDummy or 1)
+    if math.abs(scale - 1) < 1e-9 then return symbLSym end
+    local frac = floatToFrac_lua(scale, 1e-9, 10000)
+    if not frac then
+        local sq = floatToFrac_lua(scale * scale, 1e-9 * scale * scale, 10000)
+        if sq and sq ~= "0" then frac = "sqrt(" .. sq .. ")" end
+    end
+    return "(" .. (frac or fN_export(scale)) .. "*" .. symbLSym .. ")"
+end
+
 local function eval_cas_string(expr, simplifyHugeFractions)
     if not expr then return "0" end
     if not math.eval then return expr end
@@ -417,12 +465,12 @@ local function eval_cas_string(expr, simplifyHugeFractions)
                     local str = smartToFracStr(val, 10^(-(casToleranz or 5)))
                     if str:sub(1,1) == "(" and str:sub(-1) == ")" then return str end
                     if str:find("sqrt") then return "(" .. str .. ")" end
-                    return string.format("%.2f", val)
+                    return string.format("%.6g", val)
                 end
                 
                 approx_res = approx_res:gsub("(%d*%.?%d*%s*[eE]%s*[+-]?%s*%d+)", processFloat)
                 approx_res = approx_res:gsub("(%d+%.%d+)", processFloat)
-                approx_res = approx_res:gsub("(%d+)%.00", "%1")
+                approx_res = approx_res:gsub("(%d+)%.0+%f[^%d]", "%1")
                 
                 local cleaned = math.eval("string(exact(expand((" .. approx_res .. "))))")
                 if cleaned and cleaned ~= "undef" then
@@ -496,9 +544,10 @@ local function getEqQ(s, L, fN, L_str)
     local s_val = -(knoten[s.k2].y - knoten[s.k1].y) / L
     local f_gx = s.gx_proj and math.abs(s_val) or 1
     local f_gy = s.gy_proj and math.abs(c_val) or 1
-    local base = "("..(s.q_str or "0")..") + ("..(s.gx_str or "0")..")*"..fN(f_gx * s_val).." + ("..(s.gy_str or "0")..")*"..fN(f_gy * c_val)
+    local T = neuCasText
+    local base = "("..T(s.q_str or "0")..") + ("..T(s.gx_str or "0")..")*"..fN(f_gx * s_val).." + ("..T(s.gy_str or "0")..")*"..fN(f_gy * c_val)
     if L_str and (s.q_A_str or s.q_B_str) then
-        base = base .. " + ("..(s.q_A_str or "0")..") + (("..(s.q_B_str or "0")..")-("..(s.q_A_str or "0").."))*x/("..L_str..")"
+        base = base .. " + ("..T(s.q_A_str or "0")..") + (("..T(s.q_B_str or "0")..")-("..T(s.q_A_str or "0").."))*x/("..L_str..")"
     end
     return base
 end
@@ -508,9 +557,9 @@ local function getEqN(s, L, fN, L_str)
     local s_val = -(knoten[s.k2].y - knoten[s.k1].y) / L
     local f_gx = s.gx_proj and math.abs(s_val) or 1
     local f_gy = s.gy_proj and math.abs(c_val) or 1
-    local base = "("..(s.n_str or "0")..") + ("..(s.gx_str or "0")..")*"..fN(f_gx * c_val).." - ("..(s.gy_str or "0")..")*"..fN(f_gy * s_val)
+    local base = "("..neuCasText(s.n_str or "0")..") + ("..neuCasText(s.gx_str or "0")..")*"..fN(f_gx * c_val).." - ("..neuCasText(s.gy_str or "0")..")*"..fN(f_gy * s_val)
     if L_str and (s.n_A_str or s.n_B_str) then
-        base = base .. " + ("..(s.n_A_str or "0")..") + (("..(s.n_B_str or "0")..")-("..(s.n_A_str or "0").."))*x/("..L_str..")"
+        base = base .. " + ("..neuCasText(s.n_A_str or "0")..") + (("..neuCasText(s.n_B_str or "0")..")-("..neuCasText(s.n_A_str or "0").."))*x/("..L_str..")"
     end
     return base
 end
@@ -530,24 +579,16 @@ exportSchnittkraefteToTI = function(stab_index)
                 local Q0 = symbolischer_modus and ("-(" .. (s.symb_start.V or "0") .. ")") or fN(-s.s_local[2])
                 local M0 = symbolischer_modus and ("-(" .. (s.symb_start.M or "0") .. ")") or fN(-s.s_local[3])
                 
-                local L_str = fN(L)
+                local L_str = "(" .. fN(L) .. ")"
                 if symbolischer_modus then
-                    local L_sym = "L"
-                    for var, _ in pairs(sym_vars) do
-                        for _, k_node in ipairs(knoten) do
-                            if (k_node.x_str and k_node.x_str:find("%f[%a]" .. var .. "%f[%A]")) or (k_node.y_str and k_node.y_str:find("%f[%a]" .. var .. "%f[%A]")) then L_sym = var; break end
-                        end
-                    end
-                    local L_dummy = sym_vars[L_sym] or 1.0
-                    local scale = L / L_dummy
-                    L_str = (math.abs(scale - 1) < 1e-5) and L_sym or ("(" .. scale .. "*" .. L_sym .. ")")
+                    L_str = symbLaenge(L)
                 end
                 
                 local eq_q = getEqQ(s, L, fN, L_str)
                 local eq_n = getEqN(s, L, fN, L_str)
-                local use_cas_q = symbolischer_modus or string.find(eq_q, "x")
-                local use_cas_n = symbolischer_modus or string.find(eq_n, "x")
-                local use_cas_m = symbolischer_modus or (s.m_str and string.find(s.m_str, "x"))
+                local use_cas_q = symbolischer_modus or string.hasx(eq_q)
+                local use_cas_n = symbolischer_modus or string.hasx(eq_n)
+                local use_cas_m = symbolischer_modus or (s.m_str and string.hasx(s.m_str))
                 
                 local c_val, s_val = dx/L, -dy/L
                 local eff_gx = (s.gx or 0) * (s.gx_proj and math.abs(s_val) or 1)
@@ -559,27 +600,27 @@ exportSchnittkraefteToTI = function(stab_index)
                 
                 local expr_N = ""
                 if use_cas_n then
-                    expr_N = N0 .. " - integral(("..eq_n:gsub("x","t").."),t,0,x)"
+                    expr_N = N0 .. " - integral(("..eq_n:subx("t").."),t,0,x)"
                 else
                     expr_N = N0 .. " - ("..fN(nA).."*x + ("..fN(nB).."-"..fN(nA)..")*x^2/(2*"..L_str.."))"
                 end
                 
                 local expr_Q = ""
                 if use_cas_q then
-                    expr_Q = Q0 .. " - integral(("..eq_q:gsub("x","t").."),t,0,x)"
+                    expr_Q = Q0 .. " - integral(("..eq_q:subx("t").."),t,0,x)"
                 else
                     expr_Q = Q0 .. " - ("..fN(qA).."*x + ("..fN(qB).."-"..fN(qA)..")*x^2/(2*"..L_str.."))"
                 end
                 
                 local expr_M = M0 .. " + " .. Q0 .. "*x - " .. fN(s.m) .. "*x"
                 if use_cas_q then
-                    expr_M = expr_M .. " - integral(("..eq_q:gsub("x","t")..")*(x-t),t,0,x)"
+                    expr_M = expr_M .. " - integral(("..eq_q:subx("t")..")*(x-t),t,0,x)"
                 else
                     expr_M = expr_M .. " - ("..fN(qA).."*x^2/2 + ("..fN(qB).."-"..fN(qA)..")*x^3/(6*"..L_str.."))"
                 end
                 
                 if use_cas_m then
-                    expr_M = expr_M .. " - integral(("..s.m_str:gsub("x","t").."),t,0,x)"
+                    expr_M = expr_M .. " - integral(("..s.m_str:subx("t").."),t,0,x)"
                 end
                 
                 math.eval("N_stab" .. i .. "(x) := " .. eval_cas_string(expr_N, true))
@@ -603,13 +644,6 @@ local function precalcSymbolicLabels()
     local fN = fN_export
     for i = 1, #staebe do exportSchnittkraefteToTI(i) end
     
-    local L_sym = "L"
-    for var, _ in pairs(sym_vars) do
-        for _, k_node in ipairs(knoten) do
-            if (k_node.x_str and k_node.x_str:find("%f[%a]" .. var .. "%f[%A]")) or (k_node.y_str and k_node.y_str:find("%f[%a]" .. var .. "%f[%A]")) then L_sym = var; break end
-        end
-    end
-    
     for i, s in ipairs(staebe) do
         local dx = knoten[s.k2].x - knoten[s.k1].x
         local dy = knoten[s.k2].y - knoten[s.k1].y
@@ -623,17 +657,22 @@ local function precalcSymbolicLabels()
         local n_add = eff_gx * c_val - eff_gy * s_val; local q_add = eff_gx * s_val + eff_gy * c_val
         local N0, Q0, M0 = -(s.s_local[1] or 0), -(s.s_local[2] or 0), -(s.s_local[3] or 0)
         local qA, qB = s.q + s.q_A + q_add, s.q + s.q_B + q_add; local nA, nB = s.n + s.n_A + n_add, s.n + s.n_B + n_add
+        if s.q_in_cas then qA, qB = 0, 0 end; if s.n_in_cas then nA, nB = 0, 0 end -- sonst doppelt zu cas_*_drop
 
+        local has_cas_pts = (s.M_cas_pts and #s.M_cas_pts > 0) or (s.N_cas_pts and #s.N_cas_pts > 0)
         for j = 0, pts do
             local t = j / pts
+            -- CAS-Stuetzwerte liegen nur auf dem ptsBiegelinie-Raster: dort auswerten
+            local jc = math.floor(t * ptsBiegelinie + 0.5)
+            if has_cas_pts then t = jc / ptsBiegelinie end
             local x = t * L
-            local cas_Q_drop = (s.Q_cas_pts and s.Q_cas_pts[j+1]) or 0
-            local cas_M_drop = (s.M_cas_pts and s.M_cas_pts[j+1]) or 0
-            local cas_N_drop = (s.N_cas_pts and s.N_cas_pts[j+1]) or 0
-            
-            local val_M = M0 + Q0*x - (s.m or 0)*x - (qA*(x^2)/2 + (qB-qA)*(x^3)/(6*L)) + cas_M_drop
-            local val_Q = Q0 - (qA*x + (qB-qA)*(x^2)/(2*L)) + cas_Q_drop
-            local val_N = N0 - (nA*x + (nB-nA)*(x^2)/(2*L)) + cas_N_drop
+            local cas_Q_drop = (s.Q_cas_pts and s.Q_cas_pts[jc+1]) or 0
+            local cas_M_drop = (s.M_cas_pts and s.M_cas_pts[jc+1]) or 0
+            local cas_N_drop = (s.N_cas_pts and s.N_cas_pts[jc+1]) or 0
+
+            local val_M = M0 + Q0*x - (s.m or 0)*x - (qA*(x^2)/2 + (qB-qA)*(x^3)/(6*L)) - cas_M_drop
+            local val_Q = Q0 - (qA*x + (qB-qA)*(x^2)/(2*L)) - cas_Q_drop
+            local val_N = N0 - (nA*x + (nB-nA)*(x^2)/(2*L)) - cas_N_drop
             
             if math.abs(val_M) > math.abs(max_M) then max_M = val_M; t_M = t end
             if math.abs(val_Q) > math.abs(max_Q) then max_Q = val_Q; t_Q = t end
@@ -664,9 +703,12 @@ local function precalcSymbolicLabels()
             return best_t
         end
         
-        t_M = refine_t(t_M, "M")
-        t_Q = refine_t(t_Q, "Q")
-        t_N = refine_t(t_N, "N")
+        -- Die Verfeinerung kennt nur das klassische Polynom; mit CAS-Lastanteil Rasterwert behalten
+        if not has_cas_pts then
+            t_M = refine_t(t_M, "M")
+            t_Q = refine_t(t_Q, "Q")
+            t_N = refine_t(t_N, "N")
+        end
         
         local function fixT(t)
             if math.abs(t) < 1e-4 then return "0" end
@@ -676,9 +718,7 @@ local function precalcSymbolicLabels()
             return fN(t)
         end
         
-        local L_dummy = sym_vars[L_sym] or 1.0
-        local scale = L / L_dummy
-        local L_str = (math.abs(scale - 1) < 1e-5) and L_sym or ("(" .. fN(scale) .. "*" .. L_sym .. ")")
+        local L_str = symbLaenge(L)
         
         -- Da das CAS bei Integralen mit symbolischen Grenzen (z.B. L) in Lua oft "Domain Warnings" wirft
         -- und deshalb 'nil' zurückgibt, bauen wir für diese UI-Labels das Polynom direkt auf.
@@ -790,22 +830,14 @@ exportBiegelinienToTI = function(stab_index)
                 local vb = (math.abs(s.v_local[5] or 0) < 1e-12) and 0 or s.v_local[5]
                 local phib = (math.abs(s.v_local[6] or 0) < 1e-12) and 0 or s.v_local[6]
                 
-                local L_str = fN(L)
+                local L_str = "(" .. fN(L) .. ")"
                 if symbolischer_modus then
-                    local L_sym = "L"
-                    for var, _ in pairs(sym_vars) do
-                        for _, k_node in ipairs(knoten) do
-                            if (k_node.x_str and k_node.x_str:find("%f[%a]" .. var .. "%f[%A]")) or (k_node.y_str and k_node.y_str:find("%f[%a]" .. var .. "%f[%A]")) then L_sym = var; break end
-                        end
-                    end
-                    local L_dummy = sym_vars[L_sym] or 1.0
-                    local scale = L / L_dummy
-                    L_str = (math.abs(scale - 1) < 1e-5) and L_sym or ("(" .. scale .. "*" .. L_sym .. ")")
+                    L_str = symbLaenge(L)
                 end
                 
                 local eq_q = getEqQ(s, L, fN, L_str)
-                local use_cas_q = symbolischer_modus or string.find(eq_q, "x")
-                local use_cas_m = symbolischer_modus or (s.m_str and string.find(s.m_str, "x"))
+                local use_cas_q = symbolischer_modus or string.hasx(eq_q)
+                local use_cas_m = symbolischer_modus or (s.m_str and string.hasx(s.m_str))
                 
                 local v_L_last = 0
                 local phi_L_last = 0
@@ -814,7 +846,7 @@ exportBiegelinienToTI = function(stab_index)
                 local phi_L_last_symb = "0"
                 
                 if use_cas_q or symbolischer_modus then
-                    local q_t = eq_q:gsub("x", "t")
+                    local q_t = eq_q:subx("t")
                     v_last_expr = "integral(("..q_t..")*(x-t)^3,t,0,x)/6"
                     v_L_last_symb = v_L_last_symb .. " + integral(("..q_t..")*("..L_str.."-t)^3,t,0,"..L_str..")/6"
                     if not symbolischer_modus then
@@ -831,27 +863,25 @@ exportBiegelinienToTI = function(stab_index)
                 end
                 
                 if use_cas_m then
-                    local m_t = s.m_str:gsub("x", "t")
-                    v_last_expr = v_last_expr .. " - integral(("..m_t..")*(x-t)^2,t,0,x)/2"
-                    v_L_last_symb = v_L_last_symb .. " - integral(("..m_t..")*("..L_str.."-t)^2,t,0,"..L_str..")/2"
+                    local m_t = s.m_str:subx("t")
+                    -- EI*w'''' = q + m'  ->  EI*w enthaelt +int m(t)*(x-t)^2/2 dt (Vorzeichen wie M' = Q - m)
+                    v_last_expr = v_last_expr .. " + integral(("..m_t..")*(x-t)^2,t,0,x)/2"
+                    v_L_last_symb = v_L_last_symb .. " + integral(("..m_t..")*("..L_str.."-t)^2,t,0,"..L_str..")/2"
                     if not symbolischer_modus then
-                        v_L_last = v_L_last + (casToNumber(math.eval("approx(-integral(("..m_t..")*("..L_str.."-t)^2,t,0,"..L_str..")/2)")) or 0)
-                        phi_L_last = phi_L_last + (casToNumber(math.eval("approx(-integral(("..m_t..")*("..L_str.."-t),t,0,"..L_str.."))")) or 0)
+                        v_L_last = v_L_last + (casToNumber(math.eval("approx(integral(("..m_t..")*("..L_str.."-t)^2,t,0,"..L_str..")/2)")) or 0)
+                        phi_L_last = phi_L_last + (casToNumber(math.eval("approx(integral(("..m_t..")*("..L_str.."-t),t,0,"..L_str.."))")) or 0)
                     end
-                    phi_L_last_symb = phi_L_last_symb .. " - integral(("..m_t..")*("..L_str.."-t),t,0,"..L_str..")"
+                    phi_L_last_symb = phi_L_last_symb .. " + integral(("..m_t..")*("..L_str.."-t),t,0,"..L_str..")"
                 end
                 
                 local c1 = symbolischer_modus and ("(" .. (s.symb_start.c1 or "0") .. ")") or fN(va * EI)
                 local c2 = symbolischer_modus and ("(" .. (s.symb_start.c2 or "0") .. ")") or fN(-phia * EI)
-                local c3 = symbolischer_modus and "((" .. (s.symb_start.vb or "0") .. ") - (" .. v_L_last_symb .. "))" or fN(-vb * EI - v_L_last)
+                local c3 = symbolischer_modus and "((" .. (s.symb_start.vb or "0") .. ") - (" .. v_L_last_symb .. "))" or fN(vb * EI - v_L_last)
                 local c4 = symbolischer_modus and "((" .. (s.symb_start.phib or "0") .. ") - (" .. phi_L_last_symb .. "))" or fN(-phib * EI - phi_L_last)
-                local has_inner_hinge = knoten[s.k1].gelenk or knoten[s.k2].gelenk or s.gelenk_A or s.gelenk_B
+                -- Auch an Gelenken gilt die Hermite-Form: jedes Stabende hat seine eigene Verdrehung,
+                -- ein Sonderzweig (nur Lastanteil + va + phia*x) liesse Q0- und M0-Anteile weg.
                 local expr
-                if has_inner_hinge and not symbolischer_modus then
-                    -- At an inner hinge, the integrated load function is continued
-                    -- from the hinge with its displacement and rotation as constants.
-                    expr = v_last_expr .. " + " .. fN(va * EI) .. " - " .. fN(phia * EI) .. "*x"
-                else
+                do
                     expr = v_last_expr .. " + " .. c1 .. "*(1-3*(x/"..L_str..")^2+2*(x/"..L_str..")^3) + " .. c2 .. "*(x-2*x^2/"..L_str.."+x^3/("..L_str.."^2)) + " .. c3 .. "*(3*(x/"..L_str..")^2-2*(x/"..L_str..")^3) + " .. c4 .. "*(-x^2/"..L_str.."+x^3/("..L_str.."^2))"
                 end
                 -- exact() liegt um das gesamte, in Lua bereits rausch-bereinigte Polynom!
@@ -882,7 +912,7 @@ exportULinienToTI = function(stab_index)
                 local ua = (math.abs(s.v_local[1] or 0) < 1e-12) and 0 or s.v_local[1]
                 local ub = (math.abs(s.v_local[4] or 0) < 1e-12) and 0 or s.v_local[4]
 
-                local L_str = fN(L)
+                local L_str = "(" .. fN(L) .. ")"
 
                 -- Randbedingungen als Konstanten mal EA
                 local c1 = fN(ua * EA)   -- EA*u(0) = ua*EA
@@ -891,7 +921,7 @@ exportULinienToTI = function(stab_index)
                 -- Streckenlast-Anteil: N_last(x) = Normalkraft nur aus Streckenlasten
                 -- getEqN liefert den Ausdruck der verteilten Normallast (Streckenlast) in lokalen Koordinaten
                 local eq_n   = getEqN(s, L, fN)
-                local use_cas = string.find(eq_n, "x")
+                local use_cas = string.hasx(eq_n)
 
                 local expr = ""
 
@@ -900,7 +930,7 @@ exportULinienToTI = function(stab_index)
                     -- u(x)*EA = c1*(1-x/L) + c2*(x/L)
                     --         - integral((x-t)*n(t), t, 0, x)
                     --         + (x/L) * integral((L-t)*n(t), t, 0, L)
-                    local n_t = eq_n:gsub("x", "t")
+                    local n_t = eq_n:subx("t")
                     local int_0_L = "integral((" .. n_t .. ")*(" .. L_str .. "-t), t, 0, " .. L_str .. ")"
                     local int_0_x = "integral((" .. n_t .. ")*(x-t), t, 0, x)"
                     expr = c1 .. "*(1-x/" .. L_str .. ") + " .. c2 .. "*(x/" .. L_str .. ") - " ..
@@ -949,24 +979,64 @@ end
 -- Diese beiden Funktionen stehen bewusst nur in Biegelinieneu.lua.
 -- ============================================================================
 
-local function neuSymbolText(value, text)
-    if text and text ~= "" then return "(" .. text:gsub(",", ".") .. ")" end
-    return fN_export(value or 0)
+-- Zahl als exakter CAS-Text: Bruch, Wurzel eines Bruchs oder 12-stellige Dezimalzahl.
+-- (fN_export liefert Anzeigeformen; fuer das LGS muessen z. B. cos(45) und sqrt(18) exakt sein.)
+local function neuZahl(v)
+    if type(v) ~= "number" then return tostring(v) end
+    if v == 0 or math.abs(v) < 1e-300 then return "0" end
+    local a = math.abs(v)
+    local frac = floatToFrac_lua(v, 1e-12 * a, 10000)
+    if frac and frac ~= "0" then return frac end
+    if a >= 1e-4 and a <= 1e4 then
+        local sq = floatToFrac_lua(v * v, 1e-12 * v * v, 10000)
+        if sq and sq ~= "0" then return (v < 0 and "-" or "") .. "sqrt(" .. sq .. ")" end
+    end
+    -- Dezimalzahl, e-Notation als Zehnerpotenz
+    return (string.format("%.12g", v):gsub("e([%+%-]?%d+)", function(e) return "*10^(" .. tonumber(e) .. ")" end))
 end
 
+-- exakte CAS-Vereinfachung ohne Rundung (fuer Zwischenwerte des LGS)
+local function neuExakt(expr)
+    if not expr or expr == "" then return "0" end
+    local ok, cleaned = pcall(function() return eval_cas_string(expr, false) end)
+    if ok and cleaned and cleaned ~= "" then return cleaned end
+    return expr
+end
+
+local function neuSymbolText(value, text)
+    if text and text ~= "" then return "(" .. neuCasText(text) .. ")" end
+    return neuZahl(value or 0)
+end
+
+-- Dehnstarr (randDehnstarr): EA = EA_Zahl/RL_EPS im LGS, danach Grenzwert RL_EPS -> 0.
+-- So bleibt das LGS auch dann regulaer, wenn N nur ueber die Dehnsteifigkeiten verteilt wird
+-- (z. B. Festlager-Festlager mit Horizontallast); 1/EA = 0 direkt waere dort singulaer.
+local RL_EPS = "rleps"
+
+-- true, wenn ein EA-Text eine reine Zahl ist (auch "1e8", "2*10^8"), also nicht symbolisch
+local function neuIstZahlText(str)
+    if not str or str == "" then return true end
+    local t = tostring(str):gsub("(%d)[eE]([%+%-]?%d)", "%1%2")
+    return not t:find("%a")
+end
+
+-- Grenzwert rleps -> 0 als exakter CAS-Text; nil, wenn er nicht endlich oder nicht bestimmbar ist
+-- (TI: undef bzw. Unendlich-Zeichen; bei einem CAS-Fehler kommt der Eingabetext mit "limit" zurueck)
+local function neuGrenzwert(expr)
+    local res = neuExakt("limit(" .. expr .. "," .. RL_EPS .. ",0)")
+    local t = (res or ""):lower()
+    if t == "" or t:find("limit") or t:find("undef") or t:find(string.char(226, 136, 158)) or t:find("%f[%w]z?oo%f[^%w]") then
+        return nil
+    end
+    return res
+end
+
+-- Stablaenge als CAS-Text: symbolisch als Vielfaches der Referenzlaenge, sonst als Zahl
 local function neuMemberLength(stab)
     local k1, k2 = knoten[stab.k1], knoten[stab.k2]
-    if symbolischer_modus then
-        local dx_num = k2.x - k1.x
-        local dy_num = k2.y - k1.y
-        local numeric_length = math.sqrt(dx_num * dx_num + dy_num * dy_num)
-        if numeric_length > 0 then
-            return "(" .. fN_export(numeric_length) .. "*l)"
-        end
-    end
-    local x1, y1 = neuSymbolText(k1.x, k1.x_str), neuSymbolText(k1.y, k1.y_str)
-    local x2, y2 = neuSymbolText(k2.x, k2.x_str), neuSymbolText(k2.y, k2.y_str)
-    return "sqrt((" .. x2 .. "-" .. x1 .. ")^2+(" .. y2 .. "-" .. y1 .. ")^2)"
+    local L = math.sqrt((k2.x - k1.x) ^ 2 + (k2.y - k1.y) ^ 2)
+    if symbolischer_modus and L > 0 then return symbLaenge(L) end
+    return neuZahl(L)
 end
 
 local function neuCleanTerm(expr)
@@ -978,37 +1048,6 @@ end
 
 local function neuShowMessage(text)
     print("[Biegelinieneu] " .. tostring(text))
-end
-
-local function neuCasMatrix(name, rows, preserve_symbols)
-    local row_text = {}
-    for r = 1, #rows do
-        if type(rows[r]) == "table" then
-            local cleaned_row = {}
-            for c = 1, #rows[r] do
-                cleaned_row[c] = preserve_symbols and tostring(rows[r][c]) or neuCleanTerm(rows[r][c])
-            end
-            row_text[r] = table.concat(cleaned_row, ",")
-        else
-            row_text[r] = preserve_symbols and tostring(rows[r]) or neuCleanTerm(tostring(rows[r]))
-        end
-    end
-    if math.eval then
-        neuShowMessage("CAS Matrix " .. name)
-        if name:match("^blb") then
-            neuShowMessage(name .. " command: " .. name .. ":=exact([[" .. table.concat(row_text, "][") .. "]])")
-        end
-        local ok, err = pcall(function()
-            -- TI-Nspire matrices use adjacent bracketed rows: [[a,b][c,d]].
-            math.eval(name .. ":=exact([[" .. table.concat(row_text, "][") .. "]])")
-        end)
-        if not ok then
-            neuShowMessage("Fehler bei " .. name .. ": " .. tostring(err))
-            return false
-        end
-        return true
-    end
-    return false
 end
 
 local function neuCasEval(command, name)
@@ -1047,402 +1086,599 @@ local function neuExportStatus(text)
     neuShowMessage(text)
 end
 
-local function neuLinearAdd(row, column, coefficient)
-    if coefficient and coefficient ~= "0" then
-        row[column] = (row[column] and (row[column] .. "+") or "") .. "(" .. coefficient .. ")"
+-- =====================================================================
+-- NEUE VERFORMUNGSLINIEN: globales Rand- und Uebergangsbedingungs-LGS
+--
+-- Ansatz je Stab i (lokale Koordinate x von 0 bis L_i, Zaehlrichtung k1 -> k2):
+--   EI*w_i(x) = wp_i(x) + c1*x^3/6 + c2*x^2/2 + c3*x + c4
+--   EA*u_i(x) = up_i(x) + C1*x + C2
+--   wp = int q(t)(x-t)^3/6 dt + int m(t)(x-t)^2/2 dt - EI*kappaT*x^2/2
+--   up = -int n(t)(x-t) dt + EA*epsT*x
+--   Q = -c1 - int q,   M = -(wp'' + c1*x + c2),   N = C1 - int n,   phi = -w'
+-- Das sind dieselben Vorzeichen wie im FEM-Modell: w und q positiv in lokaler
+-- Querrichtung n = (-dy, dx)/L, phi = -w', M' = Q - m, Q' = -q, N' = -n.
+--
+-- Unbekannte: 6 je Stab (c1..c4, C1, C2). Knotenverschiebungen werden ueber ein
+-- Referenz-Stabende ausgedrueckt; nur wenn an einem Knoten kein Stabende ohne
+-- N-/Q-Gelenk existiert, bekommt der Knoten eigene Unbekannte ux(K), uy(K).
+-- Bedingungen je Knoten:
+--   Kinematik: u, w, phi der Stabenden vertraeglich bzw. N=0 / Q=0 / M=0 am Gelenk
+--   Statik:    Lagerbedingung oder Gleichgewicht aus Stabendkraeften,
+--              Knotenlast (last_x/last_y/last_m, Winkel last_w) und Federn (cx, cy, cm)
+-- Geloest wird mit simult(); exportiert werden vne_i(x) = EI*w_i(x),
+-- uneu_i(x) = EA*u_i(x) und die Bedingungsliste randbed (Strings).
+-- Dehnstarr (randDehnstarr, Standard an): Staebe mit Zahlen-EA bekommen EA = EA_Zahl/rleps,
+-- alle Konstanten werden mit limit(..., rleps, 0) bestimmt. Bleibt EA*u endlich (Stab axial
+-- gehalten, keine Temperaturdehnung), wird uneu_i = EA*u_i exportiert, sonst uneu_i = u_i
+-- (Starrkoerperverschiebung plus Temperaturdehnung). randinfo beschreibt, was gilt.
+-- =====================================================================
+
+-- Linearform: sum c[j]*x_j + k, alle Eintraege als CAS-Strings
+local function rlNeu() return { c = {}, k = "0" } end
+
+-- Faktor (Zahl oder String) als CAS-String
+local function rlFaktorText(f)
+    if type(f) == "number" then return neuZahl(f) end
+    return f
+end
+
+-- dst = dst + f * src
+local function rlAdd(dst, src, f)
+    local ft = rlFaktorText(f)
+    if ft == "0" then return end
+    for j, cj in pairs(src.c) do
+        local term = (ft == "1") and cj or ((ft == "-1") and ("-(" .. cj .. ")") or ("(" .. ft .. ")*(" .. cj .. ")"))
+        dst.c[j] = dst.c[j] and (dst.c[j] .. "+" .. term) or term
+    end
+    if src.k ~= "0" then
+        local term = (ft == "1") and src.k or ((ft == "-1") and ("-(" .. src.k .. ")") or ("(" .. ft .. ")*(" .. src.k .. ")"))
+        dst.k = (dst.k == "0") and term or (dst.k .. "+" .. term)
     end
 end
 
-local function neuGlobalEndpoint(stab, x_value, sign)
-    local L = neuMemberLength(stab)
-    local EI = neuSymbolText(stab.EI, stab.EI_str)
-    local x = x_value
-    local q = getEqQ(stab, stab._numeric_length or 1, fN_export, L):gsub("x", "t")
-    local m = (stab.m_str and stab.m_str ~= "") and stab.m_str:gsub("x", "t") or "0"
-    local load_y = "integral((" .. q .. ")*(x-t)^3,t,0,x)/6-integral((" .. m .. ")*(x-t)^2,t,0,x)/2"
-    local load_phi = "integral((" .. q .. ")*(x-t)^2,t,0,x)/2-integral((" .. m .. ")*(x-t),t,0,x)"
-    local load_m = "integral((" .. q .. ")*(x-t),t,0,x)-integral((" .. m .. "),t,0,x)"
-    local load_q = "integral((" .. q .. "),t,0,x)-(" .. m:gsub("t", "x") .. ")"
-    local basis = {x .. "^3/6", x .. "^2/2", x, "1"}
-    local basis_phi = {x .. "^2/2", x, "1", "0"}
-    local basis_m = {x, "1", "0", "0"}
-    local basis_q = {"1", "0", "0", "0"}
-    local function scaled(list)
-        local result = {}
-        for i = 1, 4 do result[i] = "(" .. list[i] .. ")/(" .. EI .. ")" end
-        return result
+local function rlKonst(k) local l = rlNeu(); l.k = k; return l end
+local function rlEinheit(j, coef) local l = rlNeu(); l.c[j] = coef or "1"; return l end
+
+-- Groesse eines Stabendes: Linearform plus lesbarer Name (z. B. "w1(x1=l)")
+-- name: Anzeige in randbed, lin: Linearform der physikalischen Groesse, vz: Groesse = vz * name
+-- (z. B. Q = -EIw''' -> name "EIw1'''(x1=0)", vz = -1)
+local function rlGroesse(name, lin, vz) return { name = name, lin = lin, vz = vz or 1 } end
+
+-- Text einer Bedingung sum f_i * groesse_i + k = 0
+-- Anzeige-Hilfen: einfacher Term = kein + oder - ausser einem fuehrenden Minus
+local function rlEinfach(x) return not x:sub(2):find("[%+%-]") end
+local function rlNegiert(k)
+    local vz, rest = k:match("^(%-?)(.*)$")
+    if rest ~= "" and not rest:find("[%+%-]") then return (vz == "-") and rest or ("-" .. rest) end
+    return "-(" .. k .. ")"
+end
+local function rlKlammer(x)
+    if x:match("^%b()$") or x:match("^[%w_%.]+$") then return x end
+    return "(" .. x .. ")"
+end
+
+local function rlBedText(cond)
+    -- Anzeigefaktoren: Faktor der Groesse mal Vorzeichen ihres Namens (Q = -EIw''' usw.)
+    local terms = {}
+    for i, t in ipairs(cond.terms) do
+        local vz = t.q.vz or 1
+        local f, ft = t.f, t.ft
+        if vz < 0 then
+            if type(f) == "number" then f = -f else f = "-(" .. f .. ")" end
+            if ft then ft = (ft:sub(1, 1) == "-" and rlEinfach(ft)) and ft:sub(2) or ("-" .. ft) end
+        end
+        terms[i] = { f = f, ft = ft, q = t.q }
     end
-    return {
-        y = scaled(basis), phi = scaled(basis_phi), m = basis_m, q = basis_q,
-        load_y = sign .. "((" .. load_y:gsub("x", "(" .. x .. ")") .. ")/(" .. EI .. "))",
-        load_phi = sign .. "((" .. load_phi:gsub("x", "(" .. x .. ")") .. ")/(" .. EI .. "))",
-        load_m = sign .. "(" .. load_m:gsub("x", "(" .. x .. ")") .. ")",
-        load_q = sign .. "(" .. load_q:gsub("x", "(" .. x .. ")") .. ")",
-        EI = EI, L = L
+    local k = cond.ktext or cond.k or "0"
+    k = k:match("^%(([^()%+%-]*)%)$") or k   -- "(F)" -> "F"
+    local function istEins(f) return type(f) == "number" and math.abs(f - 1) < 1e-12 end
+    local function istMinusEins(f) return type(f) == "number" and math.abs(f + 1) < 1e-12 end
+    if #terms == 2 and k == "0" and (istEins(terms[1].f) or istMinusEins(terms[1].f)) and (istEins(terms[2].f) or istMinusEins(terms[2].f)) then
+        local a, b = terms[1], terms[2]
+        if a.f < 0 and b.f > 0 then a, b = b, a end
+        if (a.f > 0) == (b.f > 0) then return a.q.name .. "=-" .. b.q.name end   -- a + b = 0
+        return a.q.name .. "=" .. b.q.name                                          -- a - b = 0
+    end
+    if #terms == 1 and (istEins(terms[1].f) or istMinusEins(terms[1].f)) then
+        if k == "0" then return terms[1].q.name .. "=0" end
+        local rhs = istEins(terms[1].f) and rlNegiert(k) or k
+        return terms[1].q.name .. "=" .. rhs
+    end
+    local parts = {}
+    for i, t in ipairs(terms) do
+        local f, txt = t.f, nil
+        if istEins(f) then txt = t.q.name
+        elseif istMinusEins(f) then txt = "-" .. t.q.name
+        else
+            local ft = t.ft or ((type(f) == "number") and fN_export(f) or f)   -- Anzeigeform
+            if ft:sub(1, 1) == "-" and rlEinfach(ft) then txt = "-" .. rlKlammer(ft:sub(2)) .. "*" .. t.q.name
+            else txt = rlKlammer(ft) .. "*" .. t.q.name end
+        end
+        if i > 1 and txt:sub(1, 1) ~= "-" then txt = "+" .. txt end
+        parts[#parts + 1] = txt
+    end
+    local s = table.concat(parts)
+    if k ~= "0" then
+        if k:sub(1, 1) == "-" and rlEinfach(k) then s = s .. k
+        elseif rlEinfach(k) then s = s .. "+" .. k
+        else s = s .. "+(" .. k .. ")" end
+    end
+    return s .. "=0"
+end
+
+-- Zeile (Linearform) einer Bedingung
+local function rlBedZeile(cond)
+    local row = rlNeu()
+    for _, t in ipairs(cond.terms) do rlAdd(row, t.q.lin, t.f) end
+    if cond.k and cond.k ~= "0" then rlAdd(row, rlKonst(cond.k), 1) end
+    return row
+end
+
+-- CAS-String-Auswertung ohne exact/expand (fuer Matrizen)
+local function neuCasString(cmd)
+    local res = math.eval("string(" .. cmd .. ")")
+    if type(res) ~= "string" then return res ~= nil and tostring(res) or nil end
+    if res:sub(1, 1) == '"' then res = res:sub(2, -2) end
+    res = res:gsub(string.char(226, 136, 146), "-"):gsub(string.char(239, 128, 128), "E")
+    if res == "undef" then return nil end
+    return res
+end
+
+-- "(str)*num" mit Vereinfachung fuer 0, 1, -1; nil wenn Produkt 0.
+-- fmt formatiert Zahlen (neuZahl exakt fuer das LGS, fN_export fuer die Anzeige).
+local function neuSkaliert(str, num, fmt)
+    fmt = fmt or neuZahl
+    if not str or str == "0" or str == "(0)" or math.abs(num) < 1e-12 then return nil end
+    local plain = tonumber((str:gsub("^%((.*)%)$", "%1")))
+    if plain then
+        if math.abs(plain * num) < 1e-12 then return nil end
+        return fmt(plain * num)
+    end
+    if math.abs(num - 1) < 1e-12 then return str end
+    if math.abs(num + 1) < 1e-12 then return "-(" .. str .. ")" end
+    return "(" .. str .. ")*" .. fmt(num)
+end
+
+-- Stabdaten fuer das Rand-LGS: Laenge, Richtung, Steifigkeiten, Lastfunktionen, Stabendgroessen
+local function neuStabDaten(i, s, base)
+    local k1, k2 = knoten[s.k1], knoten[s.k2]
+    local dx, dy = k2.x - k1.x, k2.y - k1.y
+    local L = math.sqrt(dx * dx + dy * dy)
+    local Ls = neuMemberLength(s)
+    local EI = neuSymbolText(s.EI, s.EI_str)
+    local EA = neuSymbolText(s.EA, s.EA_str)
+    local EAzahl = EA
+    local starr = randDehnstarr and neuIstZahlText(s.EA_str) and (s.EA or 0) > 0
+    if starr then EA = "(" .. EA .. "/" .. RL_EPS .. ")" end
+    local q = getEqQ(s, L, fN_export, Ls)
+    local n = getEqN(s, L, fN_export, Ls)
+    local m = "(" .. neuCasText(s.m_str or "0") .. ")"
+    local qt, mt, nt = q:subx("t"), m:subx("t"), n:subx("t")
+    local hasM = not (m == "(0)" or m == "()")
+    local kT, eT = 0, 0
+    if (s.h or 0) > 0 and ((s.To or 0) ~= 0 or (s.Tu or 0) ~= 0) then
+        kT = (s.alpha or 0) * ((s.Tu or 0) - (s.To or 0)) / s.h
+        eT = (s.alpha or 0) * ((s.To or 0) + (s.Tu or 0)) / 2
+    end
+    -- Partikulaere Anteile als Funktionen von x
+    local wp = "integral((" .. qt .. ")*(x-t)^3,t,0,x)/6"
+    local wp1 = "integral((" .. qt .. ")*(x-t)^2,t,0,x)/2"
+    local wp2 = "integral((" .. qt .. ")*(x-t),t,0,x)"
+    if hasM then
+        wp = wp .. "+integral((" .. mt .. ")*(x-t)^2,t,0,x)/2"
+        wp1 = wp1 .. "+integral((" .. mt .. ")*(x-t),t,0,x)"
+        wp2 = wp2 .. "+integral((" .. mt .. "),t,0,x)"
+    end
+    if kT ~= 0 then
+        wp = wp .. "-(" .. EI .. ")*" .. neuZahl(kT) .. "*x^2/2"
+        wp1 = wp1 .. "-(" .. EI .. ")*" .. neuZahl(kT) .. "*x"
+    end
+    local iq = "integral((" .. qt .. "),t,0,x)"
+    local up = "-integral((" .. nt .. ")*(x-t),t,0,x)"
+    if eT ~= 0 then up = up .. "+(" .. EA .. ")*" .. neuZahl(eT) .. "*x" end
+    local inn = "integral((" .. nt .. "),t,0,x)"
+    local Lx = "(" .. Ls .. ")"
+    local function beiL(expr) return neuExakt(expr:subx(Lx)) end
+    local d = {
+        i = i, s = s, L = L, Ls = Ls, EI = EI, EA = EA, base = base, starr = starr, EAzahl = EAzahl, eT = eT,
+        tx = dx / L, ty = dy / L, nx = -dy / L, ny = dx / L,
+        wp = wp, up = up,
+        WPL = beiL(wp), WP1L = beiL(wp1), WP2L = beiL(wp2), IQL = beiL(iq), UPL = beiL(up), INL = beiL(inn),
     }
+    local c1, c2, c3, c4, C1, C2 = base + 1, base + 2, base + 3, base + 4, base + 5, base + 6
+    local function nm(g, x) return g .. i .. "(x" .. i .. "=" .. x .. ")" end
+    -- Anzeigenamen als Ableitungen: phi = -w', M = -EI(w''+kT), Q = -EIw''', N = EA(u'-eT)
+    local function nmAbl(vor, g, strich, x, temp)
+        local basis = g .. i .. strich .. "(x" .. i .. "=" .. x .. ")"
+        if temp then return vor .. "(" .. basis .. temp .. ")" end
+        return vor .. basis
+    end
+    local tM = (kT ~= 0) and ("+" .. fN_export(kT)) or nil
+    local tN = (eT ~= 0) and ("-" .. fN_export(eT)) or nil
+    -- Ende A (x = 0)
+    local A = {}
+    A.w = rlGroesse(nm("w", "0"), rlEinheit(c4, "1/(" .. EI .. ")"))
+    A.phi = rlGroesse(nmAbl("", "w", "'", "0"), rlEinheit(c3, "-1/(" .. EI .. ")"), -1)
+    A.M = rlGroesse(nmAbl("EI", "w", "''", "0", tM), rlEinheit(c2, "-1"), -1)
+    A.Q = rlGroesse(nmAbl("EI", "w", "'''", "0"), rlEinheit(c1, "-1"), -1)
+    A.u = rlGroesse(nm("u", "0"), rlEinheit(C2, "1/(" .. EA .. ")"))
+    A.N = rlGroesse(nmAbl("EA", "u", "'", "0", tN), rlEinheit(C1, "1"))
+    -- Ende B (x = L)
+    local B = {}
+    local lw = rlNeu()
+    lw.c[c1] = "(" .. Lx .. "^3/6)/(" .. EI .. ")"; lw.c[c2] = "(" .. Lx .. "^2/2)/(" .. EI .. ")"
+    lw.c[c3] = Lx .. "/(" .. EI .. ")"; lw.c[c4] = "1/(" .. EI .. ")"; lw.k = "(" .. d.WPL .. ")/(" .. EI .. ")"
+    B.w = rlGroesse(nm("w", Ls), lw)
+    local lphi = rlNeu()
+    lphi.c[c1] = "-(" .. Lx .. "^2/2)/(" .. EI .. ")"; lphi.c[c2] = "-" .. Lx .. "/(" .. EI .. ")"
+    lphi.c[c3] = "-1/(" .. EI .. ")"; lphi.k = "-(" .. d.WP1L .. ")/(" .. EI .. ")"
+    B.phi = rlGroesse(nmAbl("", "w", "'", Ls), lphi, -1)
+    local lM = rlNeu()
+    lM.c[c1] = "-" .. Lx; lM.c[c2] = "-1"; lM.k = "-(" .. d.WP2L .. ")"
+    B.M = rlGroesse(nmAbl("EI", "w", "''", Ls, tM), lM, -1)
+    local lQ = rlNeu()
+    lQ.c[c1] = "-1"; lQ.k = "-(" .. d.IQL .. ")"
+    B.Q = rlGroesse(nmAbl("EI", "w", "'''", Ls), lQ, -1)
+    local lu = rlNeu()
+    lu.c[C1] = Lx .. "/(" .. EA .. ")"; lu.c[C2] = "1/(" .. EA .. ")"; lu.k = "(" .. d.UPL .. ")/(" .. EA .. ")"
+    B.u = rlGroesse(nm("u", Ls), lu)
+    local lN = rlNeu()
+    lN.c[C1] = "1"; lN.k = "-(" .. d.INL .. ")"
+    B.N = rlGroesse(nmAbl("EA", "u", "'", Ls, tN), lN)
+    d.A, d.B = A, B
+    return d
 end
 
-local function neuGlobalBendingData()
-    local endpoint_count = 0
-    local endpoints = {}
-    for i, stab in ipairs(staebe) do
-        if not stab.is_cut and not stab.is_virtual_parent then
-            endpoint_count = endpoint_count + 2
-            endpoints[#endpoints + 1] = {stab = i, node = stab.k1, side = "A", data = neuGlobalEndpoint(stab, "0", 1)}
-            endpoints[#endpoints + 1] = {stab = i, node = stab.k2, side = "B", data = neuGlobalEndpoint(stab, neuMemberLength(stab), -1)}
-        end
-    end
-    if endpoint_count == 0 then return nil end
-    local by_node = {}
-    for _, ep in ipairs(endpoints) do
-        by_node[ep.node] = by_node[ep.node] or {}
-        by_node[ep.node][#by_node[ep.node] + 1] = ep
-    end
-    for _, ep in ipairs(endpoints) do
-        ep.base = (ep.stab - 1) * 4
-    end
-    local rows, rhs, labels = {}, {}, {}
-    local function addEquation(row, constant, label)
-        rows[#rows + 1] = row; rhs[#rhs + 1] = "-(" .. (constant or "0") .. ")"; labels[#labels + 1] = label
-    end
-    for node, list in pairs(by_node) do
-        local ref = list[1]
-        local node_data = knoten[node]
-        for j = 2, #list do
-            local ep = list[j]
-            local row = {}
-            for k = 1, 4 do neuLinearAdd(row, ep.base + k, ep.data.y[k]); neuLinearAdd(row, ref.base + k, "-((" .. ref.data.y[k] .. "))") end
-            addEquation(row, ep.data.load_y .. "+(-(" .. ref.data.load_y .. "))", "K" .. node .. " v-Kompatibilität")
-            row = {}
-            local hinged = node_data.gelenk or (ep.side == "A" and staebe[ep.stab].gelenk_A) or (ep.side == "B" and staebe[ep.stab].gelenk_B)
-            if hinged then
-                for k = 1, 4 do neuLinearAdd(row, ep.base + k, ep.data.m[k]) end
-                addEquation(row, ep.data.load_m, "K" .. node .. " M-Gelenk")
-            else
-                for k = 1, 4 do neuLinearAdd(row, ep.base + k, ep.data.phi[k]); neuLinearAdd(row, ref.base + k, "-((" .. ref.data.phi[k] .. "))") end
-                addEquation(row, ep.data.load_phi .. "+(-(" .. ref.data.load_phi .. "))", "K" .. node .. " phi-Kompatibilität")
-            end
-        end
-        if node_data.lager_y then
-            local row = {}; for k = 1, 4 do neuLinearAdd(row, ref.base + k, ref.data.y[k]) end
-            addEquation(row, ref.data.load_y, "K" .. node .. " v=0")
-        else
-            local row = {}
-            local load_terms = {}
-            for _, ep in ipairs(list) do
-                local factor = ep.side == "A" and "1" or "-1"
-                for k = 1, 4 do neuLinearAdd(row, ep.base + k, factor .. "*(" .. ep.data.q[k] .. ")") end
-                load_terms[#load_terms + 1] = factor .. "*(" .. ep.data.load_q .. ")"
-            end
-            local dx = knoten[staebe[ref.stab].k2].x - knoten[staebe[ref.stab].k1].x
-            local dy = knoten[staebe[ref.stab].k2].y - knoten[staebe[ref.stab].k1].y
-            local length = math.sqrt(dx * dx + dy * dy)
-            if length > 0 and (node_data.cx_str or (node_data.cx or 0) ~= 0 or node_data.cy_str or (node_data.cy or 0) ~= 0) then
-                local c = fN_export(dx / length); local s = fN_export(-dy / length)
-                local spring = "(" .. neuSymbolText(node_data.cx, node_data.cx_str) .. ")*(" .. s .. ")^2+(" .. neuSymbolText(node_data.cy, node_data.cy_str) .. ")*(" .. c .. ")^2"
-                for k = 1, 4 do neuLinearAdd(row, ref.base + k, spring .. "*(" .. ref.data.y[k] .. ")") end
-                load_terms[#load_terms + 1] = spring .. "*(" .. ref.data.load_y .. ")"
-            end
-            addEquation(row, table.concat(load_terms, "+"), "K" .. node .. " Q-Gleichgewicht")
-        end
-        if node_data.lager_m then
-            local row = {}; for k = 1, 4 do neuLinearAdd(row, ref.base + k, ref.data.phi[k]) end
-            addEquation(row, ref.data.load_phi, "K" .. node .. " phi=0")
-        else
-            local row = {}
-            for _, ep in ipairs(list) do
-                local factor = ep.side == "A" and "1" or "-1"
-                for k = 1, 4 do neuLinearAdd(row, ep.base + k, factor .. "*(" .. ep.data.m[k] .. ")") end
-            end
-            addEquation(row, table.concat((function() local a = {}; for _, ep in ipairs(list) do local factor = ep.side == "A" and "1" or "-1"; a[#a + 1] = factor .. "*(" .. ep.data.load_m .. ")" end; return a end)(), "+"), "K" .. node .. " M-Gleichgewicht")
-        end
-    end
-    local unknowns = (#staebe) * 4
-    for r = 1, #rows do
-        local dense = {}
-        for c = 1, unknowns do dense[c] = rows[r][c] or "0" end
-        rows[r] = dense
-    end
-    return {rows = rows, rhs = rhs, labels = labels, endpoints = endpoints, unknowns = unknowns}
-end
-
-local function neuExportGlobalBending()
-    if not math.eval then return false end
-    -- The established global FEM/Hermite reconstruction already couples all
-    -- member transitions, supports, hinges, and nodal springs correctly.
-    exportBiegelinienToTI()
-    for i, stab in ipairs(staebe) do
-        local dx = knoten[stab.k2].x - knoten[stab.k1].x
-        local dy = knoten[stab.k2].y - knoten[stab.k1].y
-        if math.sqrt(dx * dx + dy * dy) > 0 and (stab.bogen_r or 0) == 0 and not stab.is_cut and not stab.is_virtual_parent then
-            if not neuCasEval("vne" .. i .. "(x):=v_EI_stab" .. i .. "(x)", "vne" .. i) then return false end
-        end
-    end
-    neuExportStatus("Globale Biegelinie: " .. tostring(#staebe) .. " Staebe exportiert")
-    return true
-end
-
-local function neuGlobalAxialData()
-    local endpoints, by_node = {}, {}
-    for i, stab in ipairs(staebe) do
-        if not stab.is_cut and not stab.is_virtual_parent then
-            local L = neuMemberLength(stab)
-            local EA = neuSymbolText(stab.EA, stab.EA_str)
-            local n = getEqN(stab, stab._numeric_length or 1, fN_export, L):gsub("x", "t")
-            local function make(side, node, x)
-                local u = side == "A" and {"1", "0"} or {"0", "1"}
-                local part = "-integral((" .. n .. ")*(x-t),t,0,x)"
-                local axial = {"-1/((" .. L .. "))", "1/((" .. L .. "))"}
-                local ep = {stab = i, node = node, side = side, base = (i - 1) * 2,
-                    u = u, axial = axial, load_u = part:gsub("x", "(" .. x .. ")"),
-                    load_n = "-integral((" .. n .. "),t,0," .. x .. ")", EA = EA}
-                endpoints[#endpoints + 1] = ep
-                by_node[node] = by_node[node] or {}; by_node[node][#by_node[node] + 1] = ep
-            end
-            make("A", stab.k1, "0")
-            make("B", stab.k2, L)
-        end
-    end
-    local rows, rhs, labels = {}, {}, {}
-    local function addEquation(row, constant, label)
-        rows[#rows + 1] = row; rhs[#rhs + 1] = "-(" .. (constant or "0") .. ")"; labels[#labels + 1] = label
-    end
-    for node, list in pairs(by_node) do
-        local ref = list[1]
-        for j = 2, #list do
-            local ep = list[j]; local row = {}
-            for k = 1, 2 do neuLinearAdd(row, ep.base + k, "(" .. ep.u[k] .. ")/(" .. ep.EA .. ")"); neuLinearAdd(row, ref.base + k, "-(" .. ref.u[k] .. ")/(" .. ref.EA .. ")") end
-            addEquation(row, "(" .. ep.load_u .. ")/(" .. ep.EA .. ")+(-((" .. ref.load_u .. ")/(" .. ref.EA .. ")))", "K" .. node .. " u-Kompatibilität")
-        end
-        local axial_fixed = false
-        local k_node = knoten[node]
-        local dx = knoten[staebe[ref.stab].k2].x - knoten[staebe[ref.stab].k1].x
-        local dy = knoten[staebe[ref.stab].k2].y - knoten[staebe[ref.stab].k1].y
-        local length = math.sqrt(dx * dx + dy * dy)
-        if length > 0 then axial_fixed = (k_node.lager_x and math.abs(dx / length) > 1e-10) or (k_node.lager_y and math.abs(dy / length) > 1e-10) end
-        if axial_fixed then
-            local row = {}; for k = 1, 2 do neuLinearAdd(row, ref.base + k, "(" .. ref.u[k] .. ")/(" .. ref.EA .. ")") end
-            addEquation(row, "(" .. ref.load_u .. ")/(" .. ref.EA .. ")", "K" .. node .. " u=0")
-        else
-            local row = {}; local load_terms = {}
-            for _, ep in ipairs(list) do
-                local factor = ep.side == "A" and "1" or "-1"
-                for k = 1, 2 do neuLinearAdd(row, ep.base + k, factor .. "*(" .. ep.axial[k] .. ")") end
-                load_terms[#load_terms + 1] = factor .. "*(" .. ep.load_n .. ")"
-            end
-            local alpha = math.rad(k_node.f_winkel or 0)
-            local member_x, member_y = dx / length, dy / length
-            local spring_x = member_x * math.cos(alpha) + member_y * math.sin(alpha)
-            local spring_y = -member_x * math.sin(alpha) + member_y * math.cos(alpha)
-            local has_spring = k_node.cx_str or k_node.cy_str or (k_node.cx or 0) > 0 or (k_node.cy or 0) > 0
-            if has_spring then
-                local cx = neuSymbolText(k_node.cx, k_node.cx_str)
-                local cy = neuSymbolText(k_node.cy, k_node.cy_str)
-                local spring = "(" .. cx .. ")*" .. fN_export(spring_x * spring_x)
-                    .. "+(" .. cy .. ")*" .. fN_export(spring_y * spring_y)
-                for k = 1, 2 do
-                    neuLinearAdd(row, ref.base + k, "-(" .. spring .. ")*(" .. ref.u[k] .. ")/(" .. ref.EA .. ")")
+-- Alle Bedingungen eines Knotens anhaengen
+local function neuKnotenBedingungen(kidx, k, ends, conds, extra)
+    if #ends == 0 then return end
+    local function tt(a, b) return a.tx * b.tx + a.ty * b.ty end   -- t_a . t_b
+    local function nt(a, b) return a.nx * b.tx + a.ny * b.ty end   -- n_a . t_b
+    local function tn(a, b) return a.tx * b.nx + a.ty * b.ny end   -- t_a . n_b
+    local function nn(a, b) return a.nx * b.nx + a.ny * b.ny end   -- n_a . n_b
+    local function push(terms, k_str, k_text) conds[#conds + 1] = { terms = terms, k = k_str or "0", ktext = k_text } end
+    local function add(terms, f, q, ft)
+        if type(f) == "number" and not ft then
+            for idx, t in ipairs(terms) do
+                if t.q == q and type(t.f) == "number" and not t.ft then
+                    t.f = t.f + f
+                    if math.abs(t.f) < 1e-12 then table.remove(terms, idx) end
+                    return
                 end
-                load_terms[#load_terms + 1] = "-(" .. spring .. ")*(" .. ref.load_u .. ")/(" .. ref.EA .. ")"
-                addEquation(row, table.concat(load_terms, "+"), "K" .. node .. " N-Gleichgewicht + Feder")
+            end
+            if math.abs(f) < 1e-12 then return end
+        end
+        terms[#terms + 1] = { f = f, q = q, ft = ft }
+    end
+    -- Zahl hinter einem CAS-Text wie "(3)" oder "2" (sonst nil)
+    local function zahlVon(txt) return tonumber((txt:gsub("^%((.*)%)$", "%1"))) end
+    -- Feder-/Steifigkeitsfaktor c*num: numerisch als Zahl, symbolisch als Text (LGS exakt, Anzeige lesbar)
+    local function addC(terms, cS, num, q)
+        if math.abs(num) < 1e-12 then return end
+        local cN = zahlVon(cS)
+        if cN then add(terms, cN * num, q); return end
+        local a = math.abs(num)
+        local disp = (num < 0 and "-" or "") .. rlKlammer(cS) .. ((math.abs(a - 1) < 1e-12) and "" or ("*" .. fN_export(a)))
+        add(terms, "(" .. cS .. ")*" .. neuZahl(num), q, disp)
+    end
+
+    -- Referenz-Stabenden
+    local transRef, rotRef
+    for _, e in ipairs(ends) do
+        if not transRef and not e.relN and not e.relQ then transRef = e end
+        if not rotRef and not e.relM then rotRef = e end
+    end
+    -- Knotenverschiebung U = (Ux, Uy) als Terme (Faktor, Groesse) je globaler Richtung
+    local UX, UY
+    if transRef then
+        local r = transRef
+        UX = { { f = r.d.tx, q = r.g.u }, { f = r.d.nx, q = r.g.w } }
+        UY = { { f = r.d.ty, q = r.g.u }, { f = r.d.ny, q = r.g.w } }
+    else
+        extra.n = extra.n + 2
+        local jx, jy = extra.n - 1, extra.n
+        extra.names[jx], extra.names[jy] = "ux(K" .. kidx .. ")", "uy(K" .. kidx .. ")"
+        UX = { { f = 1, q = rlGroesse("ux(K" .. kidx .. ")", rlEinheit(jx)) } }
+        UY = { { f = 1, q = rlGroesse("uy(K" .. kidx .. ")", rlEinheit(jy)) } }
+    end
+    -- Terme von U . e (e = (ex, ey)) mit Vorfaktor f in terms eintragen
+    local function addU(terms, f, ex, ey)
+        for _, t in ipairs(UX) do add(terms, f * ex * t.f, t.q) end
+        for _, t in ipairs(UY) do add(terms, f * ey * t.f, t.q) end
+    end
+
+    -- 1) Kinematik der Stabenden
+    for _, e in ipairs(ends) do
+        if e.relN then push({ { f = 1, q = e.g.N } })
+        elseif e ~= transRef then
+            local terms = {}; add(terms, 1, e.g.u); addU(terms, -1, e.d.tx, e.d.ty); push(terms)
+        end
+        if e.relQ then push({ { f = 1, q = e.g.Q } })
+        elseif e ~= transRef then
+            local terms = {}; add(terms, 1, e.g.w); addU(terms, -1, e.d.nx, e.d.ny); push(terms)
+        end
+        if e.relM then push({ { f = 1, q = e.g.M } })
+        elseif e ~= rotRef then push({ { f = 1, q = e.g.phi }, { f = -1, q = rotRef.g.phi } }) end
+    end
+
+    -- 2) Statik: Lager oder Gleichgewicht in den Lagerrichtungen xi, eta
+    -- Lagerwinkel wie Zeichnung und FEM (Drehung um -winkel): xi = (cos, -sin), eta = (sin, cos)
+    local wr = math.rad(k.winkel or 0)
+    local dirs = {
+        { name = "xi", ex = math.cos(wr), ey = -math.sin(wr), lager = k.lager_x, cn = "cx" },
+        { name = "eta", ex = math.sin(wr), ey = math.cos(wr), lager = k.lager_y, cn = "cy" },
+    }
+    -- Knotenlast in globalen Komponenten (last_w dreht die Last)
+    local rl = math.rad(-(k.last_w or 0)); local cl, sl = math.cos(rl), math.sin(rl)
+    local Fx_s, Fy_s = neuSymbolText(k.last_x, k.last_x_str), neuSymbolText(k.last_y, k.last_y_str)
+    local function lastText(ex, ey, fmt)
+        -- (Fx*cl - Fy*sl)*ex + (Fx*sl + Fy*cl)*ey
+        local parts = {}
+        local a = neuSkaliert(Fx_s, cl * ex + sl * ey, fmt); if a then parts[#parts + 1] = a end
+        local b = neuSkaliert(Fy_s, -sl * ex + cl * ey, fmt); if b then parts[#parts + 1] = b end
+        if #parts == 0 then return "0" end
+        local s = parts[1]; for i = 2, #parts do s = s .. (parts[i]:sub(1, 1) == "-" and "" or "+") .. parts[i] end
+        return s
+    end
+    -- Federachsen wie gezeichnet (drawZigZag: Drehung um -f_winkel): cx = (cos, -sin), cy = (sin, cos)
+    local fw = math.rad(k.f_winkel or 0)
+    local feder = { { ex = math.cos(fw), ey = -math.sin(fw), c = k.cx, cs = k.cx_str },
+                    { ex = math.sin(fw), ey = math.cos(fw), c = k.cy, cs = k.cy_str } }
+    for _, dir in ipairs(dirs) do
+        local terms = {}
+        if dir.lager then
+            addU(terms, 1, dir.ex, dir.ey)
+            push(terms)
+        else
+            for _, e in ipairs(ends) do
+                local sgn = (e.side == "A") and 1 or -1   -- Kraft des Stabendes auf den Knoten
+                if not e.relN then add(terms, sgn * (e.d.tx * dir.ex + e.d.ty * dir.ey), e.g.N) end
+                if not e.relQ then add(terms, sgn * (e.d.nx * dir.ex + e.d.ny * dir.ey), e.g.Q) end
+            end
+            for _, f in ipairs(feder) do
+                if (f.c or 0) ~= 0 or (f.cs and f.cs ~= "") then
+                    local proj = dir.ex * f.ex + dir.ey * f.ey   -- e . e_feder
+                    if math.abs(proj) > 1e-12 then
+                        local cS = neuSymbolText(f.c, f.cs)
+                        -- Federkraft auf den Knoten: -c * (e_feder . U) * (e . e_feder)
+                        for _, t in ipairs(UX) do addC(terms, cS, -proj * f.ex * t.f, t.q) end
+                        for _, t in ipairs(UY) do addC(terms, cS, -proj * f.ey * t.f, t.q) end
+                    end
+                end
+            end
+            if #terms == 0 then
+                -- Keine Stabkraft in dieser Richtung (alle Enden mit N-/Q-Gelenk): mit Last kinematisch,
+                -- ohne Last ist die Knotenverschiebung beliebig und wird zu 0 gesetzt.
+                if lastText(dir.ex, dir.ey) ~= "0" then
+                    extra.fehler = "Knoten " .. kidx .. ": Last in frei beweglicher Richtung (kinematisch)"
+                elseif not transRef then
+                    addU(terms, 1, dir.ex, dir.ey); push(terms)
+                end
             else
-                addEquation(row, table.concat(load_terms, "+"), "K" .. node .. " N-Gleichgewicht")
+                push(terms, lastText(dir.ex, dir.ey), lastText(dir.ex, dir.ey, fN_export))
             end
         end
     end
-    local unknowns = #staebe * 2
-    for r = 1, #rows do
-        local dense = {}; for c = 1, unknowns do dense[c] = rows[r][c] or "0" end; rows[r] = dense
+    -- 3) Verdrehung: Einspannung oder Momentengleichgewicht
+    if k.lager_m then
+        if rotRef then push({ { f = 1, q = rotRef.g.phi } }) end
+    elseif rotRef then
+        local terms = {}
+        for _, e in ipairs(ends) do
+            if not e.relM then add(terms, (e.side == "A") and 1 or -1, e.g.M) end
+        end
+        if (k.cm or 0) ~= 0 or (k.cm_str and k.cm_str ~= "") then
+            addC(terms, neuSymbolText(k.cm, k.cm_str), -1, rotRef.g.phi)
+        end
+        local mS = neuSymbolText(k.last_m, k.last_m_str)
+        push(terms, (mS ~= "0" and mS ~= "(0)") and mS or "0")
+    elseif (k.last_m or 0) ~= 0 then
+        neuShowMessage("Knoten " .. kidx .. ": Moment am Vollgelenk wird ignoriert")
     end
-    return {rows = rows, rhs = rhs, labels = labels, endpoints = endpoints, unknowns = unknowns}
 end
 
-local function neuExportGlobalAxial()
-    if not math.eval then return false end
-    local data = neuGlobalAxialData()
-    if not data or #data.endpoints == 0 then return false end
-    if not neuCasMatrix("lga", data.rows, true) then return false end
-    if not neuCasMatrix("lgb", data.rhs, true) then return false end
-    if not neuCasEval("lgc:=exact((lga)^(-1)*lgb)", "lgc") then return false end
-    local exported = {}
-    for _, endpoint in ipairs(data.endpoints) do
-        if not exported[endpoint.stab] then
-            local stab = staebe[endpoint.stab]
-            local L = neuMemberLength(stab)
-            local n = getEqN(stab, stab._numeric_length or 1, fN_export, L):gsub("x", "t")
-            local part = "-integral((" .. n .. ")*(x-t),t,0,x)"
-            local column = (endpoint.stab - 1) * 2
-            local expression = neuCleanTerm(part)
-                .. "+lgc[" .. (column + 1) .. ",1]*(1-x/(" .. L .. "))"
-                .. "+lgc[" .. (column + 2) .. ",1]*(x/(" .. L .. "))"
-            if not neuCasEval("uneu" .. endpoint.stab .. "(x):=" .. expression, "uneu" .. endpoint.stab) then return false end
-            exported[endpoint.stab] = true
+-- Eliminiert Zeilen mit nur einer Unbekannten (typisch: Bedingungen bei x=0).
+-- Liefert bekannte Werte je Unbekannter und die verbleibenden Zeilen.
+local function neuVorElimination(rows)
+    local values = {}
+    local changed = true
+    while changed do
+        changed = false
+        for _, r in ipairs(rows) do
+            if not r.done then
+                for j, cj in pairs(r.c) do
+                    if values[j] then
+                        r.k = (r.k == "0") and ("(" .. cj .. ")*(" .. values[j] .. ")") or (r.k .. "+(" .. cj .. ")*(" .. values[j] .. ")")
+                        r.c[j] = nil
+                    end
+                end
+                local count, single = 0, nil
+                for j in pairs(r.c) do count = count + 1; single = j end
+                if count == 1 then
+                    values[single] = "-(" .. r.k .. ")/(" .. r.c[single] .. ")"
+                    r.done = true; changed = true
+                elseif count == 0 then
+                    r.done = true; changed = true
+                end
+            end
         end
     end
-    neuExportStatus("Globale Laengslinie: " .. tostring(#data.endpoints / 2) .. " Staebe exportiert")
+    local rest = {}
+    for _, r in ipairs(rows) do if not r.done then rest[#rest + 1] = r end end
+    return values, rest
+end
+
+-- Fehler melden: Status und randbed = {"Fehler: ..."} (auf dem Rechner im Calculator sichtbar)
+local function neuFehler(text)
+    neuExportStatus(text)
+    if math.eval then pcall(math.eval, 'randbed:=["Fehler: ' .. tostring(text):gsub('"', "'") .. '"]') end
+    return false
+end
+
+-- Hauptfunktion: LGS aufstellen, loesen, Funktionen und Bedingungsliste exportieren
+local function neuRandLGS()
+    neuShowMessage("Rand-LGS gestartet")
+    if not math.eval then neuExportStatus("Fehler: CAS nicht verfuegbar!"); return false end
+    -- alte Ergebnisse loeschen, damit nach einem Abbruch nichts Veraltetes stehen bleibt
+    local alt = { "randbed", "randinfo", RL_EPS }
+    for i = 1, math.max(30, #staebe) do alt[#alt + 1] = "vne" .. i; alt[#alt + 1] = "uneu" .. i end
+    pcall(math.eval, "DelVar " .. table.concat(alt, ","))
+    if #staebe == 0 then return neuFehler("Keine Staebe vorhanden") end
+    if symbolFehler then return neuFehler("Symbolischer Modus: " .. symbolFehler) end
+    if KGV_Zustand and KGV_Zustand > 0 then
+        return neuFehler("Rand-LGS nicht im KGV-Einheitszustand X" .. KGV_Zustand .. " (Zustand 0 waehlen)")
+    end
+    for i, s in ipairs(staebe) do
+        local k1, k2 = knoten[s.k1], knoten[s.k2]
+        local L = math.sqrt((k2.x - k1.x) ^ 2 + (k2.y - k1.y) ^ 2)
+        if (s.bogen_r or 0) ~= 0 and L > 0 and math.abs(s.bogen_r) >= L / 2 then
+            return neuFehler("Stab " .. i .. ": Boegen werden vom Rand-LGS nicht unterstuetzt")
+        end
+    end
+    -- Stabdaten
+    local bars = {}
+    for i, s in ipairs(staebe) do
+        local k1, k2 = knoten[s.k1], knoten[s.k2]
+        local L = math.sqrt((k2.x - k1.x) ^ 2 + (k2.y - k1.y) ^ 2)
+        if L > 0 and not s.is_cut and not s.is_virtual_parent then
+            bars[#bars + 1] = neuStabDaten(i, s, #bars * 6)
+        end
+    end
+    if #bars == 0 then return neuFehler("Kein gueltiger Stab") end
+    -- Stabenden je Knoten
+    local byNode = {}
+    for _, d in ipairs(bars) do
+        local s = d.s
+        local relA = knoten[s.k1].gelenk or s.gelenk_A
+        local relB = knoten[s.k2].gelenk or s.gelenk_B
+        byNode[s.k1] = byNode[s.k1] or {}
+        byNode[s.k2] = byNode[s.k2] or {}
+        table.insert(byNode[s.k1], { d = d, side = "A", g = d.A, relM = relA, relN = s.n_gelenk_A, relQ = s.q_gelenk_A })
+        table.insert(byNode[s.k2], { d = d, side = "B", g = d.B, relM = relB, relN = s.n_gelenk_B, relQ = s.q_gelenk_B })
+    end
+    local conds, extra = {}, { n = #bars * 6, names = {} }
+    for kidx = 1, #knoten do
+        if byNode[kidx] then neuKnotenBedingungen(kidx, knoten[kidx], byNode[kidx], conds, extra) end
+    end
+    if extra.fehler then return neuFehler(extra.fehler) end
+    local nUnknown = extra.n
+    -- Zeilen aufbauen
+    local rows, texts = {}, {}
+    for _, cond in ipairs(conds) do
+        rows[#rows + 1] = rlBedZeile(cond)
+        texts[#texts + 1] = rlBedText(cond)
+    end
+    neuShowMessage(#rows .. " Bedingungen, " .. nUnknown .. " Unbekannte")
+    if #rows ~= nUnknown then
+        return neuFehler("Rand-LGS nicht quadratisch: " .. #rows .. " Bedingungen, " .. nUnknown .. " Unbekannte")
+    end
+    -- Vorelimination und Loesung
+    local values, rest = neuVorElimination(rows)
+    local restIdx = {}
+    for j = 1, nUnknown do if not values[j] then restIdx[#restIdx + 1] = j end end
+    if #rest ~= #restIdx then
+        return neuFehler("Rand-LGS singulaer (" .. #rest .. " Gleichungen fuer " .. #restIdx .. " Unbekannte): System kinematisch?")
+    end
+    if #restIdx > 0 then
+        local aRows, bRows = {}, {}
+        for r = 1, #rest do
+            local entries = {}
+            for c = 1, #restIdx do entries[c] = rest[r].c[restIdx[c]] or "0" end
+            aRows[r] = table.concat(entries, ",")
+            bRows[r] = "-(" .. rest[r].k .. ")"
+        end
+        neuShowMessage("simult mit " .. #restIdx .. " Unbekannten")
+        local cmd = "exact(simult([[" .. table.concat(aRows, "][") .. "]],[[" .. table.concat(bRows, "][") .. "]]))"
+        local ok, res = pcall(neuCasString, cmd)
+        if not ok or not res or res:sub(1, 2) ~= "[[" then
+            local msg = tostring(res):gsub("^.-__ERROR__", ""):gsub("^[^%s]-:%d+: ", "")
+            return neuFehler("Rand-LGS nicht loesbar (" .. msg:sub(1, 50) .. "): System kinematisch?")
+        end
+        local body = res:sub(3, -3)
+        local c = 0
+        for v in (body .. "]["):gmatch("(.-)%]%[") do
+            c = c + 1
+            if restIdx[c] then values[restIdx[c]] = v end
+        end
+        if c ~= #restIdx then return neuFehler("Rand-LGS: unerwartete Loesung " .. res:sub(1, 40)) end
+    end
+    -- Dehnstarr: Grenzwert rleps -> 0 fuer alle Konstanten. C2 = EA*u(0) eines dehnstarren Stabs
+    -- ist nur endlich, wenn der Stab axial gehalten ist; sonst wird u(x) exportiert.
+    local starrListe, uListe = {}, {}
+    local uStarr = {}   -- Stab -> Text von EA_Zahl*u(0) (Grenzwert von rleps*C2)
+    for _, d in ipairs(bars) do if d.starr then starrListe[#starrListe + 1] = tostring(d.i) end end
+    if #starrListe > 0 then
+        neuShowMessage("Dehnstarr: Grenzwert EA -> unendlich fuer Stab " .. table.concat(starrListe, ","))
+        local istC2 = {}
+        for _, d in ipairs(bars) do if d.starr then istC2[d.base + 6] = d end end
+        for j = 1, nUnknown do
+            local v = values[j] or "0"
+            local d = istC2[j]
+            if d then
+                local u0 = neuGrenzwert(RL_EPS .. "*(" .. v .. ")")
+                if not u0 then return neuFehler("Dehnstarr: Grenzwert fuer Stab " .. d.i .. " nicht bestimmbar (dehnstarr ausschalten)") end
+                if u0 == "0" and d.eT == 0 then
+                    values[j] = neuGrenzwert(v)
+                else
+                    uStarr[d.i] = u0
+                    values[j] = "0"
+                end
+            else
+                values[j] = neuGrenzwert(v)
+            end
+            if not values[j] then
+                return neuFehler("Dehnstarr: unendliche Zwangskraft (z. B. Temperatur in axial gehaltenem Stab), dehnstarr ausschalten")
+            end
+        end
+    else
+        -- Konstanten exakt bereinigen (keine Rundung)
+        for j = 1, nUnknown do values[j] = neuExakt(values[j] or "0") end
+    end
+    local count = 0
+    for _, d in ipairs(bars) do
+        local b = d.base
+        local ew = d.wp .. "+(" .. values[b + 1] .. ")*x^3/6+(" .. values[b + 2] .. ")*x^2/2+(" .. values[b + 3] .. ")*x+(" .. values[b + 4] .. ")"
+        local eu
+        if uStarr[d.i] then
+            -- EA*u unendlich: Verschiebung u(x) = epsT*x + u(0)
+            eu = "(" .. neuZahl(d.eT) .. ")*x+(" .. uStarr[d.i] .. ")/(" .. d.EAzahl .. ")"
+            uListe[#uListe + 1] = d.i
+        else
+            eu = d.up .. "+(" .. values[b + 5] .. ")*x+(" .. values[b + 6] .. ")"
+        end
+        -- exakt (keine Rundung); auf dem Rechner bei Bedarf approx(vne1(x)) verwenden
+        if not neuCasEval("vne" .. d.i .. "(x):=" .. neuExakt(ew), "vne" .. d.i) then return false end
+        if not neuCasEval("uneu" .. d.i .. "(x):=" .. neuExakt(eu), "uneu" .. d.i) then return false end
+        count = count + 1
+    end
+    -- Hinweise zur Bedeutung der Funktionen
+    local info = {}
+    if #starrListe > 0 then
+        info[#info + 1] = "dehnstarr (EA->unendlich): Stab " .. table.concat(starrListe, ",")
+        for _, i in ipairs(uListe) do info[#info + 1] = "uneu" .. i .. "(x)=u" .. i .. "(x), da EA*u unendlich" end
+    else
+        info[#info + 1] = "dehnbar: vne_i(x)=EI*w_i(x), uneu_i(x)=EA*u_i(x)"
+    end
+    for i, t in ipairs(info) do info[i] = '"' .. t .. '"' end
+    pcall(math.eval, "randinfo:=[" .. table.concat(info, ";") .. "]")
+    -- Bedingungsliste als Strings
+    local quoted = {}
+    for i, t in ipairs(texts) do quoted[i] = '"' .. t .. '"' end
+    pcall(math.eval, "randbed:=[" .. table.concat(quoted, ";") .. "]")   -- Spaltenvektor aus Strings
+    neuExportStatus("Rand-LGS: " .. count .. " Staebe, " .. #texts .. " Bedingungen -> vne_i(x)=EI*w, uneu_i(x)=EA*u, randbed")
     return true
 end
 
-local function neuBoundaryData(stab, index)
-    local L = neuMemberLength(stab)
-    local EI = neuSymbolText(stab.EI, stab.EI_str)
-    local x = "x"
-    local q = getEqQ(stab, stab._numeric_length or 1, fN_export, L):gsub("x", "t")
-    local m = (stab.m_str and stab.m_str ~= "") and stab.m_str:gsub("x", "t") or "0"
-    local part = "integral((" .. q .. ")*(x-t)^3,t,0,x)/6 - integral((" .. m .. ")*(x-t)^2,t,0,x)/2"
-    local phi_part = "integral((" .. q .. ")*(x-t)^2,t,0,x)/2 - integral((" .. m .. ")*(x-t),t,0,x)"
-    local moment_part = "integral((" .. q .. ")*(x-t),t,0,x)-integral((" .. m .. "),t,0,x)"
-    local shear_part = "integral((" .. q .. "),t,0,x)-(" .. m:gsub("t", "x") .. ")"
-    -- Integrationsansatz: c1*x^3/6 + c2*x^2/2 + c3*x + c4.
-    local basis = {x .. "^3/6", x .. "^2/2", x, "1"}
-    local at_zero = {
-        {"0", "0", "0", "1"},
-        {"0", "0", "1", "0"},
-        {"0", "1", "0", "0"},
-        {"1", "0", "0", "0"}
-    }
-    local at_end = {
-        {L .. "^3/6", L .. "^2/2", L, "1"},
-        {L .. "^2/2", L, "1", "0"},
-        {L, "1", "0", "0"},
-        {"1", "0", "0", "0"}
-    }
-    local dx_num = knoten[stab.k2].x - knoten[stab.k1].x
-    local dy_num = knoten[stab.k2].y - knoten[stab.k1].y
-    local c_num = dx_num / (stab._numeric_length or 1)
-    local s_num = -dy_num / (stab._numeric_length or 1)
-    local function springProjection(node, transverse)
-        local x_s = node.cx_str and neuSymbolText(node.cx, node.cx_str) or fN_export(node.cx or 0)
-        local y_s = node.cy_str and neuSymbolText(node.cy, node.cy_str) or fN_export(node.cy or 0)
-        local x_factor, y_factor
-        if transverse then x_factor, y_factor = s_num * s_num, c_num * c_num
-        else x_factor, y_factor = c_num * c_num, s_num * s_num end
-        if (node.cx or 0) == 0 and not node.cx_str and (node.cy or 0) == 0 and not node.cy_str then return nil end
-        return "(" .. x_s .. ")*" .. fN_export(x_factor) .. "+(" .. y_s .. ")*" .. fN_export(y_factor)
-    end
-    local k1, k2 = knoten[stab.k1], knoten[stab.k2]
-    local rows, rhs, labels = {}, {}, {}
-    local function addBoundary(node, values, position, prefix)
-        local is_start = position == 0
-        local value_at = position == 0 and "0" or L
-        local part_v = part:gsub("x", "(" .. value_at .. ")")
-        local part_phi = phi_part:gsub("x", "(" .. value_at .. ")")
-        local part_m = moment_part:gsub("x", "(" .. value_at .. ")")
-        local part_q = shear_part:gsub("x", "(" .. value_at .. ")")
-        local function add(values_row, constant, label)
-            table.insert(rows, values_row)
-            table.insert(rhs, "-(" .. constant .. ")")
-            table.insert(labels, label)
-        end
-        local transverse_spring = springProjection(node, true)
-        if node.lager_y then add(values[1], part_v, prefix .. " v=0")
-        elseif transverse_spring then
-            local spring = "(" .. transverse_spring .. ")/((" .. EI .. "))"
-            local spring_sign = is_start and "-" or "+"
-            add(values[4], "(" .. part_q .. ")" .. spring_sign .. spring .. "*(" .. part_v .. ")", prefix .. " Q" .. spring_sign .. "cy/EI*v=0")
-        else add(values[4], part_q, prefix .. " Q=0") end
-        if node.lager_m then add(values[2], part_phi, prefix .. " phi=0")
-        elseif node.cm_str or (node.cm and node.cm > 0) then
-            local spring = "(" .. neuSymbolText(node.cm, node.cm_str) .. ")/((" .. EI .. "))"
-            local spring_sign = is_start and "-" or "+"
-            add(values[3], "(" .. part_m .. ")" .. spring_sign .. spring .. "*(" .. part_phi .. ")", prefix .. " M" .. spring_sign .. "cm/EI*phi=0")
-        else add(values[3], part_m, prefix .. " M=0") end
-    end
-    addBoundary(k1, at_zero, 0, "A")
-    addBoundary(k2, at_end, 1, "B")
-    return {length=L, EI=EI, part=part, phi_part=phi_part, basis=basis, rows=rows, rhs=rhs, labels=labels}
+-- Neuer Export 1: Biegelinie ueber globales Rand-LGS (exportiert auch Laengslinie).
+exportBiegelinienNeuToTI = function()
+    neuShowMessage("Export Biegelinie (Rand-LGS)")
+    return neuRandLGS()
 end
 
-local function neuExportBoundaryMatrix(i, data)
-    local prefix = "bl"
-    neuCasMatrix(prefix .. "a" .. i, data.rows, true)
-    neuCasMatrix(prefix .. "b" .. i, data.rhs, true)
-    if math.eval then
-        local c_name = prefix .. "c" .. i
-        local a_name = prefix .. "a" .. i
-        local b_name = prefix .. "b" .. i
-        neuCasEval(c_name .. ":=exact((" .. a_name .. ")^(-1)*" .. b_name .. ")", c_name)
-    end
-end
-
--- Neuer Export 1: symbolische Biegelinie mit Rand-LGS.
-exportBiegelinienNeuToTI = function(stab_index)
-    neuShowMessage("Export Biegelinie gestartet")
-    if #staebe == 0 then neuExportStatus("Fehler: Keine Stäbe vorhanden!"); return end
-    if not math.eval then neuExportStatus("Fehler: CAS nicht verfügbar!"); return end
-    if not stab_index and #staebe > 1 then
-        if neuExportGlobalBending() then return end
-    end
-    local first, last = stab_index or 1, stab_index or #staebe
-    local export_count = 0
-    for i = first, last do
-        local s = staebe[i]
-        local dx = knoten[s.k2].x - knoten[s.k1].x
-        local dy = knoten[s.k2].y - knoten[s.k1].y
-        local length = math.sqrt(dx * dx + dy * dy)
-        if length > 0 and (s.bogen_r or 0) == 0 and not s.is_cut and not s.is_virtual_parent then
-            s._numeric_length = length
-            local data = neuBoundaryData(s, i)
-            neuExportBoundaryMatrix(i, data)
-            local c = "blc" .. i
-            local function_name = "vne" .. i
-            local part_term = neuCleanTerm(data.part)
-            local basis_terms = {
-                neuCleanTerm("(" .. c .. "[1,1])*" .. data.basis[1]),
-                neuCleanTerm("(" .. c .. "[2,1])*" .. data.basis[2]),
-                neuCleanTerm("(" .. c .. "[3,1])*" .. data.basis[3]),
-                neuCleanTerm("(" .. c .. "[4,1])*" .. data.basis[4])
-            }
-            local expr = part_term .. "+" .. table.concat(basis_terms, "+")
-            neuCasEval(function_name .. "(x):=" .. expr, function_name)
-            export_count = export_count + 1
-        end
-    end
-    neuExportStatus("Biegelinie Rand-LGS: " .. export_count .. " Staebe exportiert")
-end
-
--- Neuer Export 2: symbolische axiale Verformungslinie mit Rand-LGS.
-exportULinienNeuToTI = function(stab_index)
-    neuShowMessage("Export Laengslinie gestartet")
-    if #staebe == 0 then neuExportStatus("Fehler: Keine Stäbe vorhanden!"); return end
-    if not math.eval then neuExportStatus("Fehler: CAS nicht verfügbar!"); return end
-    if not stab_index and #staebe > 1 then
-        if neuExportGlobalAxial() then return end
-    end
-    local first, last = stab_index or 1, stab_index or #staebe
-    local export_count = 0
-    for i = first, last do
-        local s = staebe[i]
-        local dx = knoten[s.k2].x - knoten[s.k1].x
-        local dy = knoten[s.k2].y - knoten[s.k1].y
-        local length = math.sqrt(dx * dx + dy * dy)
-        if length > 0 and (s.bogen_r or 0) == 0 and not s.is_cut and not s.is_virtual_parent then
-            local L = neuMemberLength(s)
-            local n = getEqN(s, length, fN_export, L):gsub("x", "t")
-            local part = "-integral((" .. n .. ")*(x-t),t,0,x)"
-            local rows = {{"1", "0"}, {"0", "1"}}
-            local rhs = {"0", "0"}
-            local c_num = dx / length
-            local y_num = dy / length
-            local start_axial_fixed = (knoten[s.k1].lager_x and math.abs(c_num) > 1e-10) or
-                (knoten[s.k1].lager_y and math.abs(y_num) > 1e-10)
-            local end_axial_fixed = (knoten[s.k2].lager_x and math.abs(c_num) > 1e-10) or
-                (knoten[s.k2].lager_y and math.abs(y_num) > 1e-10)
-            if start_axial_fixed then rhs[1] = "-(" .. part:gsub("x", "0") .. ")" end
-            if end_axial_fixed then
-                local part_end = part:gsub("x", "(" .. L .. ")")
-                rhs[2] = "-(" .. part_end .. ")"
-            end
-            neuCasMatrix("lna" .. i, rows, true)
-            neuCasMatrix("lnb" .. i, rhs, true)
-            neuCasEval("lnc" .. i .. ":=exact((lna" .. i .. ")^(-1)*lnb" .. i .. ")", "lnc" .. i)
-            local function_name = "uneu" .. i
-            local expr = neuCleanTerm(part) .. "+" .. neuCleanTerm("lnc" .. i .. "[1,1]*(1-x/" .. L .. ")") .. "+" .. neuCleanTerm("lnc" .. i .. "[2,1]*(x/" .. L .. ")")
-            neuCasEval(function_name .. "(x):=" .. expr, function_name)
-            export_count = export_count + 1
-        end
-    end
-    neuExportStatus("Laengslinie Rand-LGS: " .. export_count .. " Staebe exportiert")
+-- Neuer Export 2: Laengslinie ueber globales Rand-LGS (identisches LGS).
+exportULinienNeuToTI = function()
+    neuShowMessage("Export Laengslinie (Rand-LGS)")
+    return neuRandLGS()
 end
 
 function exportVerschiebungenToTI()
@@ -1912,31 +2148,33 @@ local function updateAlleLasten()
         local dx, dy = knoten[s.k2].x - knoten[s.k1].x, knoten[s.k2].y - knoten[s.k1].y
         local L = math.sqrt(dx^2 + dy^2)
         s.q_pts = {}; s.Q_cas_pts = {}; s.M_cas_pts = {}; s.v_cas_pts_EI = {}
+        s.q_in_cas = false; s.n_in_cas = false
         s.n_pts = {}; s.N_cas_pts = {}; s.u_cas_pts_EA = {}
         s.m_pts = {};
         s.gx_pts = {}; s.gy_pts = {}
         
-        local L_str = fN(L)
+        local L_str = "(" .. fN(L) .. ")"
         local eq_q = getEqQ(s, L, fN, L_str)
         local eq_n = getEqN(s, L, fN, L_str)
         local eq_q_num = casWithDummySymbols(eq_q)
         local eq_n_num = casWithDummySymbols(eq_n)
-        local has_q = string.find(eq_q, "x")
-        local has_n = string.find(eq_n, "x")
-        local has_m = s.m_str and string.find(s.m_str, "x")
-        local has_gx = string.find(s.gx_str or "", "x")
-        local has_gy = string.find(s.gy_str or "", "x")
+        local has_q = string.hasx(eq_q)
+        local has_n = string.hasx(eq_n)
+        local has_m = s.m_str and string.hasx(s.m_str)
+        local has_gx = string.hasx(s.gx_str or "")
+        local has_gy = string.hasx(s.gy_str or "")
         
         -- HIER IST DER FIX: Lokale Lasten optisch von globalen entkoppeln
-        local pure_q_cas = s.q_str and string.find(s.q_str, "x")
-        local pure_n_cas = s.n_str and string.find(s.n_str, "x")
-        local pure_m_cas = s.m_str and string.find(s.m_str, "x")
+        local pure_q_cas = s.q_str and string.hasx(s.q_str)
+        local pure_n_cas = s.n_str and string.hasx(s.n_str)
+        local pure_m_cas = s.m_str and string.hasx(s.m_str)
         
         if L > 0 and math.eval and (has_q or has_n or has_m or has_gx or has_gy or pure_q_cas or pure_n_cas or pure_m_cas) then
             local vars_to_del = {}
             
             if has_q then
-                local q_t = eq_q_num:gsub("x", "t")
+                s.q_in_cas = true -- Q/M/v-Stuetzwerte enthalten die gesamte Querlast inkl. q_A/q_B
+                local q_t = eq_q_num:subx("t")
                 math.eval("q_temp(x) := " .. eq_q_num)
                 math.eval("q_cas_Q(x) := integral("..eq_q_num..",x,0,x)")
                 math.eval("q_cas_M(x) := integral(("..q_t..")*(x-t),t,0,x)")
@@ -1947,7 +2185,8 @@ local function updateAlleLasten()
             end
             
             if has_n then
-                local n_t = eq_n_num:gsub("x", "t")
+                s.n_in_cas = true -- N/u-Stuetzwerte enthalten die gesamte Laengslast inkl. n_A/n_B
+                local n_t = eq_n_num:subx("t")
                 math.eval("n_temp(x) := " .. eq_n_num)
                 math.eval("n_cas_N(x) := integral("..eq_n_num..",x,0,x)")
                 math.eval("n_cas_uK_EA(x) := integral(("..n_t..")*(x-t),t,0,x)")
@@ -1957,12 +2196,12 @@ local function updateAlleLasten()
             
             if has_m then
                 local m_e = s.m_str
-                local m_t = m_e:gsub("x", "t")
+                local m_t = m_e:subx("t")
                 math.eval("m_temp(x) := " .. m_e)
                 math.eval("m_cas_M(x) := integral("..m_e..",x,0,x)")
-                math.eval("m_cas_vK_EI(x) := -integral(("..m_t..")*(x-t)^2,t,0,x)/2")
+                math.eval("m_cas_vK_EI(x) := integral(("..m_t..")*(x-t)^2,t,0,x)/2")
                 s.vK_L_EI_m = casToNumber(math.eval("approx(m_cas_vK_EI("..fN(L).."))")) or 0
-                s.phiK_L_EI_m = casToNumber(math.eval("approx(-integral(("..m_t..")*("..fN(L).."-t),t,0,"..fN(L).."))")) or 0
+                s.phiK_L_EI_m = casToNumber(math.eval("approx(integral(("..m_t..")*("..fN(L).."-t),t,0,"..fN(L).."))")) or 0
                 table.insert(vars_to_del, "m_temp"); table.insert(vars_to_del, "m_cas_M"); table.insert(vars_to_del, "m_cas_vK_EI")
             end
             
@@ -2288,24 +2527,31 @@ local function getFesteinspannkraefte(stab, L, ignoreCondensation)
     local eq_n = getEqN(stab, L, fN, L_s)
     local eq_q_num = casWithDummySymbols(eq_q)
     local eq_n_num = casWithDummySymbols(eq_n)
-    local use_q_cas = (stab.q_str and string.find(stab.q_str, "x"))
-    local use_n_cas = (stab.n_str and string.find(stab.n_str, "x"))
-    local use_m_cas = (stab.m_str and string.find(stab.m_str, "x"))
+    local use_q_cas = (stab.q_str and string.hasx(stab.q_str))
+    local use_n_cas = (stab.n_str and string.hasx(stab.n_str))
+    local use_m_cas = (stab.m_str and string.hasx(stab.m_str))
     
     local eff_gx = (stab.gx or 0) * (stab.gx_proj and math.abs(s_val) or 1)
     local eff_gy = (stab.gy or 0) * (stab.gy_proj and math.abs(c_val) or 1)
     local n_add = eff_gx * c_val - eff_gy * s_val
     local q_add = eff_gx * s_val + eff_gy * c_val
     
-    local p_i = stab.q_A + (not use_q_cas and (stab.q + q_add) or 0)
-    local p_k = stab.q_B + (not use_q_cas and (stab.q + q_add) or 0)
-    local ax_i = stab.n_A + (not use_n_cas and (stab.n + n_add) or 0)
-    local ax_k = stab.n_B + (not use_n_cas and (stab.n + n_add) or 0)
+    -- eq_q/eq_n enthalten q_A/q_B bzw. n_A/n_B bereits, sobald deren Strings gesetzt sind.
+    -- Im CAS-Pfad duerfen sie dann nicht zusaetzlich klassisch addiert werden.
+    local trap_q_in_cas = use_q_cas and (stab.q_A_str or stab.q_B_str)
+    local trap_n_in_cas = use_n_cas and (stab.n_A_str or stab.n_B_str)
+    local p_i = (trap_q_in_cas and 0 or stab.q_A) + (not use_q_cas and (stab.q + q_add) or 0)
+    local p_k = (trap_q_in_cas and 0 or stab.q_B) + (not use_q_cas and (stab.q + q_add) or 0)
+    local ax_i = (trap_n_in_cas and 0 or stab.n_A) + (not use_n_cas and (stab.n + n_add) or 0)
+    local ax_k = (trap_n_in_cas and 0 or stab.n_B) + (not use_n_cas and (stab.n + n_add) or 0)
     
     local N_i = -((2 * ax_i + ax_k) / 6) * L; local N_k = -((ax_i + 2 * ax_k) / 6) * L      
     local Q_i = -(L / 60) * (21 * p_i + 9 * p_k); local Q_k = -(L / 60) * (9 * p_i + 21 * p_k) 
-    local M_i = (L^2 / 60) * (3 * p_i + 2 * p_k) - (not use_m_cas and (stab.m * L) / 2 or 0)
-    local M_k = -(L^2 / 60) * (2 * p_i + 3 * p_k) - (not use_m_cas and (stab.m * L) / 2 or 0)
+    local M_i = (L^2 / 60) * (3 * p_i + 2 * p_k)
+    local M_k = -(L^2 / 60) * (2 * p_i + 3 * p_k)
+    -- konstantes Streckenmoment m: konsistente Stabendkraefte sind Q_i = -m, Q_k = +m (kein Endmoment),
+    -- identisch zum CAS-Pfad unten mit int m*N' dx
+    if not use_m_cas then Q_i = Q_i - stab.m; Q_k = Q_k + stab.m end
     
     if use_q_cas and math.eval then
         Q_i = Q_i + (casToNumber(math.eval("approx(-integral(("..eq_q_num..")*(1-3*(x/"..L_s..")^2+2*(x/"..L_s..")^3),x,0,"..L_s.."))")) or 0)
@@ -2370,7 +2616,9 @@ local function baueLastvektor()
     for i, k in ipairs(knoten) do
         local rad_last, rad_lager = math.rad(-(k.last_w or 0)), math.rad(k.winkel or 0)
         local cl, sl, c, s = math.cos(rad_last), math.sin(rad_last), math.cos(rad_lager), math.sin(rad_lager)
-        local f_xi = (k.last_x*cl - k.last_y*sl)*c + (k.last_x*sl + k.last_y*cl)*s; local f_eta = -(k.last_x*cl - k.last_y*sl)*s + (k.last_x*sl + k.last_y*cl)*c
+        -- Last global -> Lagersystem mit derselben Drehung wie buildKnotenTransform (TK = R(winkel))
+        local fx_g, fy_g = k.last_x*cl - k.last_y*sl, k.last_x*sl + k.last_y*cl
+        local f_xi = fx_g*c - fy_g*s; local f_eta = fx_g*s + fy_g*c
         if k.eq_x > 0 then F[k.eq_x] = F[k.eq_x] + f_xi end; if k.eq_y > 0 then F[k.eq_y] = F[k.eq_y] + f_eta end
         if type(k.eq_m) == "number" and k.eq_m > 0 then F[k.eq_m] = F[k.eq_m] + k.last_m end
     end
@@ -2442,8 +2690,14 @@ berechneSystemGleichungen = function(checkKinematicsOnly, useCache)
     end
     for i, k in ipairs(knoten) do
         if k.cx > 0 or k.cy > 0 or k.cm > 0 then
+            -- Federachse cx wie gezeichnet: Winkel -f_winkel (drawZigZag), cy dazu senkrecht
             local r = math.rad(k.f_winkel or 0); local c, s = math.cos(r), math.sin(r)
-            local k_glob = matMult(matMult({{c,-s,0},{s,c,0},{0,0,1}}, {{k.cx,0,0},{0,k.cy,0},{0,0,k.cm}}), {{c,s,0},{-s,c,0},{0,0,1}})
+            local k_glob = matMult(matMult({{c,s,0},{-s,c,0},{0,0,1}}, {{k.cx,0,0},{0,k.cy,0},{0,0,k.cm}}), {{c,-s,0},{s,c,0},{0,0,1}})
+            if (k.winkel or 0) ~= 0 then
+                local rw = math.rad(k.winkel); local cw, sw = math.cos(rw), math.sin(rw)
+                local Rw = {{cw,-sw,0},{sw,cw,0},{0,0,1}}
+                k_glob = matMult(matMult(Rw, k_glob), matTrans(Rw))
+            end
             local eqs = {k.eq_x, k.eq_y, type(k.eq_m)=="number" and k.eq_m or 0}
             for row=1,3 do for col=1,3 do if eqs[row]>0 and eqs[col]>0 then K[eqs[row]][eqs[col]] = K[eqs[row]][eqs[col]] + k_glob[row][col] end end end
         end
@@ -2493,11 +2747,11 @@ local function berechneAlleSchnittgroessen(u)
                 
                 local true_v_l = {v_l[1][1], v_l[2][1], v_l[3][1], v_l[4][1], v_l[5][1], v_l[6][1]}
                 if stab.n_gelenk_A and not stab.n_gelenk_B then true_v_l[1] = true_v_l[4] - N_i_o / EA_L
-                elseif stab.n_gelenk_B and not stab.n_gelenk_A then true_v_l[4] = true_v_l[1] + N_k_o / EA_L
+                elseif stab.n_gelenk_B and not stab.n_gelenk_A then true_v_l[4] = true_v_l[1] - N_k_o / EA_L
                 elseif stab.n_gelenk_A and stab.n_gelenk_B then true_v_l[1] = true_v_l[4] end
                 if stab.q_gelenk_A and not stab.q_gelenk_B then true_v_l[2] = true_v_l[5] + (L/2)*true_v_l[3] + (L/2)*true_v_l[6] - Q_i_o / EI12
                 elseif stab.q_gelenk_B and not stab.q_gelenk_A then true_v_l[5] = true_v_l[2] - (L/2)*true_v_l[3] - (L/2)*true_v_l[6] - Q_k_o / EI12
-                elseif stab.q_gelenk_A and stab.q_gelenk_B then true_v_l[2] = true_v_l[5] end
+                elseif stab.q_gelenk_A and stab.q_gelenk_B then true_v_l[2] = true_v_l[5] + (L/2)*(true_v_l[3] + true_v_l[6]) end
                 
                 local EI6 = 6*stab.EI/L^2; local EI4 = 4*stab.EI/L; local EI2 = 2*stab.EI/L
                 local k_orig = {
@@ -2565,11 +2819,11 @@ local function isUnloaded(stab_idx)
     if (s.m or 0) ~= 0 then return false end
     if (s.gx or 0) ~= 0 or (s.gy or 0) ~= 0 then return false end
     if (s.To or 0) ~= 0 or (s.Tu or 0) ~= 0 then return false end
-    if s.q_str and s.q_str:find("x") then return false end
-    if s.n_str and s.n_str:find("x") then return false end
-    if s.m_str and s.m_str:find("x") then return false end
-    if s.gx_str and s.gx_str:find("x") then return false end
-    if s.gy_str and s.gy_str:find("x") then return false end
+    if s.q_str and s.q_str:hasx() then return false end
+    if s.n_str and s.n_str:hasx() then return false end
+    if s.m_str and s.m_str:hasx() then return false end
+    if s.gx_str and s.gx_str:hasx() then return false end
+    if s.gy_str and s.gy_str:hasx() then return false end
     return true
 end
 
@@ -2605,6 +2859,7 @@ local function backupSystem()
         s.orig_gx=s.gx; s.orig_gy=s.gy; s.orig_To=s.To; s.orig_Tu=s.Tu;
         s.orig_q_str = s.q_str; s.orig_n_str = s.n_str; s.orig_m_str = s.m_str;
         s.orig_gx_str = s.gx_str; s.orig_gy_str = s.gy_str;
+        s.orig_q_A_str = s.q_A_str; s.orig_q_B_str = s.q_B_str; s.orig_n_A_str = s.n_A_str; s.orig_n_B_str = s.n_B_str;
         s.orig_is_cut = s.is_cut; s.orig_x_nA = s.x_nA
     end
 end
@@ -2612,7 +2867,7 @@ end
 applyKGVZustand = function(lf)
     if lf == -1 then
         for i, k in ipairs(knoten) do if k.orig_lager_x~=nil then k.lager_x=k.orig_lager_x; k.lager_y=k.orig_lager_y; k.lager_m=k.orig_lager_m; k.last_x=k.orig_last_x; k.last_y=k.orig_last_y; k.last_m=k.orig_last_m; k.last_w=k.orig_last_w end end
-        for i, s in ipairs(staebe) do if s.orig_gelenk_A~=nil then s.gelenk_A=s.orig_gelenk_A; s.gelenk_B=s.orig_gelenk_B; s.n_gelenk_A=s.orig_n_gelenk_A; s.q=s.orig_q; s.n=s.orig_n; s.m=s.orig_m; s.q_A=s.orig_q_A; s.q_B=s.orig_q_B; s.n_A=s.orig_n_A; s.n_B=s.orig_n_B; s.gx=s.orig_gx; s.gy=s.orig_gy; s.To=s.orig_To; s.Tu=s.orig_Tu; s.x_mA=0; s.x_mB=0; s.q_str=s.orig_q_str; s.n_str=s.orig_n_str; s.m_str=s.orig_m_str; s.gx_str=s.orig_gx_str; s.gy_str=s.orig_gy_str; s.is_cut=s.orig_is_cut; s.x_nA=s.orig_x_nA end end
+        for i, s in ipairs(staebe) do if s.orig_gelenk_A~=nil then s.gelenk_A=s.orig_gelenk_A; s.gelenk_B=s.orig_gelenk_B; s.n_gelenk_A=s.orig_n_gelenk_A; s.q=s.orig_q; s.n=s.orig_n; s.m=s.orig_m; s.q_A=s.orig_q_A; s.q_B=s.orig_q_B; s.n_A=s.orig_n_A; s.n_B=s.orig_n_B; s.gx=s.orig_gx; s.gy=s.orig_gy; s.To=s.orig_To; s.Tu=s.orig_Tu; s.x_mA=0; s.x_mB=0; s.q_str=s.orig_q_str; s.n_str=s.orig_n_str; s.m_str=s.orig_m_str; s.gx_str=s.orig_gx_str; s.gy_str=s.orig_gy_str; s.q_A_str=s.orig_q_A_str; s.q_B_str=s.orig_q_B_str; s.n_A_str=s.orig_n_A_str; s.n_B_str=s.orig_n_B_str; s.is_cut=s.orig_is_cut; s.x_nA=s.orig_x_nA end end
         updateAlleLasten()
         return
     end
@@ -2633,11 +2888,11 @@ applyKGVZustand = function(lf)
     
     if lf == 0 then
         for i, k in ipairs(knoten) do k.last_x=k.orig_last_x; k.last_y=k.orig_last_y; k.last_m=k.orig_last_m; k.last_w=k.orig_last_w end
-        for i, s in ipairs(staebe) do s.q=s.orig_q; s.n=s.orig_n; s.m=s.orig_m; s.q_A=s.orig_q_A; s.q_B=s.orig_q_B; s.n_A=s.orig_n_A; s.n_B=s.orig_n_B; s.gx=s.orig_gx; s.gy=s.orig_gy; s.To=s.orig_To; s.Tu=s.orig_Tu; s.q_str=s.orig_q_str; s.n_str=s.orig_n_str; s.m_str=s.orig_m_str; s.gx_str=s.orig_gx_str; s.gy_str=s.orig_gy_str end
+        for i, s in ipairs(staebe) do s.q=s.orig_q; s.n=s.orig_n; s.m=s.orig_m; s.q_A=s.orig_q_A; s.q_B=s.orig_q_B; s.n_A=s.orig_n_A; s.n_B=s.orig_n_B; s.gx=s.orig_gx; s.gy=s.orig_gy; s.To=s.orig_To; s.Tu=s.orig_Tu; s.q_str=s.orig_q_str; s.n_str=s.orig_n_str; s.m_str=s.orig_m_str; s.gx_str=s.orig_gx_str; s.gy_str=s.orig_gy_str; s.q_A_str=s.orig_q_A_str; s.q_B_str=s.orig_q_B_str; s.n_A_str=s.orig_n_A_str; s.n_B_str=s.orig_n_B_str end
     else
         for i, k in ipairs(knoten) do k.last_x=0; k.last_y=0; k.last_m=0; k.last_w=0 end
-        for i, s in ipairs(staebe) do s.q=0; s.n=0; s.m=0; s.q_A=0; s.q_B=0; s.n_A=0; s.n_B=0; s.gx=0; s.gy=0; s.To=0; s.Tu=0; s.q_str="0"; s.n_str="0"; s.m_str="0"; s.gx_str="0"; s.gy_str="0" end
-        local x = X_Werte[lf]; if x.typ == "lager_x" then local rad = math.rad(knoten[x.knoten].winkel or 0); knoten[x.knoten].last_x = math.cos(rad); knoten[x.knoten].last_y = math.sin(rad) elseif x.typ == "lager_y" then local rad = math.rad(knoten[x.knoten].winkel or 0); knoten[x.knoten].last_x = -math.sin(rad); knoten[x.knoten].last_y = math.cos(rad) elseif x.typ == "lager_m" then knoten[x.knoten].last_m = 1 elseif x.typ == "gelenk_A" then staebe[x.stab].x_mA = 1 elseif x.typ == "gelenk_B" then staebe[x.stab].x_mB = 1 elseif x.typ == "pendel_n" then staebe[x.stab].x_nA = 1 end
+        for i, s in ipairs(staebe) do s.q=0; s.n=0; s.m=0; s.q_A=0; s.q_B=0; s.n_A=0; s.n_B=0; s.gx=0; s.gy=0; s.To=0; s.Tu=0; s.q_str="0"; s.n_str="0"; s.m_str="0"; s.gx_str="0"; s.gy_str="0"; s.q_A_str=nil; s.q_B_str=nil; s.n_A_str=nil; s.n_B_str=nil end
+        local x = X_Werte[lf]; if x.typ == "lager_x" then local rad = math.rad(knoten[x.knoten].winkel or 0); knoten[x.knoten].last_x = math.cos(rad); knoten[x.knoten].last_y = -math.sin(rad) elseif x.typ == "lager_y" then local rad = math.rad(knoten[x.knoten].winkel or 0); knoten[x.knoten].last_x = math.sin(rad); knoten[x.knoten].last_y = math.cos(rad) elseif x.typ == "lager_m" then knoten[x.knoten].last_m = 1 elseif x.typ == "gelenk_A" then staebe[x.stab].x_mA = 1 elseif x.typ == "gelenk_B" then staebe[x.stab].x_mB = 1 elseif x.typ == "pendel_n" then staebe[x.stab].x_nA = 1 end
     end
     updateAlleLasten()
 end
@@ -2988,15 +3243,7 @@ local function runSymbolicSuperposition()
         s.gx, s.gy, s.To, s.Tu = 0, 0, 0, 0
     end
 
-    local L_sym = "L"
-    for var, _ in pairs(sym_vars) do
-        local used_in_geom = false
-        for _, k in ipairs(knoten) do
-            if (k.x_str and k.x_str:find("%f[%a]" .. var .. "%f[%A]")) or (k.y_str and k.y_str:find("%f[%a]" .. var .. "%f[%A]")) then used_in_geom = true; break end
-        end
-        if used_in_geom then L_sym = var; break end
-    end
-    local L_dummy = sym_vars[L_sym] or 1.0
+    local L_sym, L_dummy = symbLSym, symbLDummy
 
     for _, s in ipairs(staebe) do
         s.symb_start = {N = "0", V = "0", M = "0", c1 = "0", c2 = "0", vb = "0", phib = "0"}
@@ -3091,6 +3338,8 @@ local function runSymbolicSuperposition()
         if orig.n_A ~= 0 then s.n_A = orig.n_A; runSuperposIter(s.n_A_str or tostring(orig.n_A), orig.n_A, "DistLoad"); s.n_A = 0 end
         if orig.n_B ~= 0 then s.n_B = orig.n_B; runSuperposIter(s.n_B_str or tostring(orig.n_B), orig.n_B, "DistLoad"); s.n_B = 0 end
         if orig.m ~= 0 then s.m = orig.m; runSuperposIter(s.m_str or tostring(orig.m), orig.m, "DistMoment"); s.m = 0 end
+        if orig.gx ~= 0 then s.gx = orig.gx; runSuperposIter(s.gx_str or tostring(orig.gx), orig.gx, "DistLoad"); s.gx = 0 end
+        if orig.gy ~= 0 then s.gy = orig.gy; runSuperposIter(s.gy_str or tostring(orig.gy), orig.gy, "DistLoad"); s.gy = 0 end
     end
 
     for i, k in ipairs(knoten) do k.last_x, k.last_y, k.last_m = backup_loads.knoten[i].last_x, backup_loads.knoten[i].last_y, backup_loads.knoten[i].last_m end
@@ -3102,15 +3351,87 @@ local function runSymbolicSuperposition()
     end
 end
 
+-- Symbole (Bezeichner ausser Funktionsnamen) eines Eingabetextes in die Menge set eintragen
+local function symboleIn(text, set)
+    if type(text) ~= "string" or tonumber((text:gsub(",", "."))) then return set end
+    for word in text:gmatch("%a[%w_]*") do
+        if not math_funcs[word] then set[word] = true end
+    end
+    return set
+end
+
+-- Grenzen des symbolischen Modus pruefen. Liefert eine Fehlermeldung oder nil.
+local function pruefeSymbolischenModus(geo_list)
+    if #geo_list > 1 then
+        return "Nur ein Laengensymbol erlaubt: " .. table.concat(geo_list, ", ")
+    end
+    if #geo_list == 1 and math.eval then
+        -- Jede Koordinate muss ein reines Vielfaches des Symbols sein (0, l, 2*l, 3/2*l ...)
+        local var = geo_list[1]
+        local d = sym_vars[var] or 1
+        for i, k in ipairs(knoten) do
+            for _, c in ipairs({ { k.x_str, k.x }, { k.y_str, k.y } }) do
+                local text, value = c[1], c[2] or 0
+                local doppelt = value
+                if type(text) == "string" and not tonumber((text:gsub(",", "."))) then
+                    local probe = text:gsub("%f[%w_]" .. var .. "%f[^%w_]", "(" .. (2 * d) .. ")")
+                    local ok, res = pcall(math.eval, "approx(" .. probe .. ")")
+                    doppelt = ok and casToNumber(res) or nil
+                end
+                if not doppelt or math.abs(doppelt - 2 * value) > 1e-9 * math.max(1, math.abs(value)) then
+                    return "Knoten " .. i .. ": Koordinate kein Vielfaches von " .. var
+                end
+            end
+        end
+    end
+    for name in pairs(sym_vars) do
+        local low = name:lower()
+        if low == "t" then return "Symbol t ist reserviert (Integrationsvariable)" end
+        if low == "ei" or low == "ea" then
+            -- EI/EA in Feder- oder Lasttexten nur, wenn alle Staebe diese Steifigkeit symbolisch haben
+            local feld = (low == "ei") and "EI_str" or "EA_str"
+            for i, s in ipairs(staebe) do
+                local txt = (s[feld] or ""):lower()
+                if not txt:find("%f[%w_]" .. low .. "%f[^%w_]") then
+                    return "Stab " .. i .. ": " .. name .. " benutzt, aber " .. feld:sub(1, 2) .. " des Stabs nicht symbolisch"
+                end
+            end
+        end
+    end
+    for i, s in ipairs(staebe) do
+        if (s.To or 0) ~= 0 or (s.Tu or 0) ~= 0 then
+            return "Stab " .. i .. ": Temperatur nicht symbolisch moeglich"
+        end
+        for _, f in ipairs({ s.q_str, s.n_str, s.m_str, s.gx_str, s.gy_str }) do
+            if type(f) == "string" and f:hasx() then
+                return "Stab " .. i .. ": Lastfunktion f(x) nicht symbolisch moeglich"
+            end
+        end
+        if (s.bogen_r or 0) ~= 0 then
+            return "Stab " .. i .. ": Boegen nicht symbolisch moeglich"
+        end
+    end
+    return nil
+end
+
 local function checkSymbolischerModus()
     symbolischer_modus = false
     sym_vars = {}
+    symbolFehler = nil
     local function checkStr(str)
         if not str then return nil end
         local val, _ = evalInput(str, true)
         return val
     end
     local rm = checkStr(rasterMass_str); if rm then rasterMass = rm end
+    -- Referenzlaenge: Symbol aus der Geometrie, sonst gilt ein Rasterabstand als l.
+    -- l wird vorab mit dem Rastermass belegt, damit Lasten wie q*l denselben Zahlenwert nutzen.
+    local geo = {}
+    for _, k in ipairs(knoten) do symboleIn(k.x_str, geo); symboleIn(k.y_str, geo) end
+    local geo_list = {}
+    for name in pairs(geo) do geo_list[#geo_list + 1] = name end
+    table.sort(geo_list)
+    if #geo_list == 0 then sym_vars.l = rasterMass end
     for _, k in ipairs(knoten) do
         local vx = checkStr(k.x_str); if vx then k.x = vx end
         local vy = checkStr(k.y_str); if vy then k.y = vy end
@@ -3134,6 +3455,12 @@ local function checkSymbolischerModus()
         local vgx = checkStr(s.gx_str); if vgx then s.gx = vgx end
         local vgy = checkStr(s.gy_str); if vgy then s.gy = vgy end
     end
+    if #geo_list == 0 then
+        symbLSym, symbLDummy = "l", rasterMass
+    else
+        symbLSym, symbLDummy = geo_list[1], sym_vars[geo_list[1]] or 1.0
+    end
+    if symbolischer_modus then symbolFehler = pruefeSymbolischenModus(geo_list) end
 end
 
 local function clearOldCASVars()
@@ -3154,6 +3481,13 @@ local function starteBerechnung()
     clearOldCASVars()
     warnungKinematisch = false; warnungStarrBestimmt = false; kgv_n = nil; print("Starte Systemanalyse...")
     checkSymbolischerModus()
+    if symbolFehler then
+        -- Symbolischer Modus kann dieses System nicht korrekt abbilden: abbrechen statt falsche Ergebnisse
+        systemBerechnet = false
+        print("Symbolischer Modus: " .. symbolFehler)
+        platform.window:invalidate()
+        return
+    end
     if KGV_Zustand and KGV_Zustand ~= -1 then applyKGVZustand(-1) end 
     
     backupSystem() 
@@ -3849,7 +4183,7 @@ local function getMenuMaxZeile()
     elseif menuTyp == "stab" then
         if menuSeite == 1 then return 6 elseif menuSeite == 2 then return 4 elseif menuSeite == 3 then return 8 elseif menuSeite == 6 then return 6 elseif menuSeite == 7 then return 7 else return 6 end
     elseif menuTyp == "obermenue" then
-        if menuSeite == 1 then return 8 elseif menuSeite == 2 then return 9 elseif menuSeite == 3 then return 8 elseif menuSeite == 4 then return 2 else return 3 end
+        if menuSeite == 1 then return 8 elseif menuSeite == 2 then return 9 elseif menuSeite == 3 then return 8 elseif menuSeite == 4 then return 3 else return 3 end
     elseif menuTyp == "pvv_knoten" then
         return 4
     elseif menuTyp == "pvv_stab" then
@@ -3898,25 +4232,25 @@ function on.enterKey()
                 
                 if menuSeite == 1 and (menuZeile >= 3 and menuZeile <= 5) then
                     if menuZeile == 3 then
-                        s.q_str = eingabeText
+                        s.q_str = neuCasText(eingabeText)
                         local check_num = evalInput(eingabeText)
                         if check_num then sys_changed = true; s.q = check_num else s.q = 0; sys_changed = true end
                     elseif menuZeile == 4 then
-                        s.n_str = eingabeText
+                        s.n_str = neuCasText(eingabeText)
                         local check_num = evalInput(eingabeText)
                         if check_num then sys_changed = true; s.n = check_num else s.n = 0; sys_changed = true end
                     elseif menuZeile == 5 then
-                        s.m_str = eingabeText
+                        s.m_str = neuCasText(eingabeText)
                         local check_num = evalInput(eingabeText)
                         if check_num then sys_changed = true; s.m = check_num else s.m = 0; sys_changed = true end
                     end
                 elseif menuSeite == 2 and (menuZeile == 1 or menuZeile == 3) then
                     if menuZeile == 1 then
-                        s.gx_str = eingabeText
+                        s.gx_str = neuCasText(eingabeText)
                         local check_num = evalInput(eingabeText)
                         if check_num then sys_changed = true; s.gx = check_num else s.gx = 0; sys_changed = true end
                     elseif menuZeile == 3 then
-                        s.gy_str = eingabeText
+                        s.gy_str = neuCasText(eingabeText)
                         local check_num = evalInput(eingabeText)
                         if check_num then sys_changed = true; s.gy = check_num else s.gy = 0; sys_changed = true end
                     end
@@ -4035,6 +4369,9 @@ function on.enterKey()
                     if v and v > 0 then verlaufSkalierung = v end
                 elseif menuZeile == 2 then
                     eingabeModus, eingabeText = true, ""
+                elseif menuZeile == 3 then
+                    randDehnstarr = not randDehnstarr
+                    platform.window:invalidate()
                 end
             end
         end
@@ -4160,11 +4497,11 @@ findZeroForceMembers = function()
         if (s.m or 0) ~= 0 then return false end
         if (s.gx or 0) ~= 0 or (s.gy or 0) ~= 0 then return false end
         if (s.To or 0) ~= 0 or (s.Tu or 0) ~= 0 then return false end
-        if s.q_str and s.q_str:find("x") then return false end
-        if s.n_str and s.n_str:find("x") then return false end
-        if s.m_str and s.m_str:find("x") then return false end
-        if s.gx_str and s.gx_str:find("x") then return false end
-        if s.gy_str and s.gy_str:find("x") then return false end
+        if s.q_str and s.q_str:hasx() then return false end
+        if s.n_str and s.n_str:hasx() then return false end
+        if s.m_str and s.m_str:hasx() then return false end
+        if s.gx_str and s.gx_str:hasx() then return false end
+        if s.gy_str and s.gy_str:hasx() then return false end
         return true
     end
     
@@ -4208,10 +4545,10 @@ findZeroForceMembers = function()
                             force_vec = {ux = Fx/FL, uy = Fy/FL}
                         elseif not has_f and has_roller_y then
                             local r = math.rad(k.winkel or 0)
-                            force_vec = {ux = -math.sin(r), uy = math.cos(r)}
+                            force_vec = {ux = math.sin(r), uy = math.cos(r)}
                         elseif not has_f and has_roller_x then
                             local r = math.rad(k.winkel or 0)
-                            force_vec = {ux = math.cos(r), uy = math.sin(r)}
+                            force_vec = {ux = math.cos(r), uy = -math.sin(r)}
                         end
                         if force_vec and not coll(force_vec, active[1]) then
                             staebe[active[1].id].is_zero_force = true; changed = true
@@ -4998,7 +5335,7 @@ pvvPrepareCAS = function()
         local L_str = string.format("%.4f", L)
         
         -- Querlast q(x)
-        if s.q_str and s.q_str:find("x") then
+        if s.q_str and s.q_str:hasx() then
             -- Wir berechnen R_q (Resultierende) und S_q (Flächenmoment 1. Grades bezogen auf k1)
             -- Dies fängt den Edge-Case (R_q = 0) automatisch ab, da wir nicht durch R_q teilen 
             -- müssen, um einen Schwerpunkt zu finden. Die Arbeit ist dann später exakt S_q * phi.
@@ -5009,7 +5346,7 @@ pvvPrepareCAS = function()
         end
         
         -- Längslast n(x)
-        if s.n_str and s.n_str:find("x") then
+        if s.n_str and s.n_str:hasx() then
             s.R_n_cas = casToNumber(math.eval("approx(integral("..s.n_str..",x,0,"..L_str.."))")) or 0
             s.S_n_cas = casToNumber(math.eval("approx(integral(("..s.n_str..")*x,x,0,"..L_str.."))")) or 0
         else
@@ -5017,21 +5354,21 @@ pvvPrepareCAS = function()
         end
         
         -- Momentenlast m(x) - hierbei leistet das Gesamtmoment Arbeit an der Verdrehung
-        if s.m_str and s.m_str:find("x") then
+        if s.m_str and s.m_str:hasx() then
             s.R_m_cas = casToNumber(math.eval("approx(integral("..s.m_str..",x,0,"..L_str.."))")) or 0
         else
             s.R_m_cas = nil
         end
         
         -- Globale Lasten (gx und gy)
-        if s.gx_str and s.gx_str:find("x") then
+        if s.gx_str and s.gx_str:hasx() then
             s.R_gx_cas = casToNumber(math.eval("approx(integral("..s.gx_str..",x,0,"..L_str.."))")) or 0
             s.S_gx_cas = casToNumber(math.eval("approx(integral(("..s.gx_str..")*x,x,0,"..L_str.."))")) or 0
         else
             s.R_gx_cas = nil; s.S_gx_cas = nil
         end
         
-        if s.gy_str and s.gy_str:find("x") then
+        if s.gy_str and s.gy_str:hasx() then
             s.R_gy_cas = casToNumber(math.eval("approx(integral("..s.gy_str..",x,0,"..L_str.."))")) or 0
             s.S_gy_cas = casToNumber(math.eval("approx(integral(("..s.gy_str..")*x,x,0,"..L_str.."))")) or 0
         else
@@ -5508,6 +5845,7 @@ function on.paint(gc)
                     local n_add = eff_gx * c_val - eff_gy * s_val; local q_add = eff_gx * s_val + eff_gy * c_val
                     local N0, Q0, M0 = -s.s_local[1], -s.s_local[2], -s.s_local[3]
                     local qA, qB, nA, nB = s.q + s.q_A + q_add, s.q + s.q_B + q_add, s.n + s.n_A + n_add, s.n + s.n_B + n_add
+                    if s.q_in_cas then qA, qB = 0, 0 end; if s.n_in_cas then nA, nB = 0, 0 end -- sonst doppelt zu cas_*_drop
 
                     for j = 0, ptsBiegelinie do
                         local x = (j/ptsBiegelinie) * L_m; local val = 0
@@ -5944,7 +6282,7 @@ function on.paint(gc)
             local should_draw_loads = true
             if isExplosion and hovered_ts and glob_ts_scheibe and glob_ts_scheibe[i] ~= hovered_ts then should_draw_loads = false end
             if should_draw_loads and (modusText == "System" or (modusText == "PvV" and not in_pvv_release) or isExplosion) then
-                local has_cas_gy = s.gy_str and string.find(s.gy_str, "x")
+                local has_cas_gy = s.gy_str and string.hasx(s.gy_str)
                 local has_classic_gy = (s.gy or 0) ~= 0
                 if hovered_ts and glob_ts_scheibe and glob_ts_scheibe[i] == hovered_ts and (has_classic_gy or has_cas_gy) then
                     local dx_m, dy_m = knoten[s.k2].x - knoten[s.k1].x, knoten[s.k2].y - knoten[s.k1].y
@@ -6002,7 +6340,7 @@ function on.paint(gc)
                     end
                 end
 
-                local has_cas_gx = s.gx_str and string.find(s.gx_str, "x")
+                local has_cas_gx = s.gx_str and string.hasx(s.gx_str)
                 local has_classic_gx = (s.gx or 0) ~= 0
                 if hovered_ts and glob_ts_scheibe and glob_ts_scheibe[i] == hovered_ts and (has_classic_gx or has_cas_gx) then
                     local dx_m, dy_m = knoten[s.k2].x - knoten[s.k1].x, knoten[s.k2].y - knoten[s.k1].y
@@ -6376,6 +6714,7 @@ function on.paint(gc)
 
                 local N0, Q0, M0 = -s.s_local[1], -s.s_local[2], -s.s_local[3]
                 local qA, qB = s.q + s.q_A + q_add, s.q + s.q_B + q_add; local nA, nB = s.n + s.n_A + n_add, s.n + s.n_B + n_add
+                if s.q_in_cas then qA, qB = 0, 0 end; if s.n_in_cas then nA, nB = 0, 0 end -- sonst doppelt zu cas_*_drop
                 local pts = render_pts_1; for k_idx=1,#pts do pts[k_idx]=nil end
                 local min_val, max_val_ext, best_t, best_px, best_py = 0, 0, 0, px1, py1
 
@@ -7752,7 +8091,12 @@ function on.paint(gc)
         end
     end
 
-    if warnungKinematisch then
+    if symbolFehler then
+        local boxW, boxH = math.min(b - 20, 300), 48; local boxX, boxY = math.floor((b - boxW) / 2), math.floor((h - boxH) / 2)
+        gc:setColorRGB(255, 0, 0); gc:fillRect(boxX, boxY, boxW, boxH); gc:setColorRGB(255, 255, 255); gc:drawRect(boxX, boxY, boxW, boxH)
+        gc:setFont("sansserif", "b", 10); gc:drawString("Symbolischer Modus nicht moeglich:", boxX + 8, boxY + 6)
+        gc:setFont("sansserif", "r", 9); gc:drawString(symbolFehler, boxX + 8, boxY + 26)
+    elseif warnungKinematisch then
         local boxW, boxH = math.min(b - 20, 180), 36; local boxX, boxY = math.floor((b - boxW) / 2), math.floor((h - boxH) / 2)
         gc:setColorRGB(255, 0, 0); gc:fillRect(boxX, boxY, boxW, boxH); gc:setColorRGB(255, 255, 255); gc:drawRect(boxX, boxY, boxW, boxH)
         gc:setFont("sansserif", "b", 10); gc:drawString("System ist kinematisch!", boxX + 8, boxY + 12)
@@ -7822,7 +8166,7 @@ function on.paint(gc)
             else
                 if menuSeite == 1 then menueHoehe = 160 elseif menuSeite == 2 then menueHoehe = 120 elseif menuSeite == 3 then menueHoehe = 200 elseif menuSeite == 6 then menueHoehe = 160 elseif menuSeite == 7 then menueHoehe = 180 else menueHoehe = 160 end
             end
-        elseif menuTyp == "obermenue" then if menuSeite == 1 then menueHoehe = 220 elseif menuSeite == 2 then menueHoehe = 220 elseif menuSeite == 3 then menueHoehe = 240 else menueHoehe = 60 end
+        elseif menuTyp == "obermenue" then if menuSeite == 1 then menueHoehe = 220 elseif menuSeite == 2 then menueHoehe = 220 elseif menuSeite == 3 then menueHoehe = 240 else menueHoehe = 100 end
         elseif menuTyp == "pvv_knoten" then menueHoehe = 120
         elseif menuTyp == "pvv_stab" then menueHoehe = 160 end
 
@@ -8538,6 +8882,10 @@ function on.paint(gc)
                     if menuZeile == 2 then gc:setColorRGB(200, 0, 0) else gc:setColorRGB(0, 0, 255) end
                     gc:drawString(string.format("%.2f", verlaufSkalierung or 1), b - 80, 60)
                 end
+                gc:setColorRGB(0, 0, 0)
+                gc:drawString("Rand-LGS dehnstarr:", b - 200, 80)
+                if menuZeile == 3 then gc:setColorRGB(200, 0, 0) else gc:setColorRGB(0, 0, 255) end
+                gc:drawString(randDehnstarr and "An" or "Aus", b - 80, 80)
             end
         end
     end

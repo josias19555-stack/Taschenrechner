@@ -78,7 +78,7 @@ Diese Datei dokumentiert alle funktionalen Features des Programms, ihre Möglich
 - Bearbeitung per Element-Editor (Hover + Enter) zur Eingabe von Kräften in der Ebene (z.B. $F_y, F_z$) und aus der Ebene (z.B. $F_x$).
 - Grafische Unterscheidung: Kräfte in der Ebene werden als Pfeile gezeichnet (Spitze zeigt auf den Angriffspunkt), Kräfte aus der Ebene als Kreis mit Punkt (heraus) oder Kreuz (hinein). Zusätzlich wird der Kraftangriffspunkt als sichtbarer Punkt markiert.
 - Die drei Kraftkomponenten werden abhängig von der aktuellen KOS-Ebene als zwei Komponenten in der Querschnittsebene und eine Komponente senkrecht zur Ebene angezeigt.
-- Aus den platzierten Kräften können Resultierende für Normalspannung, Querkräfte für Schubspannung und ein Torsionsmoment um den Schwerpunkt gebildet werden.
+- Aus den platzierten Kräften können Resultierende für Normalspannung, Querkräfte für Schubspannung und ein Torsionsmoment um den Schubmittelpunkt gebildet werden (ist der Schubmittelpunkt statisch unbestimmt, wird die Torsion aus Kräften nicht berechnet).
 
 **Grenzen:**
 - Für die Normalspannung wird die Kraftkomponente senkrecht zur Querschnittsebene als Normalkraft verwendet; ihre Exzentrizität liefert die Biegemomente.
@@ -114,14 +114,17 @@ Diese Datei dokumentiert alle funktionalen Features des Programms, ihre Möglich
 - Die Schubspannungsansicht kann über zehn Darstellungen geprüft werden: zwei Momentendichten, zwei statische Momente, zwei Querlastanteile, Torsionsanteil, resultierende Schubspannung und Laufkoordinate $s$.
 - Für Kontrollen stehen die integrierten Teilkräfte und Momentbeiträge je Element in einer Schubmomenttabelle bereit.
 - Bei einer Last aus platzierten Kräften können die beiden Querkraftkomponenten automatisch aus den Kraftresultierenden übernommen werden.
-- Bei symmetrischen geschlossenen Profilen wird der konstante Schubflussanteil $q_0$ über den Symmetrieansatz festgelegt; freie Äste eines Mischprofils werden vor der geschlossenen Zelle integriert.
+- Berechnet wird nur, was nach TM2 statisch bestimmt ist: offene Profile (auch unsymmetrisch, mit $I_{yz}$-Kopplung $\tau = -\frac{Q_z (I_y S_y + I_{yz} S_z)}{(I_y I_z - I_{yz}^2)\,t}$, für $Q_y$ analog) und Profile mit genau einer geschlossenen Zelle (auch mit offenen Ästen, z. B. Kasten mit überstehendem Gurt), sofern die Querkraft parallel zu einer Symmetrieachse wirkt. Dann ist der Schubfluss antisymmetrisch und $q_0$ folgt aus der Symmetrie; freie Äste werden vorher integriert.
+- Mehrzellige Profile, unsymmetrische geschlossene Zellen und eine Querkraft quer zur einzigen Symmetrieachse sind statisch unbestimmt: Die Rechnung bricht mit einer Meldung ab. Der Schubmittelpunkt wird nur so weit angegeben, wie er bestimmt ist (z. B. nur die Lage auf der Symmetrieachse).
+- Massive Querschnitte: $\tau = Q S/(I b)$ über waagerechte bzw. senkrechte Schnitte (auch für Sektor, Kreisabschnitt und dicke Linie), nur wenn $I_{yz} = 0$ ist. Gemischte massiv/dünnwandige Querschnitte werden nicht berechnet.
+- Eingegebene Querkräfte und Momente beziehen sich auf das angezeigte KOS und werden intern gedreht (auch bei KOS-Drehung 90°/270°).
 - Die Schubmomententabelle verwendet die aktuell aktive Querschnitts-KOS und zeigt hinter jeder Lastspalte den zugehörigen effektiven Hebelarm $r=M/F$.
 - Die Lastspalten zeigen die signierten Teilschubkräfte; kleine Werte unter $0{,}01$ werden exponentiell formatiert. Der Hebelarm bleibt signiert, damit $M=F\,r$ nachvollziehbar bleibt.
 - Die Schubspannungsanteile werden aus dem statischen Moment mit der Vorzeichenkonvention $q=-Q S/I$ beziehungsweise $\tau=-Q S/(I t)$ berechnet.
 
 **Grenzen:**
 - Die exakte Visualisierung und Verteilung des Schubflusses ist primär auf dünnwandige Profile zugeschnitten. Bei rein massiven Vollquerschnitten basiert die Berechnung auf einer schichtweisen Integration, die bei komplexen Geometrien (z.B. sternförmig) an die Grenzen der 1D-Balkentheorie stößt.
-- Bei unsymmetrischen geschlossenen Zellen ist der konstante Schubflussanteil nicht über die vollständige Verträglichkeitsgleichung bestimmt; die Ergebnisse sind dort nur als Näherung zu verwenden.
+- Statisch unbestimmte Fälle (siehe oben) werden bewusst nicht berechnet; es gibt keine Verträglichkeits- oder Mehrzellenrechnung.
 - Die Integrationsauflösung ist an das Zeichenraster gekoppelt und kann bei sehr kleinen oder sehr großen Geometrien die Genauigkeit beeinflussen.
 - Die Angaben zur Schubspannung werden in MPa dargestellt, sofern die internen Einheiten N und mm verwendet werden.
 
@@ -198,8 +201,8 @@ Diese Datei dokumentiert alle funktionalen Features des Programms, ihre Möglich
 
 ## 11. Bekannte fachliche und technische Grenzen
 **Geometrie:**
-- Mehrzellige geschlossene dünnwandige Profile werden nicht als gekoppeltes Mehrzellengleichungssystem gelöst.
-- Unsymmetrische geschlossene Zellen benötigen weiterhin eine allgemeine Verträglichkeitslösung für $q_0$.
+- Mehrzellige und unsymmetrische geschlossene dünnwandige Profile sind statisch unbestimmt und werden für Schub und Torsion abgelehnt.
+- Torsion wird nur für rein dünnwandige Profile berechnet: offen $I_T = \sum \frac{\xi}{3} h t^3$, $\tau_{max} = M_T t_{max}/I_T$; einzellig geschlossen (Bredt) $I_T = 4A_m^2/\oint ds/t$, $\tau_{max} = M_T/(2A_m t_{min})$. Massive Querschnitte (Prandtl) werden nicht berechnet.
 - Kreis- und Bogenelemente werden für bestimmte Prüfungen und die Kernfläche durch Stützpunkte angenähert.
 
 **Berechnung:**

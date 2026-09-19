@@ -1,118 +1,18 @@
--- Berechnungs- und Export-Funktionen aus Biegelinieneu.lua direkt im Terminal,
+-- Berechnungs- und Export-Funktionen aus Biegelinieneu.lua direkt im Terminal testen.
+-- Aufruf (aus beliebigem Ordner):  luajit Emulator/test_runner.lua [last]
+-- math.eval wird ueber Emulator/cas_bridge.lua an SymPy weitergereicht.
 
--- 1. TI-Nspire Environment Mocks
 io.stdout:setvbuf('no')
-platform = { window = { invalidate = function() end } }
-on = {}
-var = { store = function(name, val) end }
-timer = { start = function() end, stop = function() end }
-
--- 2. SymPy-backed TI-Nspire CAS bridge
-cas_vars = {}
-cas_funcs = {}
-local cas_bridge_dir = 'cas_bridge_' .. tostring({}):gsub('[^%w]', '')
-local cas_sequence = 0
-local cas_base64_chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
-
-local function cas_base64_encode(value)
-    local bits = {}
-    for i = 1, #value do
-        local byte = string.byte(value, i)
-        for bit = 7, 0, -1 do bits[#bits + 1] = math.floor(byte / (2 ^ bit)) % 2 end
-    end
-    while #bits % 6 ~= 0 do bits[#bits + 1] = 0 end
-    local encoded = {}
-    for i = 1, #bits, 6 do
-        local index = bits[i] * 32 + bits[i+1] * 16 + bits[i+2] * 8 + bits[i+3] * 4 + bits[i+4] * 2 + bits[i+5]
-        encoded[#encoded + 1] = cas_base64_chars:sub(index + 1, index + 1)
-    end
-    while #encoded % 4 ~= 0 do encoded[#encoded + 1] = '=' end
-    return table.concat(encoded)
-end
-
-local function cas_start_server()
-    print('[Runner] Starte SymPy-CAS-Server...')
-    os.execute('if not exist "' .. cas_bridge_dir .. '" mkdir "' .. cas_bridge_dir .. '"')
-    os.execute('start "" /b py -3 python_cas_server.py "' .. cas_bridge_dir .. '"')
-    print('[Runner] SymPy-CAS-Server gestartet: ' .. cas_bridge_dir)
-end
-
-local function cas_request(cmd)
-    cas_sequence = cas_sequence + 1
-    local suffix = tostring(cas_sequence) .. '.txt'
-    local cas_request_path = cas_bridge_dir .. '/request_' .. suffix
-    local cas_response_path = cas_bridge_dir .. '/response_' .. suffix
-    local file = assert(io.open(cas_request_path, 'wb'))
-    file:write(cas_base64_encode(cmd))
-    file:close()
-    for _ = 1, 1000000 do
-        local response = io.open(cas_response_path, 'rb')
-        if response then
-            local result = (response:read('*a') or ''):gsub('%s+$', '')
-            response:close()
-            os.remove(cas_response_path)
-            return result
-        end
-    end
-    error('SymPy-CAS-Server antwortet nicht')
-end
-
-cas_start_server()
-
-math.eval = function(cmd)
-    if not cmd then return nil end
-    local result = cas_request(cmd)
-    local function_name, argument, body = cmd:match('^([%w_]+)%s*%(([%w_]+)%)%s*:=%s*(.*)$')
-    if function_name then
-        cas_funcs[function_name] = { arg = argument, body = body }
-    else
-        local variable_name, variable_body = cmd:match('^([%w_]+)%s*:=%s*(.*)$')
-        if variable_name then cas_vars[variable_name] = variable_body end
-    end
-    if result == '__NIL__' or result == '' then return nil end
-    if result:sub(1, 9) == '__ERROR__' then error(result) end
-    if result == 'true' then return true end
-    if result == 'false' then return false end
-    return tonumber(result) or result
-end
-
-local function resetCasState()
-    cas_request('__RESET__')
-    cas_vars = {}
-    cas_funcs = {}
-end
-
+local runner_dir = (debug.getinfo(1, "S").source:gsub("^@", ""):match("^(.*[/\\])") or ".\\")
+local cas = dofile(runner_dir .. 'cas_bridge.lua')
+cas.start()
+local function resetCasState() cas.reset() end
 local function shutdownCasServer()
-    pcall(function() cas_request('__EXIT__') end)
-    os.execute('del /q "' .. cas_bridge_dir .. '\\*" 2>nul')
-    os.execute('rmdir "' .. cas_bridge_dir .. '" 2>nul')
+    print(string.format('\n[Runner] %d CAS-Anfragen in %.1f s', cas.stats.requests, os.clock() - cas.stats.started))
+    cas.stop()
 end
-
--- 3. test.txt laden und lokale Kernfunktionen in _G spiegeln
-local f_in = assert(io.open('Biegelinieneu.lua', 'rb'))
-local code = f_in:read('*a')
-f_in:close()
-if code:sub(1,3) == string.char(239,187,191) then code = code:sub(4) end
-
-local hook = [[
-
-_G.getKnoten = function() return knoten end
-_G.getStaebe = function() return staebe end
-_G.setKnoten = function(k) knoten = k end
-_G.setStaebe = function(s) staebe = s end
-_G.erstelleKnoten = erstelleKnoten
-_G.erstelleStab = erstelleStab
-_G.starteBerechnung = starteBerechnung
-_G.exportBiegelinienToTI = exportBiegelinienToTI
-_G.exportULinienToTI = exportULinienToTI
-_G.exportBiegelinienNeuToTI = exportBiegelinienNeuToTI
-_G.exportULinienNeuToTI = exportULinienNeuToTI
-_G.exportSchnittkraefteToTI = exportSchnittkraefteToTI
-_G.rechneAktuellesSystem = rechneAktuellesSystem
-_G.berechneSystemGleichungen = berechneSystemGleichungen
-]]
-
-assert(loadstring(code .. hook))()
+print('[Runner] Lade ' .. cas.loadBiegelinie())
+randDehnstarr = false   -- Pruefung uneu3 rechnet mit endlichem EA
 
 print('===================================================================')
 print('        TI-NSPIRE STATIK & TRAGWERK TEST-RUNNER BEREIT')
@@ -341,7 +241,7 @@ function testSymbolischeFederRahmen()
     }
 
     -- Standardmodell des Taschenrechners: EA ist gegenüber EI sehr groß.
-    for i = 1, 3 do s[i].EA = 1e8; s[i].EI = 1 end
+    for i = 1, 3 do s[i].EA = 1e8; s[i].EI = 1; s[i].EI_str = 'EI' end   -- EI symbolisch wie in der Feder EI/l^3
     s[2].q = 1; s[2].q_str = 'q'
     s[2].q_A_str = '0'; s[2].q_B_str = '0'
     setStaebe(s)
@@ -397,18 +297,25 @@ function testSymbolischeFederRahmen()
             print('uneu' .. i .. '(' .. new_axial.arg .. ') := ' .. tostring(new_axial.body) .. '\n')
         end
     end
-    local u3_body = cas_funcs.uneu3 and cas_funcs.uneu3.body or ''
-    assert(u3_body:find('41/24', 1, true), 'uneu3 is missing the 41/24 coefficient')
-    assert(u3_body:find('q', 1, true) and u3_body:find('l', 1, true) and u3_body:find('EI', 1, true), 'uneu3 is missing q*l^4/EI')
-    print('Pruefung uneu3 = (41/24)*q*l^4/EI bestanden')
+    -- Stab 3 ist die Stuetze: uneu3 = EA*u3 mit EA = 1e8 (numerisch). Am Fuss (x=0) ist die
+    -- Laengsverschiebung die vertikale Knotenverschiebung 41/24*q*l^4/EI plus die eigene
+    -- Stauchung der Stuetze N*L/EA = (3/8*q*l^2)/EA  ->  EA*u3(0) = 1e8*41/24*q*l^4/EI + 3/8*q*l^2.
+    local u3 = tostring(math.eval('string(expand(uneu3(0)))'))
+    print('uneu3(0) = ' .. u3)
+    local u3_check = math.eval('approx(expand((uneu3(0) - 3/8*q*l^2)/100000000 - 41/24*q*l^4/ei))')
+    assert(u3_check == 0, 'uneu3(0)/EA ist nicht 41/24*q*l^4/EI + N*L/EA, sondern ' .. u3)
+    print('Pruefung uneu3(0) = EA*(41/24*q*l^4/EI) + 3/8*q*l^2 bestanden')
 end
 
 -- Hauptausf�hrung
-if arg and arg[1] == 'last' then
-    testSymbolischeFederRahmen()
-else
-    testZweifeldtraeger()
-    testSymbolischerZweifeldtraeger()
-    testSymbolischeFederRahmen()
-end
+local ok, err = pcall(function()
+    if arg and arg[1] == 'last' then
+        testSymbolischeFederRahmen()
+    else
+        testZweifeldtraeger()
+        testSymbolischerZweifeldtraeger()
+        testSymbolischeFederRahmen()
+    end
+end)
 shutdownCasServer()
+if not ok then error(err, 0) end

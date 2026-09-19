@@ -4,11 +4,20 @@ Diese Datei dokumentiert die wichtigsten Funktionen des gemeinsamen Tragwerksmod
 
 ## 1. Zustände und Datenmodell
 
-### `math.eval`-Brücke in `test_runner.lua` / `python_cas.py`
+### `math.eval`-Brücke: `cas_bridge.lua` / `python_cas_server.py` / `python_cas.py`
 
-- **Zweck:** Emuliert den für die lokalen Regressionstests benötigten TI-Nspire-CAS-Aufruf über Python und SymPy.
-- **Möglichkeiten:** Persistente Variablen und Funktionsdefinitionen, `DelVar`, `exact`, `expand`, `approx`, symbolische Ausdrücke und bestimmte Integrale mit TI-Nspire-ähnlicher Syntax.
-- **Grenzen:** Kein vollständiger TI-Nspire-CAS-Ersatz; nicht unterstützte Befehle liefern keinen verwertbaren Wert. Durch einen Python-Prozess pro Aufruf ist der Testlauf langsamer als auf dem Taschenrechner oder mit dem alten Mock.
+- **Zweck:** Emuliert den TI-Nspire-CAS-Aufruf `math.eval` über einen dauerhaft laufenden Python/SymPy-Server, damit `test_runner.lua` und `test_regression.lua` ohne Taschenrechner laufen.
+- **Aufruf:** `luajit Emulator/test_regression.lua` bzw. `luajit Emulator/test_runner.lua [last]` aus beliebigem Ordner. `BIEGELINIE=<pfad>` testet eine andere Skriptversion, `CAS_VERBOSE=1` protokolliert jede Anfrage, `CAS_TIMEOUT=<s>` setzt die Wartezeit pro Anfrage (Standard 120 s).
+- **Möglichkeiten:** TI-Semantik: Namen ohne Groß-/Kleinschreibung, `EI`, `lnc1`, `q_A` bleiben je ein Symbol, `log` = Zehnerlogarithmus. Unterstützt `f(x):=…`, `name:=…`, `DelVar`, `Disp`, `exact`, `approx`, `expand`, `string`, `integral` (bestimmt und unbestimmt), Matrizen `[[a,b][c,d]]`, `[a,b]`, `[a;b]`, 1-basierte Indizes `m[i,j]` (auch in Funktionsdefinitionen), `colAugment`, Matrixinverse. Jede Definition wird nur einmal eingelesen und integriert; ein kompletter Testlauf dauert wenige Sekunden.
+- **Protokoll:** Nummerierte Anfrage-/Antwortdateien in `%TEMP%`, atomar geschrieben. Ergebnisse von `string(…)` bleiben in Lua immer Strings. Der Server beendet sich bei `cas.stop()` oder nach 120 s ohne Anfrage.
+- **Grenzen:** Kein vollständiger TI-Nspire-CAS-Ersatz. Ausgaben folgen der SymPy-Normalform (z. B. `41*l^4*q/24`) und können sich in der Form, nicht im Wert, vom TI unterscheiden. Winkelfunktionen rechnen im Bogenmaß.
+
+### Testsammlung `Emulator/tests/`
+
+- **Aufruf:** `luajit Emulator/tests/alle.lua` führt alle Testreihen nacheinander aus (je ein Prozess mit eigenem CAS-Server) und gibt nur Fehler und eine Zusammenfassung aus; `-v` zeigt alles. Einzelne Reihen: `luajit Emulator/tests/<datei>.lua [Filter]`, mit `TEST_VERBOSE=1` jede Prüfung.
+- **Reihen:** `test_regression.lua` (behobene Fehler, symbolischer Modus, Rand-LGS-Befunde), `test_runner.lua` (Originaltestfälle), `balken_hand.lua` (12 Balkensysteme gegen Lehrbuchformeln: w, φ, M, Q, u, N), `rahmen_hand.lua` (9 Rahmen gegen Handrechnung bzw. Kraftgrößenverfahren), `symbolisch.lua` (geschlossene Formeln und erwartete Abbrüche), `randlgs_fem.lua` (Rand-LGS gegen die FEM-Lösung, Stabenden exakt, Stabinneres gegen den gerundeten Referenzexport), `dehnstarr.lua` (Grenzwert EA → ∞ gegen Handrechnung mit dehnstarren Stäben, Abbruch bei Zwang), `querschnitt.lua` (Querschnittsmodul). Die übrigen Reihen rechnen mit `randDehnstarr = false` (endliches EA wie die FEM).
+- **Eigene Tests:** `common.lua` stellt Bausteine bereit (`node`, `bar`, `fixed`, `pinned`, `roller`, `rechne`, `randLGS`, `pruef`, `zahl`, `ev`, `evs`, `fall`, `ende`).
+- **Grenzen:** Alles läuft gegen den SymPy-Emulator, nicht gegen den TI-Nspire. Ableitungen (`d()`) kennt der Emulator nicht; die Handrechnungs-Tests interpolieren die Polynome exakt und leiten die Koeffizienten ab.
 
 ### `erstelleKnoten(lx, ly)`
 
@@ -71,17 +80,14 @@ Diese Datei dokumentiert die wichtigsten Funktionen des gemeinsamen Tragwerksmod
 - **Möglichkeiten:** Setzt die Lastpartikulärlösung und die vier Hermite-Randwerte aus dem berechneten Stabzustand zusammen; der Anfangs-Biegeversatz wird mit seinem lokalen Vorzeichen als $c_1=v_a EI$ übernommen. Symbolische Lasten werden als CAS-Integrale exportiert.
 - **Grenzen:** Die Vorzeichenkonvention folgt den lokalen Stabgrößen des Rechenmodells. Eine externe Musterlösung mit anderer Last- oder Koordinatenkonvention kann deshalb abweichende Polynome liefern.
 
-### `exportBiegelinienNeuToTI(stab_index)`
+### `exportBiegelinienNeuToTI()` / `exportULinienNeuToTI()` (Rand-LGS, `neuRandLGS`)
 
-- **Zweck:** Erzeugt einen separaten symbolischen Biegelinienexport mit Randgleichungssystem je geradem Stab.
-- **Möglichkeiten:** Ist im aktiven Modul verfügbar und über das Exportmenü aufrufbar. Für mehrere gerade Stäbe übernimmt der Export die geprüfte globale FEM-/Hermite-Rekonstruktion und stellt sie unter `vne1`, `vne2` usw. bereit; dadurch werden Übergänge, Lager, Gelenke und Knotenfedern gemeinsam berücksichtigt. Für einen einzelnen geraden Stab bleibt der separate Rand-LGS-Pfad verfügbar.
-- **Grenzen:** Bögen, Gelenk-Sonderfälle und nichtnumerische Staborientierungen benötigen weiterhin gesonderte Behandlung. Der Einzelstab-Rand-LGS-Pfad ist nicht als global gekoppelter Mehrstabsolver ausgelegt.
-
-### `exportULinienNeuToTI(stab_index)`
-
-- **Zweck:** Erzeugt den symbolischen Export der lokalen Längsverschiebungslinie als `uneu1`, `uneu2` usw.
-- **Möglichkeiten:** Nutzt bei mehreren Stäben die global berechneten lokalen Endverschiebungen und interpoliert sie entlang des Stabs. Dadurch werden Rahmenverformungen durch Querlasten, Knotenfedern und globale Kopplung berücksichtigt.
-- **Grenzen:** Bögen und Sonderfälle außerhalb gerader Stäbe benötigen weiterhin gesonderte Behandlung; exportiert wird die lokale Stabverschiebung, nicht die globale X-/Y-Komponente.
+- **Zweck:** Stellt für das ganze System alle Rand- und Übergangsbedingungen auf, löst sie im CAS und exportiert je Stab `vne_i(x) = EI·w_i(x)`, `uneu_i(x) = EA·u_i(x)` sowie die Bedingungen `randbed` als Spaltenvektor aus Strings (`["w1(x1=l)=w2(x2=0)";"EIw2''(x2=0)=0";…]`; Schnittgrößen als Ableitungen: Q = `-EIw'''`, M = `-EIw''`, N = `EAu'`). Beide Menüpunkte rufen dieselbe Funktion; sie braucht keine vorherige FEM-Berechnung.
+- **Ansatz:** je Stab `EI·w = wp + c1·x³/6 + c2·x²/2 + c3·x + c4` und `EA·u = up + C1·x + C2` mit `wp = ∫q(t)(x−t)³/6 + ∫m(t)(x−t)²/2 − EI·κT·x²/2`, `up = −∫n(t)(x−t) + EA·εT·x`; daraus `Q = −c1 − ∫q`, `M = −(wp'' + c1·x + c2)`, `N = C1 − ∫n`, `φ = −w'`. Konventionen wie im Rechenmodell (`n = (−dy, dx)/L`, `M' = Q − m`).
+- **Bedingungen je Knoten:** Verträglichkeit von `u`, `w`, `φ` aller Stabenden (über ein Referenzende, bei Bedarf globale Knotenunbekannte `ux(K)`, `uy(K)`), `N=0`/`Q=0`/`M=0` an N-/Q-/M-Gelenken, Lagerbedingung in den (gedrehten) Lagerrichtungen oder Gleichgewicht aus Stabendkräften, Knotenlasten (`last_x`, `last_y`, `last_w`, `last_m`) und Federn (`cx`, `cy`, `f_winkel`, `cm`).
+- **Lösung:** Zeilen mit nur einer Unbekannten werden vorab eliminiert, der Rest mit `exact(simult(A,b))` gelöst; Zahlen gehen exakt ein (`neuZahl`: Bruch, Wurzel oder 12 Stellen). Die exportierten Funktionen sind exakt (keine Rundung); auf dem Rechner bei Bedarf `approx(vne1(x))`.
+- **Dehnstarr (`randDehnstarr`, Standard `true`, Obermenü Seite 4):** Stäbe mit Zahlen-EA (`neuIstZahlText`: kein Buchstabe außer e-Notation) bekommen im LGS `EA = EA_Zahl/rleps`. Nach `simult` bestimmt `neuGrenzwert` jede Konstante als `limit(…, rleps, 0)` (nil bei `undef`, ∞ oder CAS-Fehler). Für `C2 = EA·u(0)` eines dehnstarren Stabes wird zuerst `limit(rleps·C2)` gebildet: ist das 0 und εT = 0, bleibt `uneu_i = EA·u_i` (endlich); sonst wird `uneu_i(x) = εT·x + u(0)` exportiert. `randinfo` (Spaltenvektor aus Strings) nennt die dehnstarren Stäbe und die `uneu_i`, die Verschiebungen sind. Unendliche Grenzwerte (behinderte Temperaturdehnung) brechen mit Meldung ab.
+- **Grenzen:** Keine Bögen (Abbruch mit Meldung), keine Stäbe mit `is_cut`, keine KGV-Einheitszustände. Fehler werden zusätzlich als `randbed = ["Fehler: …"]` abgelegt; vorher werden `randbed`, `randinfo`, `rleps`, `vne1..` und `uneu1..` gelöscht. Knoten, an denen alle Stabenden N- bzw. Q-Gelenke haben, bekommen ohne Last die Bedingung `U=0` in der freien Richtung, mit Last wird abgebrochen. Mechanismen führen zu `Rand-LGS singulär`. Ein Moment an einem Vollgelenkknoten wird wie im FEM ignoriert. Ein singuläres oder nicht quadratisches System wird gemeldet, nicht still ausgegeben. Im symbolischen Modus gelten dessen Grenzen (`symbolFehler`).
 
 ## 3. Geometrie, Anzeige und Mausposition
 
@@ -179,11 +185,11 @@ Diese Datei dokumentiert die wichtigsten Funktionen des gemeinsamen Tragwerksmod
 - **Möglichkeiten:** Berücksichtigt jede aktive translatorische oder rotatorische Feder als eine zusätzliche elastische Bindung, sofern am gleichen Freiheitsgrad kein ideales Lager sitzt. Grundlage für die Anzeige von `n` und die Stabilitäts-/Bestimmtheitskontrolle.
 - **Grenzen:** Die Zahl ist eine Modellierungsdiagnose; Federsteifigkeiten müssen positiv sein, und die Zählung ersetzt keine vollständige fachliche Prüfung von Sonderfällen oder der tatsächlichen Matrixrangprüfung.
 
-### Längslinienexport (`exportULinienToTI` / `exportULinienNeuToTI`)
+### Längslinienexport (`exportULinienToTI`)
 
-- **Zweck:** Erzeugt die axiale Verformungslinie aus den axialen Endverschiebungen und der axialen Streckenlast.
-- **Möglichkeiten:** Unterstützt konstante, linear veränderliche und CAS-auswertbare Lastfunktionen `n(x)`, auch im globalen Mehrstabexport. Der Lastanteil wird über `integral((x-t)*n(t),t,0,x)` doppelt integriert und in Kompatibilitäts- und Lagerbedingungen durch das jeweilige `EA` in eine Verschiebung umgerechnet; bei quadratischem `n(x)` entstehen dadurch die erwarteten Terme bis zur vierten Potenz. Der globale Ansatz verwendet Verschiebungskompatibilität, axiales Knotengleichgewicht `ΣN=0` und bei einer Knotenfeder `ΣN+c_parallel*u=0`.
-- **Grenzen:** Konzentrierte axiale Einzelkräfte innerhalb eines Stabes benötigen eine stückweise Darstellung; die Ausgabe setzt einen verfügbaren CAS voraus. Die axiale Mehrstabkopplung setzt an Übergangsknoten eine gemeinsame Stabachse voraus.
+- **Zweck:** Erzeugt die axiale Verformungslinie `u_EA_stab_i` aus den axialen Endverschiebungen der FEM-Lösung und der axialen Streckenlast.
+- **Möglichkeiten:** Konstante, linear veränderliche und CAS-auswertbare Lastfunktionen `n(x)`; der Lastanteil wird über `integral((x-t)*n(t),t,0,x)` doppelt integriert.
+- **Grenzen:** Konzentrierte axiale Einzelkräfte innerhalb eines Stabes benötigen eine stückweise Darstellung. Die global gekoppelte Variante ist `exportULinienNeuToTI` (Rand-LGS, `uneu_i = EA·u_i`).
 
 ### `findZeroForceMembers()`
 

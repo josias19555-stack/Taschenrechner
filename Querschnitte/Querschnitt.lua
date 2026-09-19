@@ -24,14 +24,17 @@ local casToleranz = 5
 
 local function evaluate_input(expr)
     -- Wertet zuerst den TI-Nspire-Ausdruck und danach eine einfache Lua-Formel aus.
-    local ok, val = false, nil
+    expr = (tostring(expr or ""):gsub(",", "."))   -- Dezimalkomma zulassen
     if math.eval then
-        ok, val = pcall(function() return tonumber(math.eval("approx(" .. expr .. ")")) end)
+        local ok, val = pcall(function() return tonumber(math.eval("approx(" .. expr .. ")")) end)
+        if ok and type(val) == "number" then return val end
     end
-    if not ok or not val then
-        ok, val = pcall(function() return load("return " .. expr)() end)
-    end
-    if ok and type(val) == "number" then return val end
+    -- Ersatz ohne CAS: Lua-Ausdruck, nur mit den math-Funktionen (sqrt, pi, sin, ...)
+    local chunk = (loadstring or load)("return " .. expr)
+    if not chunk then return nil end
+    if setfenv then setfenv(chunk, setmetatable({math = math}, {__index = math})) end
+    local ok, val = pcall(chunk)
+    if ok and type(val) == "number" and val == val then return val end
     return nil
 end
 
@@ -178,6 +181,9 @@ local kern_hover_line, kern_hover_pt = nil, nil
 local kern_build = nil
 local kern_collect_points
 local find_closed_cells
+local berechneSchubmittelpunkt
+local shear_center_cache = nil   -- Schubmittelpunkt haengt nur von der Geometrie ab
+local schub_grund = nil          -- Begruendung, wenn Schub nicht berechnet wird
 local coordinatesForDisplay
 
 local function current_axes()
@@ -216,7 +222,7 @@ local function openShearFromForces()
         shear_selector_open = true
         status = "Eingetragene Kräfte ausgewertet. V: Verlauf wählen."
     else
-        status = "Schubspannung nicht berechenbar."
+        status = schub_grund or "Schubspannung nicht berechenbar."
     end
     platform.window:invalidate()
 end
@@ -228,32 +234,52 @@ local function openTorsionInput()
     status = "Torsionsmoment MT in Nm eingeben."
 end
 
+-- Torsion nach TM2 (keine Prandtl-Loesung fuer massive Querschnitte):
+--  * offene duennwandige Profile: I_T = sum xi/3 h t^3, tau_max = MT/I_T * t_max
+--  * genau eine geschlossene Zelle (Bredt): I_T = 4 A_m^2 / Int ds/t, tau_max = MT/(2 A_m t_min)
+--  * mehrzellig, massiv oder gemischt massiv/duennwandig: nicht berechnet (Meldung)
 local function berechneTorsionsResultat(moment)
     local r = system_results
     if not r then return nil end
-    local torsion_constant, area = find_closed_cells()
-    local closed = torsion_constant > 1e-9 and area > 1e-9
-    local inertia = closed and torsion_constant or (r.It or 0)
-    local thickness = default_t
-    for _, elem in ipairs(duenn_elemente) do thickness = math.max(thickness, elem.t or default_t) end
-    local tau
-    if closed then
-        tau = math.abs(moment / math.max(2 * area * thickness, 1e-12))
-    else
-        tau = math.abs(moment / math.max(inertia, 1e-12) * thickness)
+    if #duenn_elemente == 0 or #massiv_elemente > 0 then
+        status = "Torsion nur fuer rein duennwandige Profile (offen oder einzellig geschlossen)."
+        return nil
     end
-    return {M = moment, It = inertia, Am = area, tau = tau, closed = closed}
+    local It_closed, Am, cells, info = find_closed_cells()
+    if cells >= 2 then
+        status = "Mehrzelliges Profil: Torsion statisch unbestimmt, nicht berechnet."
+        return nil
+    end
+    if cells == 1 then
+        return {M = moment, It = It_closed, Am = Am, tau = math.abs(moment) / math.max(2 * Am * info.t_min, 1e-12),
+                closed = true, t_min = info.t_min}
+    end
+    local t_max = 0
+    for _, elem in ipairs(duenn_elemente) do t_max = math.max(t_max, elem.t or default_t) end
+    local It = r.It or 0
+    if It <= 1e-12 then
+        status = "I_T = 0: Torsion nicht berechenbar."
+        return nil
+    end
+    return {M = moment, It = It, Am = 0, tau = math.abs(moment) / It * t_max, closed = false, t_max = t_max}
+end
+
+-- Torsionsschubspannung an einer Stuetzstelle: in der Zelle Bredt (q_T = MT/(2 A_m), im
+-- Umlaufsinn), in offenen Teilen tau = MT/I_T * t (Maximalwert am Rand)
+local function torsionsTau(result, sample)
+    local thickness = math.max(sample.thickness or default_t, 1e-12)
+    if result.closed and sample.in_cell then
+        return (sample.cell_sign or 1) * result.M / math.max(2 * result.Am, 1e-12) / thickness
+    end
+    return (sample.direction or 1) * result.M / math.max(result.It, 1e-12) * thickness
 end
 
 local function aktualisiereTorsionsverlauf(result)
     if not result or not shear_results or not shear_results.samples then return end
-    local q_t = result.closed and result.M / math.max(2 * result.Am, 1e-12) or result.M / math.max(result.It, 1e-12)
     local max_total = 0
     for _, sample in ipairs(shear_results.samples) do
-        local direction = result.closed and (sample.torsion_sign or 1) or (sample.direction or 1)
-        local thickness = math.max(sample.thickness or default_t, 1e-12)
-        sample.tau_t = direction * (result.closed and q_t / thickness or q_t * thickness)
-        if result.closed then
+        sample.tau_t = torsionsTau(result, sample)
+        if result.closed and sample.in_cell then
             sample.tau_total = (sample.tau or 0) + sample.tau_t
         else
             sample.tau_total = math.abs(sample.tau or 0) + math.abs(sample.tau_t)
@@ -265,20 +291,13 @@ end
 
 local function torsionTauAtSample(sample)
     if not torsion_results then return sample.tau_t or 0 end
-    local q_t = torsion_results.closed
-        and torsion_results.M / math.max(2 * torsion_results.Am, 1e-12)
-        or torsion_results.M / math.max(torsion_results.It, 1e-12)
-    local direction = torsion_results.closed and (sample.torsion_sign or 1) or (sample.direction or 1)
-    local thickness = math.max(sample.thickness or default_t, 1e-12)
-    return direction * (torsion_results.closed and q_t / thickness or q_t * thickness)
+    return torsionsTau(torsion_results, sample)
 end
 
 local function combinedTauAtSample(sample)
     local shear_tau = sample.tau or 0
     local torsion_tau = torsionTauAtSample(sample)
-    if (torsion_results and torsion_results.closed) or (shear_results and shear_results.thin_closed) then
-        return shear_tau + torsion_tau
-    end
+    if sample.in_cell then return shear_tau + torsion_tau end
     return math.abs(shear_tau) + math.abs(torsion_tau)
 end
 
@@ -301,22 +320,32 @@ local function enterTorsionInput()
     torsion_M, torsion_input_step, inputText = value, 0, ""
     torsion_results = berechneTorsionsResultat(value)
     aktualisiereTorsionsverlauf(torsion_results)
-    local torsion_constant, area = find_closed_cells()
-    status = "Torsionsspannung berechnet."
+    if torsion_results then status = "Torsionsspannung berechnet." end
     showResults = true
     return true
 end
 
 local function berechneKraftTorsion()
     if not system_results or #duenn_elemente == 0 then return nil end
+    local in_ebene = false
+    for _, kraft in ipairs(kraefte) do
+        if math.abs(tonumber(kraft.fa) or 0) > 1e-12 or math.abs(tonumber(kraft.fb) or 0) > 1e-12 then in_ebene = true end
+    end
+    if not in_ebene then return nil end
+    -- Bezugspunkt fuer das Torsionsmoment ist der Schubmittelpunkt M (nicht der Schwerpunkt)
+    local center = berechneSchubmittelpunkt()
+    if not center then return nil end
     local moment = 0
     for _, kraft in ipairs(kraefte) do
-        local kraft_u, kraft_v = displayedVector(kraft.u, kraft.v)
-        local center_u, center_v = displayedVector(system_results.ys, system_results.zs)
-        local force_a, force_b = displayedVector(tonumber(kraft.fa) or 0, tonumber(kraft.fb) or 0)
-        moment = moment + (kraft_u - center_u) * force_b - (kraft_v - center_v) * force_a
+        local fa, fb = tonumber(kraft.fa) or 0, tonumber(kraft.fb) or 0
+        if (math.abs(fb) > 1e-12 and not center.known_u) or (math.abs(fa) > 1e-12 and not center.known_v) then
+            status = "Torsion aus Kraeften: Schubmittelpunkt statisch unbestimmt."
+            return nil
+        end
+        -- M_x = du * F_v - dv * F_u (intern rechtshaendig, x aus der Bildebene)
+        moment = moment + (kraft.u - center.u) * fb - (kraft.v - center.v) * fa
     end
-    if math.abs(moment) < 1e-12 then return nil end
+    if math.abs(moment) < 1e-9 then return nil end
     return berechneTorsionsResultat(moment)
 end
 
@@ -341,7 +370,7 @@ local function enterShearInput()
             shear_input_step = 0
             shear_results = berechneSchubspannungsResultate(shear_Qa, shear_Qb)
             shear_selector_open = shear_results ~= nil
-            status = shear_results and "Schubkräfte ausgewertet. V: Verlauf waehlen." or "Schubspannung nicht berechenbar."
+            status = shear_results and "Schubkräfte ausgewertet. V: Verlauf waehlen." or (schub_grund or "Schubspannung nicht berechenbar.")
         end
     elseif shear_input_step == 3 then
         shear_N, shear_input_step, inputText = input_to_internal(val, force_unit), 4, ""
@@ -355,7 +384,8 @@ local function enterShearInput()
         shear_external_input = false
         shear_selector_open = shear_results ~= nil
         showResults = true
-        status = shear_results and "Belastungen ausgewertet. V: Verlauf waehlen." or "Schubspannung nicht berechenbar."
+        if shear_results then status = "Belastungen ausgewertet. V: Verlauf waehlen."
+        elseif schub_grund then status = schub_grund end
     end
     platform.window:invalidate()
     return true
@@ -401,18 +431,35 @@ local function snap(x)
     return math.ceil(q - .5) * raster
 end
 
+-- Intern: u nach rechts, v nach oben. Angezeigtes KOS (y, z) wie von toScreenKOS gezeichnet:
+-- 0: y rechts, z oben | 90: y oben, z links | 180: y links, z unten | 270: y unten, z rechts
 coordinatesForDisplay = function(u, v)
-    if rotation == 90 then return -v, u end
-    if rotation == 180 then return -u, -v end
-    if rotation == 270 then return v, -u end
-    return u, v
-end
-
-local function coordinatesFromDisplay(u, v)
     if rotation == 90 then return v, -u end
     if rotation == 180 then return -u, -v end
     if rotation == 270 then return -v, u end
     return u, v
+end
+
+local function coordinatesFromDisplay(a, b)
+    if rotation == 90 then return -b, a end
+    if rotation == 180 then return -a, -b end
+    if rotation == 270 then return b, -a end
+    return a, b
+end
+
+-- Traegheitsmomente (intern Iy = Int v^2, Iz = Int u^2, Iyz = -Int u v) im angezeigten KOS
+local function inertiaForDisplay(Iy, Iz, Iyz)
+    if rotation == 90 or rotation == 270 then return Iz, Iy, -Iyz end
+    return Iy, Iz, Iyz
+end
+
+-- Hauptachsenwinkel im angezeigten KOS (gemessen von der angezeigten y-Achse)
+local function alphaForDisplay(alpha)
+    if rotation == 90 or rotation == 270 then
+        alpha = alpha - math.pi / 2
+        if alpha <= -math.pi / 2 then alpha = alpha + math.pi end
+    end
+    return alpha
 end
 
 local function forceComponentsForDisplay(fu, fv)
@@ -464,8 +511,16 @@ local function sector_props(p1, p2, p3, is_segment)
     end
     local phi = a1 + alpha
     local ys, zs = p1.u + d * math.cos(phi), p1.v + d * math.sin(phi)
-    local Iu = R^4 / 4 * (alpha - math.sin(alpha) * math.cos(alpha))
-    local Iv = R^4 / 4 * (alpha + math.sin(alpha) * math.cos(alpha)) - A * d^2
+    local sa, ca = math.sin(alpha), math.cos(alpha)
+    local Iu = R^4 / 4 * (alpha - sa * ca)          -- um die Symmetrieachse des Sektors
+    local Iv0 = R^4 / 4 * (alpha + sa * ca)         -- senkrecht dazu, um den Kreismittelpunkt
+    if is_segment then
+        -- Kreisabschnitt = Sektor minus Dreieck (Mittelpunkt, P2, P3) mit Basis 2 R sa und Hoehe R ca
+        -- (fuer alpha > 90 Grad ist ca < 0, dann wird das Dreieck addiert)
+        Iu = Iu - R^4 * sa^3 * ca / 6
+        Iv0 = Iv0 - R^4 * sa * ca^3 / 2
+    end
+    local Iv = Iv0 - A * d^2
     local c, s = math.cos(phi), math.sin(phi)
     return A, ys, zs, Iu*c^2 + Iv*s^2, Iu*s^2 + Iv*c^2, (Iu-Iv)*s*c
 end
@@ -524,96 +579,198 @@ local function berechneLokaleWerte(elem)
 end
 
 -- === GRAPH & TORSION ===
-find_closed_cells = function()
-    local nodes = {}
-    local function get_node(u, v)
-        for i, n in ipairs(nodes) do
-            if math.abs(n.u - u) < 1e-4 and math.abs(n.v - v) < 1e-4 then return i end
+-- Mittelliniengraph der duennwandigen Elemente. Gerade Elemente werden an Schnitt- und
+-- Beruehrpunkten (T-Knoten) sowie optional an den Achsen u = achse_u und v = achse_v geteilt.
+-- Doppelt gezeichnete Kanten werden zu einer Kante (Dicken addiert) zusammengelegt.
+-- Rueckgabe: nodes {u, v, edges, arrivals}, edges {i, index, p1, p2, n1, n2, t}, nicht_gerade
+local function duennGraph(achse_u, achse_v)
+    local tol = 1e-6
+    local nodes, edges = {}, {}
+    local nicht_gerade = false
+    local function node_for(u, v)
+        for index, node in ipairs(nodes) do
+            if math.abs(node.u - u) <= tol and math.abs(node.v - v) <= tol then return index end
         end
-        table.insert(nodes, {u=u, v=v, adj={}})
+        table.insert(nodes, {u = u, v = v, edges = {}, arrivals = {}})
         return #nodes
     end
-    
-    for i, elem in ipairs(duenn_elemente) do
-        local n1 = get_node(elem.points[1].u, elem.points[1].v)
-        local n2 = get_node(elem.points[2].u, elem.points[2].v)
-        table.insert(nodes[n1].adj, {to=n2, edge_idx=i})
-        table.insert(nodes[n2].adj, {to=n1, edge_idx=i})
+    local function cross(au, av, bu, bv) return au * bv - av * bu end
+    local function add_parameter(list, value)
+        if value < -tol or value > 1 + tol then return end
+        value = math.max(0, math.min(1, value))
+        for _, existing in ipairs(list) do
+            if math.abs(existing - value) <= tol then return end
+        end
+        table.insert(list, value)
     end
-    
+    local params = {}
+    for index, elem in ipairs(duenn_elemente) do
+        if not elem.type or elem.type == "duenn_linie" then params[index] = {0, 1} else nicht_gerade = true end
+    end
+    for first = 1, #duenn_elemente do
+        if params[first] then
+            local p, p2 = duenn_elemente[first].points[1], duenn_elemente[first].points[2]
+            local rx, rv = p2.u - p.u, p2.v - p.v
+            for second = first + 1, #duenn_elemente do
+                if params[second] then
+                    local q, q2 = duenn_elemente[second].points[1], duenn_elemente[second].points[2]
+                    local sx, sv = q2.u - q.u, q2.v - q.v
+                    local qpx, qpv = q.u - p.u, q.v - p.v
+                    local denominator = cross(rx, rv, sx, sv)
+                    if math.abs(denominator) > tol then
+                        add_parameter(params[first], cross(qpx, qpv, sx, sv) / denominator)
+                        add_parameter(params[second], cross(qpx, qpv, rx, rv) / denominator)
+                    elseif math.abs(cross(qpx, qpv, rx, rv)) <= tol then
+                        -- kollinear: Endpunktberuehrungen und ueberlappende Teilstrecken
+                        local first_length, second_length = rx^2 + rv^2, sx^2 + sv^2
+                        if first_length > tol then
+                            add_parameter(params[first], ((q.u - p.u) * rx + (q.v - p.v) * rv) / first_length)
+                            add_parameter(params[first], ((q2.u - p.u) * rx + (q2.v - p.v) * rv) / first_length)
+                        end
+                        if second_length > tol then
+                            add_parameter(params[second], ((p.u - q.u) * sx + (p.v - q.v) * sv) / second_length)
+                            add_parameter(params[second], ((p2.u - q.u) * sx + (p2.v - q.v) * sv) / second_length)
+                        end
+                    end
+                end
+            end
+            if achse_u and math.abs(rx) > tol then add_parameter(params[first], (achse_u - p.u) / rx) end
+            if achse_v and math.abs(rv) > tol then add_parameter(params[first], (achse_v - p.v) / rv) end
+        end
+    end
+    for index, elem in ipairs(duenn_elemente) do
+        local list = params[index]
+        if list then
+            table.sort(list)
+            local p1, p2 = elem.points[1], elem.points[2]
+            for part = 1, #list - 1 do
+                local a, b = list[part], list[part + 1]
+                local q1 = {u = p1.u + a * (p2.u - p1.u), v = p1.v + a * (p2.v - p1.v)}
+                local q2 = {u = p1.u + b * (p2.u - p1.u), v = p1.v + b * (p2.v - p1.v)}
+                local n1, n2 = node_for(q1.u, q1.v), node_for(q2.u, q2.v)
+                if n1 ~= n2 then
+                    local doppelt = nil
+                    for _, k in ipairs(nodes[n1].edges) do
+                        local e = edges[k]
+                        if (e.n1 == n1 and e.n2 == n2) or (e.n1 == n2 and e.n2 == n1) then doppelt = e end
+                    end
+                    if doppelt then
+                        doppelt.t = doppelt.t + (elem.t or default_t)
+                    else
+                        table.insert(edges, {index = index, p1 = q1, p2 = q2, n1 = n1, n2 = n2, t = elem.t or default_t, used = false})
+                        edges[#edges].i = #edges
+                        table.insert(nodes[n1].edges, #edges)
+                        table.insert(nodes[n2].edges, #edges)
+                    end
+                end
+            end
+        end
+    end
+    return nodes, edges, nicht_gerade
+end
+
+-- Zellenanalyse: freie Aeste abschneiden, Zellenzahl = Kanten - Knoten + Komponenten des Restes.
+-- Bei genau einer Zelle: Umlauf mit A_m, Integral ds/t, t_min und Umlaufsinn je Kante.
+local function duennZellen(nodes, edges)
+    local aktiv = {}
+    for i = 1, #edges do aktiv[i] = true end
     local changed = true
-    local active_nodes = {}
-    local active_edges = {}
-    for i=1, #nodes do active_nodes[i] = true end
-    for i=1, #duenn_elemente do active_edges[i] = true end
-    
     while changed do
         changed = false
-        for i=1, #nodes do
-            if active_nodes[i] then
-                local deg = 0
-                local last_edge = nil
-                for _, edge in ipairs(nodes[i].adj) do
-                    if active_edges[edge.edge_idx] then deg = deg + 1; last_edge = edge.edge_idx end
-                end
-                if deg <= 1 then
-                    active_nodes[i] = false
-                    if last_edge then active_edges[last_edge] = false end
-                    changed = true
-                end
+        for _, node in ipairs(nodes) do
+            local deg, last = 0, nil
+            for _, k in ipairs(node.edges) do if aktiv[k] then deg, last = deg + 1, k end end
+            if deg == 1 then aktiv[last] = false; changed = true end
+        end
+    end
+    local parent, rest_e, rest_n, comp = {}, 0, 0, 0
+    local function find(x) while parent[x] ~= x do x = parent[x] end return x end
+    for i, e in ipairs(edges) do
+        if aktiv[i] then
+            rest_e = rest_e + 1
+            for _, n in ipairs({e.n1, e.n2}) do
+                if not parent[n] then parent[n] = n; rest_n = rest_n + 1 end
             end
         end
     end
+    for i, e in ipairs(edges) do
+        if aktiv[i] then
+            local a, b = find(e.n1), find(e.n2)
+            if a ~= b then parent[a] = b end
+        end
+    end
+    for n in pairs(parent) do if find(n) == n then comp = comp + 1 end end
+    local info = {cells = rest_e - rest_n + comp, in_loop = aktiv, Am = 0, It = 0}
+    if info.cells ~= 1 then return info end
+    -- Umlauf ablaufen
+    local start_edge
+    for i = 1, #edges do if aktiv[i] then start_edge = i; break end end
+    local start_node = edges[start_edge].n1
+    local current, edge_i = start_node, start_edge
+    local dirs, area2, sum_ds_t, t_min, schritte = {}, 0, 0, math.huge, 0
+    repeat
+        local e = edges[edge_i]
+        local forward = e.n1 == current
+        local nxt = forward and e.n2 or e.n1
+        local a, b = nodes[current], nodes[nxt]
+        area2 = area2 + (a.u * b.v - b.u * a.v)
+        sum_ds_t = sum_ds_t + math.sqrt((b.u - a.u)^2 + (b.v - a.v)^2) / e.t
+        t_min = math.min(t_min, e.t)
+        dirs[edge_i] = forward and 1 or -1
+        current = nxt
+        local next_edge = nil
+        for _, k in ipairs(nodes[current].edges) do
+            if aktiv[k] and not dirs[k] then next_edge = k; break end
+        end
+        edge_i = next_edge
+        schritte = schritte + 1
+    until current == start_node or not edge_i or schritte > #edges
+    if area2 < 0 then for k, d in pairs(dirs) do dirs[k] = -d end end   -- +1 = gegen den Uhrzeigersinn
+    info.Am = math.abs(area2) / 2
+    info.sum_ds_t = sum_ds_t
+    info.t_min = t_min
+    info.ccw_dir = dirs
+    info.It = (sum_ds_t > 1e-12) and 4 * info.Am^2 / sum_ds_t or 0
+    return info
+end
 
-    local cycle_edges = {}
-    for i, active in ipairs(active_edges) do
-        if active then table.insert(cycle_edges, i) end
-    end
-    
-    if #cycle_edges == 0 then return 0, 0 end
-    
-    local start_node
-    for i=1, #nodes do if active_nodes[i] then start_node = i; break end end
-    
-    local path = {start_node}
-    local curr = start_node
-    local visited_edges = {}
-    
-    while true do
-        local next_node = nil
-        for _, edge in ipairs(nodes[curr].adj) do
-            if active_edges[edge.edge_idx] and not visited_edges[edge.edge_idx] then
-                visited_edges[edge.edge_idx] = true
-                next_node = edge.to
-                break
+-- Spiegelsymmetrie des Mittelliniengraphen (inkl. Dicken) zur senkrechten Achse u = ys
+-- (sym_v) und zur waagerechten Achse v = zs (sym_h). Der Graph muss an den Achsen geteilt sein.
+local function duennSymmetrie(nodes, edges, ys, zs)
+    if #edges == 0 then return false, false end
+    local ext = 0
+    for _, n in ipairs(nodes) do ext = math.max(ext, math.abs(n.u - ys), math.abs(n.v - zs)) end
+    local tol = 1e-6 * math.max(ext, 1)
+    local function gleich(n, u, v) return math.abs(n.u - u) <= tol and math.abs(n.v - v) <= tol end
+    local function symmetrisch(spiegel)
+        for _, e in ipairs(edges) do
+            local u1, v1 = spiegel(nodes[e.n1].u, nodes[e.n1].v)
+            local u2, v2 = spiegel(nodes[e.n2].u, nodes[e.n2].v)
+            local gefunden = false
+            for _, f in ipairs(edges) do
+                local a, b = nodes[f.n1], nodes[f.n2]
+                if ((gleich(a, u1, v1) and gleich(b, u2, v2)) or (gleich(a, u2, v2) and gleich(b, u1, v1)))
+                    and math.abs(f.t - e.t) <= 1e-9 * math.max(e.t, 1) then
+                    gefunden = true
+                    break
+                end
             end
+            if not gefunden then return false end
         end
-        if not next_node or next_node == start_node then break end
-        table.insert(path, next_node)
-        curr = next_node
+        return true
     end
-    
-    local Am = 0
-    for i=1, #path do
-        local p1 = nodes[path[i]]
-        local p2 = nodes[path[(i%#path)+1]]
-        Am = Am + (p1.u * p2.v - p2.u * p1.v)
-    end
-    Am = math.abs(Am / 2)
-    
-    local sum_lt = 0
-    for _, edge_idx in ipairs(cycle_edges) do
-        local elem = duenn_elemente[edge_idx]
-        local dx = elem.points[2].u - elem.points[1].u
-        local dy = elem.points[2].v - elem.points[1].v
-        local L = math.sqrt(dx^2 + dy^2)
-        sum_lt = sum_lt + (L / elem.t)
-    end
-    
-    if sum_lt > 1e-9 then
-        return (4 * Am^2) / sum_lt, Am
-    end
-    return 0, 0
+    local sym_v = symmetrisch(function(u, v) return 2 * ys - u, v end)
+    local sym_h = symmetrisch(function(u, v) return u, 2 * zs - v end)
+    return sym_v, sym_h
+end
+
+-- Bredt fuer genau eine geschlossene Zelle. Rueckgabe: I_T, A_m, Zellenzahl, Info (t_min, ...)
+-- Mehrzellige Profile sind statisch unbestimmt und werden nicht berechnet (I_T = 0, A_m = 0).
+find_closed_cells = function()
+    local nodes, edges = duennGraph()
+    local info = duennZellen(nodes, edges)
+    if info.cells == 1 then return info.It, info.Am, 1, info end
+    return 0, 0, info.cells, info
 end
 
 -- === SYSTEM BERECHNUNG ===
@@ -653,28 +810,6 @@ local function is_point_inside(elem, u, v)
             j = i
         end
         return inside
-    elseif elem.type == "massiv_linie" then
-        local p1, p2 = elem.points[1], elem.points[2]
-        local du, dv = p2.u - p1.u, p2.v - p1.v
-        local L = math.sqrt(du^2 + dv^2)
-        local nx, ny = 0, 0
-        if L > 1e-9 then nx, ny = (-dv/L) * (elem.t/2), (du/L) * (elem.t/2) end
-        local pts = {
-            {u = p1.u + nx, v = p1.v + ny},
-            {u = p2.u + nx, v = p2.v + ny},
-            {u = p2.u - nx, v = p2.v - ny},
-            {u = p1.u - nx, v = p1.v - ny}
-        }
-        local q = {}
-        for _, p in ipairs(pts) do
-            local x, y = toScreen(p.u, p.v)
-            table.insert(q, x)
-            table.insert(q, y)
-        end
-        gc:fillPolygon(q)
-        table.insert(q, q[1])
-        table.insert(q, q[2])
-        gc:drawPolyLine(q)
     elseif elem.type == "sector" or elem.type == "segment" or elem.type == "duenn_kreis_bogen" then
         local C = elem.points[1]
         local R = math.sqrt((elem.points[2].u - C.u)^2 + (elem.points[2].v - C.v)^2)
@@ -740,10 +875,26 @@ local function getBoundingBox(elem)
         end
     else
         if elem.type == "sector" or elem.type == "segment" or elem.type == "duenn_kreis_bogen" then
+            -- Box aus Bogenendpunkten, Kreispunkten bei 0/90/180/270 Grad im Winkelbereich
+            -- und (nur Sektor) dem Mittelpunkt
             local C = elem.points[1]
             local R = math.sqrt((elem.points[2].u - C.u)^2 + (elem.points[2].v - C.v)^2)
-            min_u, max_u = C.u - R, C.u + R
-            min_v, max_v = C.v - R, C.v + R
+            local a1 = math.atan2(elem.points[2].v - C.v, elem.points[2].u - C.u)
+            local sweep = math.atan2(elem.points[3].v - C.v, elem.points[3].u - C.u) - a1
+            if sweep <= 0 then sweep = sweep + 2 * math.pi end
+            local pts = {elem.points[2], elem.points[3]}
+            if elem.type == "sector" then table.insert(pts, C) end
+            for k = 0, 3 do
+                local a = k * math.pi / 2
+                if (a - a1) % (2 * math.pi) <= sweep + 1e-12 then
+                    table.insert(pts, {u = C.u + R * math.cos(a), v = C.v + R * math.sin(a)})
+                end
+            end
+            min_u, max_u, min_v, max_v = math.huge, -math.huge, math.huge, -math.huge
+            for _, pt in ipairs(pts) do
+                min_u, max_u = math.min(min_u, pt.u), math.max(max_u, pt.u)
+                min_v, max_v = math.min(min_v, pt.v), math.max(max_v, pt.v)
+            end
         else
             min_u, max_u, min_v, max_v = math.huge, -math.huge, math.huge, -math.huge
             for _, p in ipairs(elem.points) do
@@ -813,44 +964,49 @@ local function berechneNumerisch(elem, index_of_elem)
     local ys = sum_yu / A
     local zs = sum_zu / A
     
-    local Iys = sum_z2 - A * zs^2
-    local Izs = sum_y2 - A * ys^2
+    -- sum_y2 = Integral v^2 dA (gehoert zu I_y), sum_z2 = Integral u^2 dA (gehoert zu I_z)
+    local Iys = sum_y2 - A * zs^2
+    local Izs = sum_z2 - A * ys^2
     local Iyzs = -(sum_yz - A * ys * zs)
     
     return A, ys, zs, Iys, Izs, Iyzs
 end
 
 local function checkOverlapStatus(new_elem)
+    -- Testpunkte in Zellmitten eines Rasters ueber der neuen Form. Ein Punkt zaehlt nur, wenn er
+    -- samt kleiner Umgebung in einer Form liegt: gemeinsame Kanten sind keine Ueberlappung.
     local min_u, max_u, min_v, max_v = getBoundingBox(new_elem)
+    local N = 20
+    local eps = 1e-6 * math.max(max_u - min_u, max_v - min_v, 1e-9)
+    local function strikt_innen(elem, u, v)
+        return is_point_inside(elem, u, v) and is_point_inside(elem, u + eps, v) and is_point_inside(elem, u - eps, v)
+            and is_point_inside(elem, u, v + eps) and is_point_inside(elem, u, v - eps)
+    end
     local test_pts = {}
-    -- Nur innere Punkte pruefen: Eine gemeinsame Randlinie ist keine Flaechenueberlappung.
-    for i=1, 5 do
-        for j=1, 5 do
-            local u = min_u + (max_u - min_u) * (i/6)
-            local v = min_v + (max_v - min_v) * (j/6)
-            if is_point_inside(new_elem, u, v) then
-                table.insert(test_pts, {u=u, v=v})
-            end
+    for i = 0, N - 1 do
+        for j = 0, N - 1 do
+            local u = min_u + (max_u - min_u) * (i + 0.5) / N
+            local v = min_v + (max_v - min_v) * (j + 0.5) / N
+            if strikt_innen(new_elem, u, v) then table.insert(test_pts, {u = u, v = v}) end
         end
     end
-    
-    local is_partial = false
-    local completely_inside = false
-    
+    if #test_pts == 0 then return "none" end
+
+    local is_partial, completely_inside = false, false
     for _, other in ipairs(massiv_elemente) do
         if not other.is_hole and other ~= new_elem then
             local count_in = 0
             for _, pt in ipairs(test_pts) do
-                if is_point_inside(other, pt.u, pt.v) then count_in = count_in + 1 end
+                if strikt_innen(other, pt.u, pt.v) then count_in = count_in + 1 end
             end
-            if count_in == #test_pts then
+            local anteil = count_in / #test_pts
+            if anteil >= 0.995 then
                 completely_inside = true
             elseif count_in > 0 then
                 is_partial = true
             end
         end
     end
-    
     if is_partial then return "partial" end
     if completely_inside then return "inside" end
     return "none"
@@ -973,6 +1129,7 @@ end
 
 local function berechneSystem()
     sigma_results = nil
+    shear_center_cache = nil
     local sumA, sumSyu, sumSzu = 0, 0, 0
     is_numeric_system = false
     
@@ -1062,11 +1219,10 @@ local function berechneSystem()
     local I2 = m - d
     -- Vorsicht: Der Winkel im Mohrschen Kreis tan(2a) = 2 Iyz / (Iy - Iz)
     -- Da y,z hier als Koordinaten sind (y horizontal, z vertikal):
+    -- atan2 liefert auch bei I_y = I_z den richtigen Winkel (+-45 Grad je nach Vorzeichen von I_yz)
     local alpha_star = 0
-    if math.abs(sys_Iy - sys_Iz) > 1e-9 then
+    if d > 1e-12 * (math.abs(m) + 1) then
         alpha_star = 0.5 * math.atan2(2 * sys_Iyz, sys_Iy - sys_Iz)
-    elseif math.abs(sys_Iyz) > 1e-9 then
-        alpha_star = math.pi / 4
     end
     
     local It_closed, Am = find_closed_cells()
@@ -1136,238 +1292,31 @@ local function verschiebeKOSZumSchwerpunkt()
     status = "KOS in den Schwerpunkt verschoben."
 end
 
-local function berechneMaxSchubspannung(Vz)
-    local r = system_results
-    if not r or math.abs(Vz) < 1e-12 or math.abs(r.Iy) < 1e-12 then
-        return r and r.zs or 0, 0
-    end
 
-    local min_u, max_u, min_v, max_v = math.huge, -math.huge, math.huge, -math.huge
-    for _, elem in ipairs(massiv_elemente) do
-        if not elem.is_hole then
-            local u1, u2, v1, v2 = getBoundingBox(elem)
-            min_u, max_u = math.min(min_u, u1), math.max(max_u, u2)
-            min_v, max_v = math.min(min_v, v1), math.max(max_v, v2)
-        end
-    end
-    if min_u == math.huge then return r.zs, 0 end
-
-    local rows, columns = 100, 140
-    local du = math.max((max_u - min_u) / columns, 1e-9)
-    local dv = math.max((max_v - min_v) / rows, 1e-9)
-    local row_area, row_moment, row_width = {}, {}, {}
-
-    local function occupied(u, v)
-        local positive = false
-        for _, elem in ipairs(massiv_elemente) do
-            if is_point_inside(elem, u, v) then
-                if elem.is_hole then return false end
-                positive = true
-            end
-        end
-        for _, elem in ipairs(duenn_elemente) do
-            local p1, p2 = elem.points[1], elem.points[2]
-            local distance
-            if elem.type == "duenn_kreis" or elem.type == "duenn_kreis_bogen" then
-                local radius = math.sqrt((p2.u - p1.u)^2 + (p2.v - p1.v)^2)
-                distance = math.abs(math.sqrt((u - p1.u)^2 + (v - p1.v)^2) - radius)
-                if elem.type == "duenn_kreis_bogen" then
-                    local a1 = math.atan2(p2.v - p1.v, p2.u - p1.u)
-                    local a2 = math.atan2(elem.points[3].v - p1.v, elem.points[3].u - p1.u)
-                    local ap = math.atan2(v - p1.v, u - p1.u)
-                    local sweep = a2 - a1
-                    if sweep <= 0 then sweep = sweep + 2 * math.pi end
-                    local relative = ap - a1
-                    if relative < 0 then relative = relative + 2 * math.pi end
-                    if relative > sweep then distance = math.huge end
-                end
-            else
-                distance = point_to_line_dist(u, v, p1.u, p1.v, p2.u, p2.v)
-            end
-            if distance <= elem.t / 2 then positive = true end
-        end
-        return positive
-    end
-
-    for row = 1, rows do
-        local v = min_v + (row - 0.5) * dv
-        local area, width = 0, 0
-        for column = 1, columns do
-            local u = min_u + (column - 0.5) * du
-            if occupied(u, v) then
-                area = area + du * dv
-                width = width + du
-            end
-        end
-        row_area[row] = area
-        row_moment[row] = (v - r.zs) * area
-        row_width[row] = width
-    end
-
-    local q_above = 0
-    local best_z, best_tau = r.zs, 0
-    for row = rows, 1, -1 do
-        local b = row_width[row]
-        if b > du * 0.5 then
-            local tau = math.abs(Vz * q_above / (r.Iy * b))
-            if tau > best_tau then
-                best_tau = tau
-                best_z = min_v + (row - 0.5) * dv
-            end
-        end
-        q_above = q_above + row_moment[row]
-    end
-    return best_z, best_tau
-end
-
+-- Schubfluss in duennwandigen Profilen (TM2, nur statisch bestimmte Faelle):
+--  * offene Profile: q(s) aus dem statischen Moment ab den freien Enden, mit I_yz-Kopplung
+--  * genau eine geschlossene Zelle, symmetrisch zur Achse parallel zur Querkraft:
+--    der konstante Zellschubfluss q0 folgt aus der Symmetrie (q ist antisymmetrisch)
+--  * alles andere (mehrzellig, unsymmetrisch geschlossen, Querkraft quer zur einzigen
+--    Symmetrieachse) ist statisch unbestimmt und wird mit Begruendung abgelehnt.
+-- Qa, Qb: Querkraefte im internen KOS (u, v). Rueckgabe: maximum, samples, paths, fehler, info
 local function berechneDuenneSchubspannung(Qa, Qb)
     if not system_results or #duenn_elemente == 0 then return nil end
     local r = system_results
-    local samples = {}
-    local paths = {}
-    local nodes, edges = {}, {}
-    local node_tolerance = 1e-6
-
-    local function node_for(u, v)
-        for index, node in ipairs(nodes) do
-            if math.abs(node.u - u) <= node_tolerance and math.abs(node.v - v) <= node_tolerance then
-                return index
-            end
-        end
-        table.insert(nodes, {u = u, v = v, edges = {}, arrivals = {}})
-        return #nodes
+    local samples, paths = {}, {}
+    local nodes, edges, nicht_gerade = duennGraph(r.ys, r.zs)
+    if nicht_gerade then return nil, nil, nil, "Schub nur fuer gerade duennwandige Elemente." end
+    local zellen = duennZellen(nodes, edges)
+    local sym_v, sym_h = duennSymmetrie(nodes, edges, r.ys, r.zs)
+    local info = {cells = zellen.cells, sym_v = sym_v, sym_h = sym_h}
+    if zellen.cells >= 2 then
+        return nil, nil, nil, "Mehrzelliges Profil: Schubfluss statisch unbestimmt.", info
     end
-
-    local function cross(au, av, bu, bv)
-        return au * bv - av * bu
+    if zellen.cells == 1 and ((math.abs(Qa) > 1e-12 and not sym_h) or (math.abs(Qb) > 1e-12 and not sym_v)) then
+        return nil, nil, nil, "Geschlossene Zelle: Querkraft quer zur Symmetrieachse ist statisch unbestimmt.", info
     end
-
-    local function add_parameter(parameters, value)
-        if value < -node_tolerance or value > 1 + node_tolerance then return end
-        value = math.max(0, math.min(1, value))
-        for _, existing in ipairs(parameters) do
-            if math.abs(existing - value) <= node_tolerance then return end
-        end
-        table.insert(parameters, value)
-    end
-
-    local straight = {}
-    local split_parameters = {}
-    local symmetric_profile = math.abs(r.Iyz) < 1e-5
-    local preferred_symmetry_points = {}
-    local fallback_symmetry_points = {}
-    for index, elem in ipairs(duenn_elemente) do
-        straight[index] = not elem.type or elem.type == "duenn_linie"
-        if straight[index] then split_parameters[index] = {0, 1} end
-    end
-
-    local function add_axis_parameter(index, parameter, preferred)
-        if not symmetric_profile then return end
-        add_parameter(split_parameters[index], parameter)
-        table.insert(fallback_symmetry_points, {index = index, parameter = parameter})
-        if preferred then table.insert(preferred_symmetry_points, {index = index, parameter = parameter}) end
-    end
-
-    -- Schnittparameter aller geraden Mittellinien bestimmen. Damit werden
-    -- auch Endpunkt-auf-Linie-Kontakte und T-Knoten erkannt.
-    for first = 1, #duenn_elemente do
-        if straight[first] then
-            local p, p2 = duenn_elemente[first].points[1], duenn_elemente[first].points[2]
-            local rx, rv = p2.u - p.u, p2.v - p.v
-            for second = first + 1, #duenn_elemente do
-                if straight[second] then
-                    local q, q2 = duenn_elemente[second].points[1], duenn_elemente[second].points[2]
-                    local sx, sv = q2.u - q.u, q2.v - q.v
-                    local qpx, qpv = q.u - p.u, q.v - p.v
-                    local denominator = cross(rx, rv, sx, sv)
-                    if math.abs(denominator) > node_tolerance then
-                        local first_parameter = cross(qpx, qpv, sx, sv) / denominator
-                        local second_parameter = cross(qpx, qpv, rx, rv) / denominator
-                        add_parameter(split_parameters[first], first_parameter)
-                        add_parameter(split_parameters[second], second_parameter)
-                    elseif math.abs(cross(qpx, qpv, rx, rv)) <= node_tolerance then
-                        -- Kollineare Linien: auch reine Endpunktberuehrungen
-                        -- und ueberlappende Teilstrecken in Knoten zerlegen.
-                        local first_length = rx^2 + rv^2
-                        local second_length = sx^2 + sv^2
-                        if first_length > node_tolerance then
-                            add_parameter(split_parameters[first], ((q.u - p.u) * rx + (q.v - p.v) * rv) / first_length)
-                            add_parameter(split_parameters[first], ((q2.u - p.u) * rx + (q2.v - p.v) * rv) / first_length)
-                        end
-                        if second_length > node_tolerance then
-                            add_parameter(split_parameters[second], ((p.u - q.u) * sx + (p.v - q.v) * sv) / second_length)
-                            add_parameter(split_parameters[second], ((p2.u - q.u) * sx + (p2.v - q.v) * sv) / second_length)
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    -- Symmetrieachsen als zusaetzliche Knoten eintragen. Ein bevorzugter
-    -- Punkt liegt auf einem Element, das die Achse senkrecht schneidet.
-    if symmetric_profile then
-        for index, elem in ipairs(duenn_elemente) do
-            if straight[index] then
-                local p1, p2 = elem.points[1], elem.points[2]
-                local du, dv = p2.u - p1.u, p2.v - p1.v
-                local length2 = du^2 + dv^2
-                if length2 > node_tolerance then
-                    if math.abs(dv) <= node_tolerance and (p1.u - r.ys) * (p2.u - r.ys) <= node_tolerance then
-                        add_axis_parameter(index, (r.ys - p1.u) / du, true)
-                    elseif math.abs(du) <= node_tolerance and (p1.v - r.zs) * (p2.v - r.zs) <= node_tolerance then
-                        add_axis_parameter(index, (r.zs - p1.v) / dv, true)
-                    end
-                    if math.abs(du) > node_tolerance then
-                        local parameter = (r.ys - p1.u) / du
-                        if parameter >= -node_tolerance and parameter <= 1 + node_tolerance then
-                            add_axis_parameter(index, parameter, false)
-                        end
-                    end
-                    if math.abs(dv) > node_tolerance then
-                        local parameter = (r.zs - p1.v) / dv
-                        if parameter >= -node_tolerance and parameter <= 1 + node_tolerance then
-                            add_axis_parameter(index, parameter, false)
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    local function parameter_sort(left, right) return left < right end
-    for index, elem in ipairs(duenn_elemente) do
-        local parameters = split_parameters[index]
-        if parameters then
-            table.sort(parameters, parameter_sort)
-            local p1, p2 = elem.points[1], elem.points[2]
-            for part = 1, #parameters - 1 do
-                local first_parameter, second_parameter = parameters[part], parameters[part + 1]
-                local first_point = {
-                    u = p1.u + first_parameter * (p2.u - p1.u),
-                    v = p1.v + first_parameter * (p2.v - p1.v)
-                }
-                local second_point = {
-                    u = p1.u + second_parameter * (p2.u - p1.u),
-                    v = p1.v + second_parameter * (p2.v - p1.v)
-                }
-                local n1, n2 = node_for(first_point.u, first_point.v), node_for(second_point.u, second_point.v)
-                if n1 ~= n2 then
-                    table.insert(edges, {index = index, p1 = first_point, p2 = second_point, n1 = n1, n2 = n2, used = false})
-                    table.insert(nodes[n1].edges, #edges)
-                    table.insert(nodes[n2].edges, #edges)
-                end
-            end
-        else
-            local p1, p2 = elem.points[1], elem.points[2]
-            local n1, n2 = node_for(p1.u, p1.v), node_for(p2.u, p2.v)
-            if n1 ~= n2 then
-                table.insert(edges, {index = index, p1 = p1, p2 = p2, n1 = n1, n2 = n2, used = false})
-                table.insert(nodes[n1].edges, #edges)
-                table.insert(nodes[n2].edges, #edges)
-            end
-        end
-    end
+    local det = r.Iy * r.Iz - r.Iyz^2
+    if det <= 1e-12 then return nil, nil, nil, "Traegheitsmomente singulaer.", info end
 
     local function other_node(edge, node_index)
         return edge.n1 == node_index and edge.n2 or edge.n1
@@ -1389,6 +1338,7 @@ local function berechneDuenneSchubspannung(Qa, Qb)
         local du, dv = p2.u - p1.u, p2.v - p1.v
         local length = math.sqrt(du^2 + dv^2)
         if length <= 1e-9 then return first_moment_a, first_moment_b, path_s end
+        local t = edge.t
         local original_p1, original_p2 = elem.points[1], elem.points[2]
         if original_p2.u < original_p1.u or (math.abs(original_p2.u - original_p1.u) <= 1e-9 and original_p2.v < original_p1.v) then
             original_p1, original_p2 = original_p2, original_p1
@@ -1398,9 +1348,7 @@ local function berechneDuenneSchubspannung(Qa, Qb)
         local original_length = math.sqrt(original_du^2 + original_dv^2)
         local display_normal_u = original_length > 1e-9 and -original_dv / original_length or 0
         local display_normal_v = original_length > 1e-9 and original_du / original_length or 0
-        -- Die Integration darf nicht von der Bildschirmzoomstufe abhaengen.
-        -- Mindestens 64 Teilintervalle pro atomarer Kante verbessern die
-        -- Restmoment- und Schubmittelpunktgenauigkeit deutlich.
+        -- Mindestens 64 Teilintervalle pro Kante, unabhaengig von der Zoomstufe
         local integration_step = math.max(raster / 8, 0.025)
         local sample_count = math.max(64, math.ceil(length / integration_step))
         for sample = 0, sample_count do
@@ -1408,11 +1356,15 @@ local function berechneDuenneSchubspannung(Qa, Qb)
             local u = p1.u + f * du
             local v = p1.v + f * dv
             local ds = length / sample_count
-            local area = elem.t * ds
-            local tau_a = -Qa * first_moment_a / math.max(math.abs(r.Iz * elem.t), 1e-12)
-            local tau_b = -Qb * first_moment_b / math.max(math.abs(r.Iy * elem.t), 1e-12)
-            local tau_total = tau_a + tau_b
-            table.insert(samples, {u = u, v = v, tau_a = tau_a, tau_b = tau_b, tau = tau_total, Sy = first_moment_b, Sz = first_moment_a, moment_y_density = (v - r.zs) * elem.t, moment_z_density = (u - r.ys) * elem.t, thickness = elem.t, ds = ds, tangent_u = du / length, tangent_v = dv / length, display_normal_u = display_normal_u, display_normal_v = display_normal_v, segment = segment_index, path_id = path.id, parameter = f, s = path_s + f * length, direction = reverse and -1 or 1})
+            local area = t * ds
+            -- Schubfluss mit I_yz-Kopplung (fuer I_yz = 0: tau = -Q S / (I t))
+            local tau_a = -Qa * (r.Iy * first_moment_a + r.Iyz * first_moment_b) / (det * t)
+            local tau_b = -Qb * (r.Iz * first_moment_b + r.Iyz * first_moment_a) / (det * t)
+            table.insert(samples, {u = u, v = v, tau_a = tau_a, tau_b = tau_b, tau = tau_a + tau_b, Sy = first_moment_b, Sz = first_moment_a,
+                moment_y_density = (v - r.zs) * t, moment_z_density = (u - r.ys) * t, thickness = t, ds = ds,
+                tangent_u = du / length, tangent_v = dv / length, display_normal_u = display_normal_u, display_normal_v = display_normal_v,
+                segment = segment_index, edge_i = edge.i, fwd = reverse and -1 or 1, path_id = path.id, parameter = f,
+                s = path_s + f * length, direction = reverse and -1 or 1})
             if sample < sample_count then
                 local midpoint = (sample + 0.5) / sample_count
                 first_moment_a = first_moment_a + (p1.u + midpoint * du - r.ys) * area
@@ -1440,66 +1392,22 @@ local function berechneDuenneSchubspannung(Qa, Qb)
             current_node = next_node
             table.insert(nodes[current_node].arrivals, {a = first_moment_a, b = first_moment_b})
             local candidates = unused_edges(current_node)
-            -- An einem Knoten wird nur bei genau zwei inzidenten Aesten
-            -- direkt weiterintegriert. Verzweigungen warten, bis feststeht,
-            -- ob ein letzter unbekannter Ast mit einer Summe starten kann.
+            -- nur bei genau zwei Kanten direkt weiter; Verzweigungen warten auf die Summe
             if #nodes[current_node].edges ~= 2 then break end
             edge_index = candidates[1]
         end
-        if #path.items > 0 then
-            local signed_area = 0
-            for _, item in ipairs(path.items) do
-                if item.p1 and item.p2 then
-                    signed_area = signed_area + item.p1.u * item.p2.v - item.p2.u * item.p1.v
-                end
-            end
-            path.torsion_sign = signed_area >= 0 and 1 or -1
-            for _, sample in ipairs(samples) do
-                if sample.path_id == path.id then sample.torsion_sign = path.torsion_sign end
-            end
-            table.insert(paths, path)
-        end
+        if #path.items > 0 then table.insert(paths, path) end
     end
 
-    local function node_at(u, v)
-        for index, node in ipairs(nodes) do
-            if math.abs(node.u - u) <= node_tolerance and math.abs(node.v - v) <= node_tolerance then
-                return index
-            end
-        end
-        return nil
-    end
-
-    local function start_at_symmetry_point(candidates)
-        for _, candidate in ipairs(candidates) do
-            local elem = duenn_elemente[candidate.index]
-            local p1, p2 = elem.points[1], elem.points[2]
-            local point_u = p1.u + candidate.parameter * (p2.u - p1.u)
-            local point_v = p1.v + candidate.parameter * (p2.v - p1.v)
-            local node_index = node_at(point_u, point_v)
-            if node_index then
-                for _, edge_index in ipairs(nodes[node_index].edges) do
-                    if not edges[edge_index].used then
-                        make_path(node_index, edge_index, nil, nil, "symmetry")
-                        return true
-                    end
-                end
-            end
-        end
-        return false
-    end
-
-    -- Zuerst von jedem freien Ende aus laufen.
+    -- 1) von jedem freien Ende aus (dort ist q = 0)
     for node_index, node in ipairs(nodes) do
         if #node.edges == 1 and not edges[node.edges[1]].used then
             make_path(node_index, node.edges[1], nil, nil, "free")
         end
     end
 
-    -- Wenn an einer Verzweigung nur noch ein Ast unbekannt ist, startet dieser
-    -- mit der Summe aller bereits am Knoten angekommenen statischen Momente.
-    -- Wird nach jedem Symmetriestart erneut aufgerufen, damit ein an einer
-    -- geschlossenen Zelle haengender freier Ast korrekt eingerechnet wird.
+    -- 2) An einer Verzweigung mit nur noch einem unbekannten Ast startet dieser mit der Summe
+    --    der angekommenen statischen Momente (Knotengleichgewicht der Schubfluesse).
     local function resolve_branch_nodes()
         local changed = true
         while changed do
@@ -1519,124 +1427,109 @@ local function berechneDuenneSchubspannung(Qa, Qb)
     end
     resolve_branch_nodes()
 
-    local function has_unused_edges()
-        for _, edge in ipairs(edges) do
-            if not edge.used then return true end
-        end
-        return false
-    end
-
-    -- Mischprofile: eine geschlossene Zelle kann trotz noch vorhandener
-    -- freier Aeste bestehen bleiben. Deren statisches Moment ist an den
-    -- Verzweigungsknoten oben bereits als Ankunft hinterlegt; der
-    -- Symmetriestart darf deshalb nicht mehr durch freie Enden anderswo im
-    -- Profil blockiert werden. Nach jedem Symmetriestart wird erneut
-    -- aufgeloest, damit der zweite Schenkel der Zelle die Summe aus
-    -- Astmoment und Schleifenanteil uebernimmt.
-    if symmetric_profile then
-        local safety = #edges + 1
-        while has_unused_edges() and safety > 0 do
-            safety = safety - 1
-            local started = start_at_symmetry_point(preferred_symmetry_points)
-            if not started then started = start_at_symmetry_point(fallback_symmetry_points) end
-            if not started then break end
-            resolve_branch_nodes()
-        end
-    end
-
-    if has_unused_edges() then
-        if symmetric_profile then
-            status = "Warnung: Geschlossenes Profil schneidet keine Symmetrieachse."
-        end
-        -- Restliche geschlossene Komponenten ohne Symmetrieachse werden
-        -- deterministisch mit einem Startwert null orientiert.
+    -- 3) Die geschlossene Zelle an beliebiger Stelle aufschneiden (q = 0), weiter wie offen.
+    local sicherheit = #edges + 1
+    while sicherheit > 0 do
+        sicherheit = sicherheit - 1
+        local offen_idx = nil
         for edge_index, edge in ipairs(edges) do
-            if not edge.used then make_path(edge.n1, edge_index) end
+            if not edge.used then offen_idx = edge_index; break end
         end
+        if not offen_idx then break end
+        make_path(edges[offen_idx].n1, offen_idx, nil, nil, "cut")
+        resolve_branch_nodes()
     end
+
+    -- 4) Zelle: konstanten Umlaufschubfluss q0 aus der Symmetrie bestimmen. Fuer eine Querkraft
+    --    parallel zur Symmetrieachse ist q (im Umlaufsinn) antisymmetrisch: q(P) + q(P') = 0.
+    if zellen.cells == 1 then
+        local loop = {}
+        for _, sample in ipairs(samples) do
+            if zellen.in_loop[sample.edge_i] then
+                sample.in_cell = true
+                sample.cell_sign = (zellen.ccw_dir[sample.edge_i] or 1) * sample.fwd
+                table.insert(loop, sample)
+            end
+        end
+        local ext = 0
+        for _, n in ipairs(nodes) do ext = math.max(ext, math.abs(n.u - r.ys), math.abs(n.v - r.zs)) end
+        local tol = 1e-6 * math.max(ext, 1)
+        local function innen(sample) return sample.parameter > 1e-9 and sample.parameter < 1 - 1e-9 end
+        local function korrigiere(key, spiegel)
+            for _, sample in ipairs(loop) do
+                if innen(sample) then
+                    local mu, mv = spiegel(sample.u, sample.v)
+                    if (mu - sample.u)^2 + (mv - sample.v)^2 > (10 * tol)^2 then
+                        local partner, best = nil, (100 * tol)^2
+                        for _, other in ipairs(loop) do
+                            if innen(other) then
+                                local d = (other.u - mu)^2 + (other.v - mv)^2
+                                if d <= best then partner, best = other, d end
+                            end
+                        end
+                        if partner then
+                            local q0 = -(sample[key] * sample.thickness * sample.cell_sign
+                                + partner[key] * partner.thickness * partner.cell_sign) / 2
+                            for _, other in ipairs(loop) do
+                                other[key] = other[key] + other.cell_sign * q0 / other.thickness
+                            end
+                            return true
+                        end
+                    end
+                end
+            end
+            return false
+        end
+        if math.abs(Qa) > 1e-12 and not korrigiere("tau_a", function(u, v) return u, 2 * r.zs - v end) then
+            return nil, nil, nil, "Symmetriepartner in der Zelle nicht gefunden.", info
+        end
+        if math.abs(Qb) > 1e-12 and not korrigiere("tau_b", function(u, v) return 2 * r.ys - u, v end) then
+            return nil, nil, nil, "Symmetriepartner in der Zelle nicht gefunden.", info
+        end
+        for _, sample in ipairs(samples) do sample.tau = sample.tau_a + sample.tau_b end
+    end
+
     local maximum = {tau = 0, abs_tau = 0, u = r.ys, v = r.zs}
     for _, sample in ipairs(samples) do
         if math.abs(sample.tau) > maximum.abs_tau then
             maximum = {tau = sample.tau, abs_tau = math.abs(sample.tau), u = sample.u, v = sample.v}
         end
     end
-    return maximum, samples, paths
+    return maximum, samples, paths, nil, info
 end
 
-local function berechneOffenenSchubmittelpunkt()
+-- Schubmittelpunkt aus dem Moment der Schubfluesse fuer Einheitsquerkraefte.
+-- Offen: immer bestimmt. Eine Zelle: nur die Koordinate(n), fuer die eine Symmetrieachse
+-- parallel zur Querkraft existiert (known_u / known_v); sonst statisch unbestimmt.
+berechneSchubmittelpunkt = function()
+    if shear_center_cache then return shear_center_cache end
     if not system_results or #duenn_elemente == 0 then return nil end
-    local closed_constant = find_closed_cells()
-    local is_closed = closed_constant > 1e-9
-    local symmetric_profile = math.abs(system_results.Iyz) < 1e-5
-    -- Ohne Symmetrieachse fehlt die Vertraeglichkeitsgleichung fuer den
-    -- statisch unbestimmten Schubfluss q0, daher bleibt fuer unsymmetrische
-    -- geschlossene Zellen der Schwerpunkt-Fallback bestehen.
-    if is_closed and not symmetric_profile then
-        return {u = system_results.ys, v = system_results.zs, known = true, closed = true}
-    end
+    local r = system_results
     local function shear_torque(Qa, Qb)
-        local _, samples = berechneDuenneSchubspannung(Qa, Qb)
+        local maximum, samples = berechneDuenneSchubspannung(Qa, Qb)
+        if not maximum then return nil end
         local moment = 0
-        for _, sample in ipairs(samples or {}) do
-            local tau = sample.tau_a + sample.tau_b
-            local sample_u, sample_v = coordinatesForDisplay(sample.u, sample.v)
-            local center_u, center_v = coordinatesForDisplay(system_results.ys, system_results.zs)
-            local tu, tv = displayedVector(sample.tangent_u, sample.tangent_v)
-            local endpoint_weight = (sample.parameter and (sample.parameter <= 1e-9 or sample.parameter >= 1 - 1e-9)) and 0.5 or 1
-            local force = tau * sample.thickness * sample.ds * endpoint_weight
-            moment = moment - ((sample_u - center_u) * tv - (sample_v - center_v) * tu) * force
+        for _, sample in ipairs(samples) do
+            local endpoint_weight = (sample.parameter <= 1e-9 or sample.parameter >= 1 - 1e-9) and 0.5 or 1
+            local force = sample.tau * sample.thickness * sample.ds * endpoint_weight
+            moment = moment - ((sample.u - r.ys) * sample.tangent_v - (sample.v - r.zs) * sample.tangent_u) * force
         end
         return moment
     end
     local moment_a = shear_torque(1, 0)
     local moment_b = shear_torque(0, 1)
-    return {
-        u = system_results.ys - moment_b,
-        v = system_results.zs + moment_a,
-        known = true,
-        closed = is_closed,
-        moment_a = moment_a,
-        moment_b = moment_b
+    local cells = select(3, find_closed_cells())
+    local result = {
+        u = moment_b and (r.ys - moment_b) or r.ys,
+        v = moment_a and (r.zs + moment_a) or r.zs,
+        known_u = moment_b ~= nil,
+        known_v = moment_a ~= nil,
+        closed = cells >= 1,
+        moment_a = moment_a, moment_b = moment_b,
     }
-end
-
-local function berechneSchubmittelpunkt()
-    if not system_results or #duenn_elemente == 0 then return nil end
-    local probe_center = berechneOffenenSchubmittelpunkt()
-    if probe_center and probe_center.closed then return probe_center end
-    if probe_center and probe_center.known then return probe_center end
-    local base_u, base_v, dir_u, dir_v
-    for _, elem in ipairs(duenn_elemente) do
-        local p1, p2 = elem.points[1], elem.points[2]
-        local du, dv = p2.u - p1.u, p2.v - p1.v
-        local length = math.sqrt(du^2 + dv^2)
-        if length > 1e-9 then
-            if not dir_u then
-                base_u, base_v = p1.u, p1.v
-                dir_u, dir_v = du / length, dv / length
-            else
-                local cross = dir_u * dv - dir_v * du
-                if math.abs(cross) > 1e-9 then
-                    local delta_u, delta_v = p1.u - base_u, p1.v - base_v
-                    local t = (delta_u * dv - delta_v * du) / cross
-                    local intersection_u = base_u + t * dir_u
-                    local intersection_v = base_v + t * dir_v
-                    local valid = true
-                    for _, other in ipairs(duenn_elemente) do
-                        local q1, q2 = other.points[1], other.points[2]
-                        local eu, ev = q2.u - q1.u, q2.v - q1.v
-                        local denominator = intersection_u * 0 + dir_u * ev - dir_v * eu
-                        if math.abs(denominator) > 1e-9 then
-                            local distance = math.abs((intersection_u - q1.u) * ev - (intersection_v - q1.v) * eu) / math.abs(denominator)
-                            if distance > 1e-6 then valid = false; break end
-                        end
-                    end
-                    if valid then return {u = intersection_u, v = intersection_v, known = true, closed = false} end
-                end
-            end
-        end
-    end
-    return {u = system_results.ys, v = system_results.zs, known = false, closed = false}
+    result.known = result.known_u and result.known_v
+    shear_center_cache = result
+    return result
 end
 
 local function berechneSchubMomentTabelle()
@@ -1717,6 +1610,32 @@ local function polygon_height_at_u(points, u)
     return height
 end
 
+-- Umriss eines Massivelements als Polygon (dicke Linie: Rechteck; Sektor/Segment: 96-Eck)
+local function massiv_outline_polygon(elem)
+    if elem.type == "massiv_linie" then
+        local p1, p2 = elem.points[1], elem.points[2]
+        local du, dv = p2.u - p1.u, p2.v - p1.v
+        local L = math.sqrt(du^2 + dv^2)
+        local nx, ny = 0, 0
+        if L > 1e-9 then nx, ny = (-dv / L) * (elem.t / 2), (du / L) * (elem.t / 2) end
+        return {{u = p1.u + nx, v = p1.v + ny}, {u = p2.u + nx, v = p2.v + ny},
+                {u = p2.u - nx, v = p2.v - ny}, {u = p1.u - nx, v = p1.v - ny}}
+    end
+    local C = elem.points[1]
+    local R = math.sqrt((elem.points[2].u - C.u)^2 + (elem.points[2].v - C.v)^2)
+    local a1 = math.atan2(elem.points[2].v - C.v, elem.points[2].u - C.u)
+    local sweep = math.atan2(elem.points[3].v - C.v, elem.points[3].u - C.u) - a1
+    if sweep <= 0 then sweep = sweep + 2 * math.pi end
+    local pts = {}
+    if elem.type == "sector" then table.insert(pts, {u = C.u, v = C.v}) end
+    local n = 96
+    for i = 0, n do
+        local a = a1 + sweep * i / n
+        table.insert(pts, {u = C.u + R * math.cos(a), v = C.v + R * math.sin(a)})
+    end
+    return pts
+end
+
 local function massiv_width_at_v(v)
     local width = 0
     for _, elem in ipairs(massiv_elemente) do
@@ -1732,6 +1651,8 @@ local function massiv_width_at_v(v)
             if math.abs(dv) < radius then width = width + sign * 2 * math.sqrt(radius^2 - dv^2) end
         elseif elem.type == "triangle" or elem.type == "trapezoid" then
             width = width + sign * polygon_width_at_v(elem.points, v)
+        elseif elem.type == "sector" or elem.type == "segment" or elem.type == "massiv_linie" then
+            width = width + sign * polygon_width_at_v(massiv_outline_polygon(elem), v)
         end
     end
     return math.max(0, width)
@@ -1752,39 +1673,60 @@ local function massiv_height_at_u(u)
             if math.abs(du) < radius then height = height + sign * 2 * math.sqrt(radius^2 - du^2) end
         elseif elem.type == "triangle" or elem.type == "trapezoid" then
             height = height + sign * polygon_height_at_u(elem.points, u)
+        elseif elem.type == "sector" or elem.type == "segment" or elem.type == "massiv_linie" then
+            height = height + sign * polygon_height_at_u(massiv_outline_polygon(elem), u)
         end
     end
     return math.max(0, height)
 end
 
+-- Schubspannungen aus Querkraft. input_Qa/input_Qb sind im angezeigten KOS (Q_y, Q_z) eingegeben,
+-- eingetragene Kraefte liegen intern vor. Massiv: tau = Q S / (I b) (nur I_yz = 0),
+-- duennwandig: siehe berechneDuenneSchubspannung. Gemischt massiv/duennwandig: nicht berechnet.
 berechneSchubspannungsResultate = function(input_Qa, input_Qb)
+    schub_grund = nil
     if not system_results then return nil end
     local r = system_results
     local a, b = axes()
+    local function ablehnen(text)
+        schub_grund, status = text, text
+        return nil
+    end
+    local in_a, in_b = coordinatesFromDisplay(input_Qa or 0, input_Qb or 0)
     local force_Qa, force_Qb = 0, 0
     for _, kraft in ipairs(kraefte) do
         force_Qa = force_Qa + (tonumber(kraft.fa) or 0)
         force_Qb = force_Qb + (tonumber(kraft.fb) or 0)
     end
-    local Qa, Qb = (input_Qa or 0) + force_Qa, (input_Qb or 0) + force_Qb
+    local Qa, Qb = in_a + force_Qa, in_b + force_Qb
+    local Qa_d, Qb_d = coordinatesForDisplay(Qa, Qb)
+    local force_Qa_d, force_Qb_d = coordinatesForDisplay(force_Qa, force_Qb)
+    if #massiv_elemente > 0 and #duenn_elemente > 0 then
+        return ablehnen("Schub fuer kombinierte massive und duennwandige Querschnitte nicht unterstuetzt.")
+    end
     local force_torsion = berechneKraftTorsion()
     if force_torsion then
         torsion_results = force_torsion
-        aktualisiereTorsionsverlauf(torsion_results)
     end
-    local torsion_constant, enclosed_area = find_closed_cells()
-    local thin_closed = #duenn_elemente > 0 and torsion_constant > 1e-9
-    local shear_center = berechneSchubmittelpunkt()
-    if #massiv_elemente == 0 and #duenn_elemente > 0 then
-        local maximum, samples, paths = berechneDuenneSchubspannung(Qa, Qb)
-        if not maximum then return nil end
-        return {
-            Qa = Qa, Qb = Qb, force_Qa = force_Qa, force_Qb = force_Qb,
+    local torsion_constant, enclosed_area, cells = find_closed_cells()
+    local thin_closed = #duenn_elemente > 0 and cells == 1
+    if #duenn_elemente > 0 then
+        local maximum, samples, paths, fehler = berechneDuenneSchubspannung(Qa, Qb)
+        if not maximum then return ablehnen(fehler or "Schubspannung nicht berechenbar.") end
+        local result = {
+            Qa = Qa_d, Qb = Qb_d, force_Qa = force_Qa_d, force_Qb = force_Qb_d,
             max_tau = maximum.abs_tau, max_u = maximum.u, max_v = maximum.v,
             samples = samples, paths = paths, thin_walled = true, axis_a = a, axis_b = b,
             thin_closed = thin_closed, torsion_constant = torsion_constant, enclosed_area = enclosed_area,
-            shear_center = shear_center, torsion_open = r.It, torsion_closed = r.It_closed
+            shear_center = berechneSchubmittelpunkt(), torsion_open = r.It, torsion_closed = r.It_closed
         }
+        shear_results = result
+        if force_torsion then aktualisiereTorsionsverlauf(torsion_results) end
+        return result
+    end
+    -- Massiv: TM2-Schubformel nur fuer Hauptachsen parallel zu y/z
+    if math.abs(r.IyzS) > 1e-6 * math.sqrt(math.abs(r.IyS * r.IzS)) then
+        return ablehnen("Massiv mit I_yz ~= 0: tau = Q S/(I b) nur fuer Hauptachsen parallel zu " .. a .. "/" .. b .. ".")
     end
     local min_u, max_u, min_v, max_v = math.huge, -math.huge, math.huge, -math.huge
     for _, elem in ipairs(massiv_elemente) do
@@ -1794,34 +1736,29 @@ berechneSchubspannungsResultate = function(input_Qa, input_Qb)
     end
     if min_u == math.huge then return nil end
 
-    -- TM2-Ansatz: eindimensionale Schnittintegration, keine 2D-Rasterzellen.
+    -- eindimensionale Schnittintegration: S(v) ueber waagerechte, S(u) ueber senkrechte Schnitte
     local slices = 160
     local dv = math.max((max_v - min_v) / slices, 1e-9)
     local du = math.max((max_u - min_u) / slices, 1e-9)
-    local tau_b, tau_a, samples = {}, {}, {}
+    local tau_b, tau_a = {}, {}
     local moment_b, moment_a = 0, 0
     for row = slices, 1, -1 do
         local v = min_v + (row - 0.5) * dv
         local width = massiv_width_at_v(v)
         moment_b = moment_b + (v - r.zs) * width * dv
-        tau_b[row] = math.abs(r.Iy) > 1e-12 and math.abs(Qb * moment_b / math.max(math.abs(r.Iy * width), 1e-12)) or 0
+        tau_b[row] = (width > 1e-9 and math.abs(r.Iy) > 1e-12) and math.abs(Qb * moment_b / (r.Iy * width)) or 0
     end
     for column = slices, 1, -1 do
         local u = min_u + (column - 0.5) * du
         local height = massiv_height_at_u(u)
         moment_a = moment_a + (u - r.ys) * height * du
-        tau_a[column] = math.abs(r.Iz) > 1e-12 and math.abs(Qa * moment_a / math.max(math.abs(r.Iz * height), 1e-12)) or 0
+        tau_a[column] = (height > 1e-9 and math.abs(r.Iz) > 1e-12) and math.abs(Qa * moment_a / (r.Iz * height)) or 0
     end
-    local max_tau, max_u, max_v = 0, r.ys, r.zs
-    for row = 1, slices do
-        local v = min_v + (row - 0.5) * dv
-        for column = 1, slices do
-            local u = min_u + (column - 0.5) * du
-            local tau = math.sqrt((tau_a[column] or 0)^2 + (tau_b[row] or 0)^2)
-            if tau > 0 then table.insert(samples, {u = u, v = v, tau_a = tau_a[column] or 0, tau_b = tau_b[row] or 0, tau = tau}) end
-            if tau > max_tau then max_tau, max_u, max_v = tau, u, v end
-        end
-    end
+    -- Maximum: groesste Werte beider Richtungen (Vektorsumme wie bisher)
+    local max_tau_a, max_tau_b, best_u, best_v = 0, 0, r.ys, r.zs
+    for column = 1, slices do if tau_a[column] > max_tau_a then max_tau_a, best_u = tau_a[column], min_u + (column - 0.5) * du end end
+    for row = 1, slices do if tau_b[row] > max_tau_b then max_tau_b, best_v = tau_b[row], min_v + (row - 0.5) * dv end end
+    local max_tau = math.sqrt(max_tau_a^2 + max_tau_b^2)
     local profile_samples = {}
     for row = 1, slices do
         local v = min_v + (row - 0.5) * dv
@@ -1838,11 +1775,11 @@ berechneSchubspannungsResultate = function(input_Qa, input_Qb)
         end
     end
     return {
-        Qa = Qa, Qb = Qb, force_Qa = force_Qa, force_Qb = force_Qb,
-        max_tau = max_tau, max_u = max_u, max_v = max_v,
+        Qa = Qa_d, Qb = Qb_d, force_Qa = force_Qa_d, force_Qb = force_Qb_d,
+        max_tau = max_tau, max_u = (max_tau_a > 0) and best_u or r.ys, max_v = (max_tau_b > 0) and best_v or r.zs,
         samples = profile_samples, axis_a = a, axis_b = b,
-        thin_closed = thin_closed, torsion_constant = torsion_constant, enclosed_area = enclosed_area,
-        shear_center = shear_center, torsion_open = r.It, torsion_closed = r.It_closed
+        thin_closed = false, torsion_constant = 0, enclosed_area = 0,
+        shear_center = nil, torsion_open = r.It, torsion_closed = r.It_closed
     }
 end
 
@@ -2097,9 +2034,12 @@ local function drawSpreadsheet(gc, w, h)
         local r = system_results
         local a, b = axes()
         local display_ys, display_zs = coordinatesForDisplay(r.ys, r.zs)
-        local iy_origin = r.IyS + r.A * r.zs^2
-        local iz_origin = r.IzS + r.A * r.ys^2
-        local iyz_origin = r.IyzS - r.A * r.ys * r.zs
+        local IyS_d, IzS_d, IyzS_d = inertiaForDisplay(r.IyS, r.IzS, r.IyzS)
+        local iy_origin = IyS_d + r.A * display_zs^2
+        local iz_origin = IzS_d + r.A * display_ys^2
+        local iyz_origin = IyzS_d - r.A * display_ys * display_zs
+        local W_a, W_b = r.Wu, r.Wv
+        if rotation == 90 or rotation == 270 then W_a, W_b = r.Wv, r.Wu end
         local lines = {
             string.format("A = %.4g [%s]", display_area(r.A), unit_label(2)),
             string.format("%s_s = %.4g [%s]", a, display_length(display_ys), unit_label(1)),
@@ -2107,13 +2047,13 @@ local function drawSpreadsheet(gc, w, h)
             string.format("I_%s = %.4g [%s]", a, display_inertia(iy_origin), unit_label(4)),
             string.format("I_%s = %.4g [%s]", b, display_inertia(iz_origin), unit_label(4)),
             string.format("I_%s%s = %.4g [%s]", a, b, display_inertia(iyz_origin), unit_label(4)),
-            string.format("i_%s = %.4g [%s]", a, display_length(math.sqrt(math.abs(r.IyS / r.A))), unit_label(1)),
-            string.format("i_%s = %.4g [%s]", b, display_length(math.sqrt(math.abs(r.IzS / r.A))), unit_label(1)),
-            string.format("W_%s = %.4g [%s]", a, display_volume(r.Wu), unit_label(3)),
-            string.format("W_%s = %.4g [%s]", b, display_volume(r.Wv), unit_label(3)),
+            string.format("i_%s = %.4g [%s]", a, display_length(math.sqrt(math.abs(IyS_d / r.A))), unit_label(1)),
+            string.format("i_%s = %.4g [%s]", b, display_length(math.sqrt(math.abs(IzS_d / r.A))), unit_label(1)),
+            string.format("W_%s = %.4g [%s]", a, display_volume(W_a), unit_label(3)),
+            string.format("W_%s = %.4g [%s]", b, display_volume(W_b), unit_label(3)),
             string.format("I_1,S = %.4g [%s]", display_inertia(r.I1), unit_label(4)),
             string.format("I_2,S = %.4g [%s]", display_inertia(r.I2), unit_label(4)),
-            string.format("alpha = %.2f [deg]", math.deg(r.alpha)),
+            string.format("alpha = %.2f [deg]", math.deg(alphaForDisplay(r.alpha))),
         }
         if #duenn_elemente > 0 then
             table.insert(lines, string.format("I_T(offen) = %.4g [%s]", display_inertia(r.It), unit_label(4)))
@@ -2132,7 +2072,8 @@ local function drawSpreadsheet(gc, w, h)
             if shear_results.max_tau_total then
                 table.insert(lines, string.format("tau_gesamt,max = %.4g [MPa]", shear_results.max_tau_total))
             end
-            table.insert(lines, string.format("bei (%s,%s) = (%.4g,%.4g)", shear_results.axis_a, shear_results.axis_b, shear_results.max_u, shear_results.max_v))
+            local max_a, max_b = coordinatesForDisplay(shear_results.max_u, shear_results.max_v)
+            table.insert(lines, string.format("bei (%s,%s) = (%.4g,%.4g)", shear_results.axis_a, shear_results.axis_b, display_length(max_a), display_length(max_b)))
             if shear_results.thin_walled then
                 table.insert(lines, shear_results.thin_closed and "duennwandig geschlossen" or "duennwandig offen")
                 if shear_results.thin_closed then
@@ -2145,8 +2086,18 @@ local function drawSpreadsheet(gc, w, h)
                             table.insert(lines, string.format("Probe-Ma = %.4g [%s]", display_moment(shear_results.shear_center.moment_a), moment_unit))
                             table.insert(lines, string.format("Probe-Mb = %.4g [%s]", display_moment(shear_results.shear_center.moment_b), moment_unit))
                         end
+                    elseif shear_results.shear_center.known_u or shear_results.shear_center.known_v then
+                        -- nur die Lage auf der Symmetrieachse ist bekannt
+                        local c = shear_results.shear_center
+                        local du_, dv_ = coordinatesForDisplay(c.u, c.v)
+                        local u_ist_a = (rotation == 0 or rotation == 180)
+                        local bekannt_a = (c.known_u and u_ist_a) or (c.known_v and not u_ist_a)
+                        local label = bekannt_a and (shear_results.axis_a .. "_M = " .. formatLabel(display_length(du_)))
+                            or (shear_results.axis_b .. "_M = " .. formatLabel(display_length(dv_)))
+                        table.insert(lines, "Schubmittelpunkt: " .. label .. " [" .. length_unit .. "]")
+                        table.insert(lines, "  zweite Koordinate statisch unbestimmt")
                     else
-                        table.insert(lines, "Schubmittelpunkt: Symmetriepruefung offen")
+                        table.insert(lines, "Schubmittelpunkt: statisch unbestimmt")
                     end
                     table.insert(lines, string.format("I_T offen = %.4g [%s]", display_inertia(shear_results.torsion_open or 0), unit_label(4)))
                     if shear_results.thin_closed then
@@ -2170,7 +2121,7 @@ local function drawSpreadsheet(gc, w, h)
         if math.abs(r.Iyz) < 1e-5 and math.abs(r.A) > 1e-9 then
             gc:setColorRGB(35, 150, 70)
             gc:setFont("sansserif", "b", 9)
-            gc:drawString("System ist symmetrisch!", left + 5, top + 20 + (#lines + 2) * 16)
+            gc:drawString("Hauptachsen parallel zu den Achsen (I_yz = 0)", left + 5, top + 20 + (#lines + 2) * 16)
         end
         if is_numeric_system then
             gc:setColorRGB(255, 100, 0)
@@ -2504,18 +2455,22 @@ local function drawSigmaResultsTable(gc, w, h)
     local moment_a, moment_b = axes()
     local max_display_y, max_display_z = coordinatesForDisplay(sigma_results.max_y, sigma_results.max_z)
     local min_display_y, min_display_z = coordinatesForDisplay(sigma_results.min_y, sigma_results.min_z)
+    -- Momente und Traegheitsmomente im angezeigten KOS
+    local My_d, Mz_d = coordinatesForDisplay(sigma_results.My_Nmm, sigma_results.Mz_Nmm)
+    local fMy_d, fMz_d = coordinatesForDisplay(sigma_results.force_Ma_Nmm or 0, sigma_results.force_Mb_Nmm or 0)
+    local Iy_d, Iz_d, Iyz_d = inertiaForDisplay(sigma_results.Iy, sigma_results.Iz, sigma_results.Iyz)
     local rows = {
         {"N [" .. force_unit .. "]", string.format("%.6g %s", display_force(sigma_results.N), force_unit)},
         {"N aus Kraeften [" .. force_unit .. "]", string.format("%.6g %s", display_force(sigma_results.force_N or 0), force_unit)},
-        {"M" .. moment_a .. " [" .. moment_unit .. "]", string.format("%.6g %s", display_moment(sigma_results.My_Nmm), moment_unit)},
-        {"M" .. moment_a .. " aus Kraeften [" .. moment_unit .. "]", string.format("%.6g %s", display_moment(sigma_results.force_Ma_Nmm or 0), moment_unit)},
-        {"M" .. moment_a .. " umgerechnet [Nmm]", string.format("%.6g Nmm", sigma_results.My_Nmm)},
-        {"M" .. moment_b .. " [" .. moment_unit .. "]", string.format("%.6g %s", display_moment(sigma_results.Mz_Nmm), moment_unit)},
-        {"M" .. moment_b .. " aus Kraeften [" .. moment_unit .. "]", string.format("%.6g %s", display_moment(sigma_results.force_Mb_Nmm or 0), moment_unit)},
+        {"M" .. moment_a .. " [" .. moment_unit .. "]", string.format("%.6g %s", display_moment(My_d), moment_unit)},
+        {"M" .. moment_a .. " aus Kraeften [" .. moment_unit .. "]", string.format("%.6g %s", display_moment(fMy_d), moment_unit)},
+        {"M" .. moment_a .. " umgerechnet [Nmm]", string.format("%.6g Nmm", My_d)},
+        {"M" .. moment_b .. " [" .. moment_unit .. "]", string.format("%.6g %s", display_moment(Mz_d), moment_unit)},
+        {"M" .. moment_b .. " aus Kraeften [" .. moment_unit .. "]", string.format("%.6g %s", display_moment(fMz_d), moment_unit)},
         {"A [" .. unit_label(2) .. "]", string.format("%.6g %s", display_area(sigma_results.A), unit_label(2))},
-        {"Iy [" .. unit_label(4) .. "]", string.format("%.6g %s", display_inertia(sigma_results.Iy), unit_label(4))},
-        {"Iz [" .. unit_label(4) .. "]", string.format("%.6g %s", display_inertia(sigma_results.Iz), unit_label(4))},
-        {"Iyz [" .. unit_label(4) .. "]", string.format("%.6g %s", display_inertia(sigma_results.Iyz), unit_label(4))},
+        {"I" .. moment_a .. " [" .. unit_label(4) .. "]", string.format("%.6g %s", display_inertia(Iy_d), unit_label(4))},
+        {"I" .. moment_b .. " [" .. unit_label(4) .. "]", string.format("%.6g %s", display_inertia(Iz_d), unit_label(4))},
+        {"I" .. moment_a .. moment_b .. " [" .. unit_label(4) .. "]", string.format("%.6g %s", display_inertia(Iyz_d), unit_label(4))},
         {"N/A [MPa]", string.format("%.6g MPa", sigma_results.normal)},
         {"σx,max [MPa]", string.format("%.6g MPa", sigma_results.sigma_max)},
         {"bei (y,z) [" .. unit_label(1) .. "]", string.format("(%.6g, %.6g) %s", display_length(max_display_y), display_length(max_display_z), length_unit)},
@@ -2573,14 +2528,18 @@ local function drawSigmaDistribution(gc, w, h)
     local denominator = r.Iy * r.Iz - r.Iyz^2
     if math.abs(denominator) < 1e-12 then return end
 
-    local z_min = math.min(r.zs, r.max_z, r.min_z)
-    local z_max = math.max(r.zs, r.max_z, r.min_z)
+    -- alles im angezeigten KOS: z ist die angezeigte z-Koordinate
+    local _, zs_d = coordinatesForDisplay(r.ys, r.zs)
+    local _, zmax_d = coordinatesForDisplay(r.max_y, r.max_z)
+    local _, zmin_d = coordinatesForDisplay(r.min_y, r.min_z)
+    local z_min = math.min(zs_d, zmax_d, zmin_d)
+    local z_max = math.max(zs_d, zmax_d, zmin_d)
     if z_max - z_min < 1e-9 then z_min, z_max = z_min - 1, z_max + 1 end
 
-    local my = r.My_Nmm
-    local mz = r.Mz_Nmm
+    local my, mz = coordinatesForDisplay(r.My_Nmm, r.Mz_Nmm)
+    local Iy_d, Iz_d, Iyz_d = inertiaForDisplay(r.Iy, r.Iz, r.Iyz)
     local function bending(z)
-        return ((my * r.Iz - mz * r.Iyz) / denominator) * (z - r.zs)
+        return ((my * Iz_d - mz * Iyz_d) / denominator) * (z - zs_d)
     end
     local sigma_min = math.min(0, r.normal + bending(z_min), r.normal + bending(z_max), r.normal)
     local sigma_max = math.max(0, r.normal + bending(z_min), r.normal + bending(z_max), r.normal)
@@ -2610,8 +2569,8 @@ local function drawSigmaDistribution(gc, w, h)
     gc:drawLine(graph_left, graph_top, graph_left, graph_bottom)
     gc:setColorRGB(80, 80, 80)
     gc:drawString("σ [MPa]", left + 4, graph_top - 2)
-    gc:drawString(string.format("z = %.3g", z_min), graph_left - 8, graph_bottom + 5)
-    gc:drawString(string.format("z = %.3g", z_max), graph_right - 38, graph_bottom + 5)
+    gc:drawString(string.format("z = %.3g", display_length(z_min)), graph_left - 8, graph_bottom + 5)
+    gc:drawString(string.format("z = %.3g", display_length(z_max)), graph_right - 38, graph_bottom + 5)
 
     local x1, x2 = sx(z_min), sx(z_max)
     local b1, b2 = bending(z_min), bending(z_max)
@@ -3170,13 +3129,10 @@ local function drawTable(gc, w, h)
         
         gc:setFont("sansserif", "r", 8)
         local A = elem.A or 0
-        local y = elem.ys or 0
-        local z = elem.zs or 0
-        local Iy = elem.Iy or 0
-        local Iz = elem.Iz or 0
-        local Iyz = elem.Iyz or 0
-        local centroid_y = system_results and system_results.ys or 0
-        local centroid_z = system_results and system_results.zs or 0
+        local y, z = coordinatesForDisplay(elem.ys or 0, elem.zs or 0)
+        local Iy, Iz, Iyz = inertiaForDisplay(elem.Iy or 0, elem.Iz or 0, elem.Iyz or 0)
+        local centroid_y, centroid_z = 0, 0
+        if system_results then centroid_y, centroid_z = coordinatesForDisplay(system_results.ys, system_results.zs) end
         local delta_y, delta_z = y - centroid_y, z - centroid_z
         
         local vals = {
@@ -3381,9 +3337,12 @@ local function finishSigmaCalculation(Mz_Nmm)
         return false
     end
     local force_N, force_Ma, force_Mb = berechneKraftResultanten()
+    -- Eingegebene Momente beziehen sich auf das angezeigte KOS (y, z): ins interne (u, v) drehen.
+    -- Momentenvektoren drehen sich wie Punkte (Drehung um die Stabachse).
+    local Mu_in, Mv_in = coordinatesFromDisplay(sigma_My or 0, Mz_Nmm or 0)
     local total_N = (sigma_N or 0) + force_N
-    local total_Ma_Nmm = (sigma_My or 0) + force_Ma
-    local total_Mb_Nmm = (Mz_Nmm or 0) + force_Mb
+    local total_Ma_Nmm = Mu_in + force_Ma
+    local total_Mb_Nmm = Mv_in + force_Mb
     sigma_results = berechneSigmaExtrema(total_N, total_Ma_Nmm, total_Mb_Nmm)
     if sigma_results then
         sigma_results.force_N = force_N
@@ -3795,7 +3754,7 @@ function on.paint(gc)
 
     if show_shear_center and system_results and #duenn_elemente > 0 then
         local center = berechneSchubmittelpunkt()
-        if center then
+        if center and center.known then
             local center_x, center_y = toScreen(center.u, center.v)
             gc:setColorRGB(220, 40, 40)
             gc:fillArc(center_x - 4, center_y - 4, 8, 8, 0, 360)

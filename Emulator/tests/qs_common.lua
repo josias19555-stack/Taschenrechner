@@ -1,0 +1,116 @@
+-- Gemeinsame Hilfen fuer die Querschnitt-Tests (reines Lua, kein CAS noetig).
+-- Laedt Querschnitte/Querschnitt.lua (oder QUERSCHNITT=<pfad>) und macht interne
+-- Funktionen ueber die Tabelle Q zugaenglich. Koordinaten in den Tests sind die
+-- internen (u nach rechts, v nach oben); die Anzeige (y, z) haengt von rotation ab.
+local M = {}
+io.stdout:setvbuf('no')
+M.dir = (debug.getinfo(1, "S").source:gsub("^@", ""):match("^(.*[/\\])") or ".\\")
+M.write = io.write
+M.verbose = os.getenv('TEST_VERBOSE') ~= nil
+M.filter = arg and arg[1]
+M.total, M.fails, M.problems = 0, 0, {}
+
+-- TI-Umgebung
+on = {}
+platform = { window = { width = function() return 318 end, height = function() return 212 end, invalidate = function() end } }
+timer = { start = function() end, stop = function() end, getMilliSecCounter = function() return 0 end }
+var = { store = function() end }
+
+-- Zeichen-Attrappe: sammelt alle drawString-Texte
+M.texte = {}
+M.gc = setmetatable({}, { __index = function(_, k)
+    if k == 'drawString' then return function(_, text) M.texte[#M.texte + 1] = tostring(text) end end
+    if k == 'getStringWidth' then return function(_, text) return #tostring(text) * 6 end end
+    if k == 'getStringHeight' then return function() return 12 end end
+    return function() end
+end })
+
+local pfad = os.getenv('QUERSCHNITT') or (M.dir .. '..\\..\\Querschnitte\\Querschnitt.lua')
+local f = assert(io.open(pfad, 'rb'), 'Querschnitt.lua nicht gefunden: ' .. pfad)
+local code = f:read('*a'); f:close()
+if code:sub(1, 3) == string.char(239, 187, 191) then code = code:sub(4) end
+local export = [[
+
+_G.__Q = {
+  berechneSystem = berechneSystem,
+  M = function() return massiv_elemente end, D = function() return duenn_elemente end,
+  K = function() return kraefte end,
+  R = function() return system_results end,
+  smp = function() return berechneSchubmittelpunkt() end,
+  duennSchub = berechneDuenneSchubspannung,
+  zellen = find_closed_cells,
+  schub = function(a, b) return berechneSchubspannungsResultate(a, b) end,
+  torsion = berechneTorsionsResultat,
+  kraftTorsion = berechneKraftTorsion,
+  cfd = coordinatesForDisplay,
+  setRotation = function(r) rotation = r end,
+  overlap = checkOverlapStatus,
+  sigma = function(N, My, Mz) sigma_N, sigma_My = N, My; local ok = finishSigmaCalculation(Mz); return ok and sigma_results end,
+  spreadsheet = function(gc) showResults = true; drawSpreadsheet(gc, 318, 2000) end,
+  evalInput = evaluate_input,
+  status = function() return status end,
+  clear = function() on.clearKey() end,
+  setShear = function(res) shear_results = res end,
+  setTorsion = function(t) torsion_results = t end,
+  setView = function(mode, sichtbar) shear_view_mode = mode; shear_profile_visible = sichtbar end,
+  setFlags = function(center, tab, momtab) show_shear_center = center; showTable = tab; show_shear_moment_table = momtab; if momtab then shear_moment_table = berechneSchubMomentTabelle() end end,
+  update = aktualisiereTorsionsverlauf,
+}
+]]
+assert(loadstring(code .. export, '=' .. pfad))()
+M.Q = _G.__Q
+M.pfad = pfad
+
+function M.P(u, v) return { u = u, v = v } end
+function M.reset() M.Q.clear(); M.Q.setRotation(180) end
+function M.massiv(e) e.is_hole = e.is_hole or false; e.is_numeric = e.is_numeric or false; table.insert(M.Q.M(), e); return e end
+function M.duenn(p1, p2, t) local e = { points = { p1, p2 }, t = t or 1 }; table.insert(M.Q.D(), e); return e end
+-- Linienzug aus Punktliste {u1,v1, u2,v2, ...}
+function M.zug(koords, t)
+    for i = 1, #koords - 3, 2 do
+        M.duenn(M.P(koords[i], koords[i + 1]), M.P(koords[i + 2], koords[i + 3]), t)
+    end
+end
+function M.rechne() M.Q.berechneSystem(); return M.Q.R() end
+
+-- Ergebnisfeld-Texte (so wie auf dem Bildschirm)
+function M.ergebnisfeld()
+    M.texte = {}
+    M.Q.spreadsheet(M.gc)
+    return M.texte
+end
+function M.zeileWert(texte, praefix)
+    for _, t in ipairs(texte) do
+        if t:sub(1, #praefix) == praefix then
+            return tonumber(t:match('=%s*([%-%d%.eE%+]+)')), t
+        end
+    end
+    return nil
+end
+
+function M.pruef(ok, text)
+    M.total = M.total + 1
+    if not ok then M.fails = M.fails + 1; M.problems[#M.problems + 1] = (M.titel and (M.titel .. ': ') or '') .. text end
+    if not ok or M.verbose then M.write('   ' .. (ok and 'ok ' or 'XX ') .. text .. '\n') end
+end
+function M.zahl(label, ist, soll, tol)
+    tol = tol or 1e-6
+    local ok = type(ist) == 'number' and math.abs(ist - soll) <= tol * math.max(1, math.abs(soll))
+    M.pruef(ok, string.format('%-52s soll %-14.8g ist %s', label, soll, type(ist) == 'number' and string.format('%.8g', ist) or tostring(ist)))
+    return ok
+end
+function M.wahr(label, bedingung, info) M.pruef(bedingung and true or false, label .. (info and ('  [' .. tostring(info) .. ']') or '')) end
+function M.abschnitt(titel) M.titel = titel; M.write('\n== ' .. titel .. '\n') end
+function M.fall(name, fn)
+    if M.filter and not name:find(M.filter, 1, true) then return end
+    M.reset()
+    local ok, err = pcall(fn)
+    if not ok then M.pruef(false, 'Absturz in ' .. name .. ': ' .. tostring(err):gsub('\n.*', '')) end
+end
+function M.ende(name)
+    M.write(string.format('\nErgebnis %s: %d Pruefungen, %d Fehler\n', name, M.total, M.fails))
+    for _, p in ipairs(M.problems) do M.write('   XX ' .. p .. '\n') end
+    os.exit(M.fails == 0 and 0 or 1)
+end
+
+return M

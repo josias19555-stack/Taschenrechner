@@ -23,7 +23,7 @@ Das Programm zeigt einen roten Berechnungsstatus, wenn Stäbe vorhanden sind, ab
 
 ## 1.1 Lokaler TI-Nspire-CAS-Test
 
-Der Test-Runner kann die im Lua-Modul verwendeten `math.eval`-Aufrufe über `python_cas.py` an SymPy weiterreichen. Dadurch lassen sich numerische Ausdrücke, gespeicherte Funktionen, exakte Ausdrücke und bestimmte Integrale ohne angeschlossenen TI-Nspire prüfen.
+Der Test-Runner und die Regressionstests (`Emulator/test_regression.lua`) reichen die im Lua-Modul verwendeten `math.eval`-Aufrufe über `Emulator/cas_bridge.lua` an einen SymPy-Server (`python_cas_server.py`, `python_cas.py`) weiter. Dadurch lassen sich numerische Ausdrücke, gespeicherte Funktionen, exakte Ausdrücke und bestimmte Integrale ohne angeschlossenen TI-Nspire prüfen.
 
 Numerische CAS-Textrückgaben werden vor der Lua-Konvertierung normalisiert; dadurch bleiben Dezimalkommas gültig, ohne zusätzliche Rückgabewerte von String-Ersetzungen als Zahlenbasis zu interpretieren.
 
@@ -31,8 +31,7 @@ Die symbolische Biegelinienrekonstruktion verwendet die Last- und Randwertkonven
 
 **Grenzen:**
 
-- Der Emulator deckt nur den von `AktuellerStand.lua` verwendeten `math.eval`-Teilumfang ab.
-- Jeder Aufruf startet derzeit einen Python-Unterprozess; symbolische Regressionstests sind deshalb deutlich langsamer als der frühere feste Mock.
+- Der Emulator deckt nur den von `Biegelinieneu.lua` verwendeten `math.eval`-Teilumfang ab.
 - TI-Nspire-spezifische Formatierungen können von der SymPy-Textdarstellung abweichen.
 
 ## 2. Geometrie und Modellierung
@@ -113,22 +112,22 @@ Knotenfedern können für die drei Freiheitsgradtypen eingegeben werden:
 
 Die Federwerte werden in das globale Gleichungssystem integriert. Ein Federwinkel kann für eine gedrehte Federorientierung hinterlegt werden.
 
-### 3.4 Symbolischer Export der Verformungslinien
+### 3.4 Verformungslinien über das Rand-LGS (`vne`, `uneu`, `randbed`)
 
-Das aktive Modul `AktuellerStand.lua` enthält neben den unveränderten Referenzexporten zwei zusätzliche Exporte:
+Neben den Referenzexporten (`v_EI_stab_i`, `u_EA_stab_i` aus der FEM-Lösung) gibt es im Obermenü `O`, Seite 2, die Einträge `Neue Biegelinie (Rand-LGS)` und `Neue Längslinie (Rand-LGS)`. Beide rufen dieselbe Funktion (`neuRandLGS`): Für alle Stäbe wird der Ansatz `EI·w_i(x) = wp_i(x) + c1·x³/6 + c2·x²/2 + c3·x + c4` und `EA·u_i(x) = up_i(x) + C1·x + C2` gewählt; die 6 Konstanten je Stab folgen aus den Rand- und Übergangsbedingungen des ganzen Systems (Lager, auch gedrehte; Gelenke M/N/Q; Federn `cx`, `cy`, `cm`; Knotenlasten und -momente; Verträglichkeit der Stabenden an jedem Knoten). Das Gleichungssystem wird im CAS mit `simult` gelöst.
 
-- `exportBiegelinienNeuToTI` für eine symbolische Biegelinie mit Rand-LGS,
-- `exportULinienNeuToTI` für eine symbolische axiale Verformungslinie mit Rand-LGS.
+Exportiert werden je Stab `vne_i(x) = EI·w_i(x)` und `uneu_i(x) = EA·u_i(x)` (lokale Koordinate `x_i` von 0 bis `L_i`, Zählrichtung vom ersten zum zweiten Knoten, `w` positiv in lokaler Querrichtung wie in den Diagrammen) sowie den Spaltenvektor `randbed` (`["…";"…"]`) mit allen verwendeten Bedingungen als lesbare Strings. Schnittgrößen werden dabei über die Ableitungen der Verformungen geschrieben: `-EIw'''` statt Q, `-EIw''` statt M, `EAu'` statt N, `-w'` statt φ (mit Temperatur `-EI(w''+κT)` bzw. `EA(u'-εT)`). Beispiele: `"w1(x1=0)=0"`, `"w1'(x1=0)=0"`, `"w1(x1=l)=w2(x2=0)"`, `"EIw2''(x2=0)=0"`, `"EIw1'''(x1=l)-EIw2'''(x2=0)+F=0"`, `"-EIw1''(x1=0)+cm*w1'(x1=0)=0"`. Die Funktionen sind exakt (keine Rundung); `approx(vne1(x))` liefert Dezimalzahlen. Im symbolischen Modus erscheinen die Stablängen als Vielfache der Referenzlänge (`x1=l`, `x2=(2*l)`), Lasten und Steifigkeiten als Symbole.
 
-Beide neuen Befehle sind im Obermenü `O`, Seite 2, als `Neue Biegelinie (Rand-LGS)` und `Neue Längslinie (Rand-LGS)` direkt auswählbar. Die Längslinien `uneu1`, `uneu2` usw. werden aus den global gelösten lokalen Endverschiebungen aufgebaut und nicht mehr ausschließlich aus axialen Streckenlasten.
+**Dehnstarr (Standard an):** Obermenü `O`, Seite 4, `Rand-LGS dehnstarr`. Stäbe mit Zahlen-EA (auch der Standard `EA = 1e10`) werden als dehnstarr gerechnet, wie in der Handrechnung üblich: Im LGS steht `EA = EA_Zahl/rleps`, danach wird jede Konstante mit `limit(…, rleps, 0)` bestimmt. So verschwinden die EI/EA-Anteile (früher z. B. `ei*h*l/10000000000`), und Fälle, in denen sich N nach den Dehnsteifigkeiten verteilt (Horizontallast zwischen zwei Festlagern), bleiben lösbar. `uneu_i(x)` ist weiter `EA·u_i(x)`, solange das endlich bleibt (Stab axial gehalten, keine Temperaturdehnung); verschiebt sich ein dehnstarrer Stab als Ganzes (z. B. der Riegel eines verschieblichen Rahmens) oder dehnt er sich durch Temperatur, wird stattdessen `uneu_i(x) = u_i(x)` exportiert. Welche Stäbe dehnstarr sind und welche `uneu_i` Verschiebungen sind, steht im Spaltenvektor `randinfo`. Symbolisches EA (`EA_str = "EA"`) bleibt immer dehnbar. Eine behinderte Temperaturdehnung (unendliche Zwangskraft) führt zum Abbruch mit Meldung; dann dehnstarr ausschalten.
 
-Symbolische Eingaben werden für die CAS-Ausgabe erhalten. Das gilt auch für Federsteifigkeiten wie `EI/l^3`; für die numerische Zwischenrechnung dürfen weiterhin Dummywerte verwendet werden. Bei mehreren geraden Stäben verwendet der neue Biegelinienexport die gekoppelte FEM-/Hermite-Rekonstruktion des global berechneten Systems und exportiert die Ergebnisse als `vne1`, `vne2` usw. Dadurch werden auch Übergänge und translatorische Knotenfedern konsistent berücksichtigt.
+Symbolische Eingaben werden in den grafischen Menüs wieder als eingegebener Ausdruck angezeigt. Das betrifft insbesondere Knotenfedern wie `EI/l^3` sowie die global gesetzten Stabwerte `EI` und `EA`.
 
-Symbolische Eingaben werden außerdem in den grafischen Menüs wieder als eingegebener Ausdruck angezeigt. Das betrifft insbesondere Knotenfedern wie `EI/l^3` sowie die global gesetzten Stabwerte `EI` und `EA`; die internen numerischen Ersatzwerte werden nicht mehr als scheinbare Eingabewerte dargestellt.
-
-**Grenzen:** Der globale Mehrstabpfad ist auf gerade Stäbe und die unterstützten Modellrandbedingungen beschränkt. Der separate Rand-LGS-Pfad für Einzelstäbe bildet keine vollständig gekoppelte globale Lösung über mehrere Stäbe.
+**Grenzen:** Keine Bögen und keine KGV-Einheitszustände (Zustand 0 wählen). Mechanismen und Lasten in frei beweglichen Richtungen werden abgebrochen; die Meldung steht dann in `randbed` (`["Fehler: …"]`), alte `vne`/`uneu` werden vorher gelöscht. Eingaben mit Dezimalkomma (`1,5`) und e-Notation (`1e8`) werden für das CAS umgeschrieben. Mit ausgeschaltetem dehnstarr entstehen bei numerisch großen Steifigkeiten (Standard `EI = 1e8`, `EA = 1e10`) exakte, aber lange Brüche aus dem EI/EA-Verhältnis. Die Rundungsfunktion `eval_cas_string(…, true)` ist dafür nicht geeignet (6 Stellen, absolute Schwelle 1e-6). Der Referenzexport `v_EI_stab_i` rundet Koeffizienten auf `casToleranz` Stellen (Standard 5), was bei großen `x` Abweichungen bis etwa `1e-5·x³` ergibt; das Rand-LGS rundet nicht.
 
 ## 4. Lasten
+
+**Koordinaten und Vorzeichen:** Weltkoordinaten wie auf dem Bildschirm (`x` nach rechts, `y` nach unten). Lokale Stabrichtung vom ersten zum zweiten Knoten, lokale Querrichtung `n = (−dy, dx)/L`; `q`, `w` positiv in `n`, `φ = −w'`, `M' = Q − m`. Lagerwinkel `winkel` und Federwinkel `f_winkel` drehen die Achsen wie gezeichnet (Drehung um `−winkel`: Lagerachse `ξ = (cos w, −sin w)`, `η = (sin w, cos w)`; Federachse `cx = (cos f, −sin f)`). Knotenlasten `last_x`, `last_y` werden um `−last_w` gedreht; `last_m` und `cm` wirken im `φ`-Sinn. Ein konstantes Streckenmoment `m` geht als konsistente Stabendkräfte `Q_i = −m`, `Q_k = +m` in die FEM ein (wie der CAS-Pfad für `m(x)`), die Biegelinie enthält `+∫m(t)(x−t)²/2`.
+
 
 ### 4.1 Knotenlasten
 
@@ -148,7 +147,7 @@ Unterstützt werden:
 
 Alle numerischen Eingabefelder akzeptieren mathematische Ausdrücke mit Dezimalkomma, Klammern, `+`, `-`, `*`, `/` und `^`; außerdem sind TI-Nspire-CAS-Funktionen wie `sqrt(...)` oder `sin(...)` möglich. Funktionale Eingaben können Variablen wie `x` enthalten. Wenn eine symbolische Eingabe erkannt wird, wechselt das Programm in den symbolischen Modus und versucht, die zugehörigen CAS-Ausdrücke zu erzeugen.
 
-Symbolische Lastfunktionen wie `q/l*x` sowie symbolische Trapezlasten (`q_A = 0`, `q_B = q`) werden auch in den numerischen Zwischen- und Integrationsberechnungen verarbeitet. Für diese numerischen Hilfswerte ersetzt das Programm freie Symbole durch Dummywerte; die q-Darstellung verwendet dadurch eine nichtleere Funktionskurve, ohne den symbolischen Ausdruck für Export und Ergebnisse zu verlieren.
+Symbolische Trapezlasten (`q_A = 0`, `q_B = q`), Streckenlasten, Streckenmomente, Eigengewicht und Knotenlasten werden per Superposition exakt als Vielfache der Referenzlänge ausgegeben. Referenzlänge ist das eine Längensymbol der Geometrie; enthält die Geometrie kein Symbol, gilt automatisch ein Rasterabstand als `l` und alle Stablängen werden als Vielfache von `l` ausgegeben (Raster 0,5 m: Stab 2 m = `4*l`). Fälle, die der symbolische Modus nicht korrekt abbilden kann, brechen die Berechnung mit einer roten Meldung ab: Temperaturlasten, Lastfunktionen mit `x` (z. B. `q/l*x`), Bögen, mehr als ein Längensymbol in der Geometrie und Koordinaten, die kein reines Vielfaches des Längensymbols sind (z. B. `a+2`), das Symbol `t` (Integrationsvariable) sowie `EI`/`EA` in Feder- oder Lasttexten, wenn nicht alle Stäbe diese Steifigkeit symbolisch haben (sonst würde mit zwei verschiedenen Zahlenwerten gerechnet).
 
 ### 4.3 Projektion globaler Linienlasten
 
@@ -286,8 +285,7 @@ Erkannte Nullstäbe werden für die Darstellung markiert. Der Algorithmus wieder
 - Arbeitssatzdaten,
 - Schnittkraftfunktionen,
 - globale LGS-Matrix,
-- symbolische Biegelinien mit elementarem Rand-LGS,
-- symbolische Längslinien mit elementarem Rand-LGS.
+- Verformungslinien aus dem Rand-LGS (`vne_i`, `uneu_i`, `randbed`).
 
 Typische gespeicherte Variablen sind `sys_k`, `sys_f`, `sys_u`, `ggw_a`, `ggw_b`, `ggw_x`, `ggw_eqs` sowie stabspezifische Matrizen und Funktionen.
 

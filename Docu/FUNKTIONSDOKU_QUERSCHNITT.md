@@ -9,8 +9,8 @@ Sie beschreibt zu jeder Funktion: **Zweck**, **Moeglichkeiten** und **Grenzen/be
 
 ### `evaluate_input(expr)`
 - **Zweck:** Wertet einen vom Nutzer eingegebenen Ausdruck numerisch aus.
-- **Moeglichkeiten:** Nutzt zuerst den TI-Nspire-CAS (`math.eval("approx(...)")`), faellt sonst auf einfache Lua-Ausdruecke zurueck.
-- **Grenzen:** Nur Ausdruecke, die entweder das CAS oder `load()` versteht; kein Fehlertext bei ungueltiger Eingabe (gibt nur `nil` zurueck).
+- **Moeglichkeiten:** Dezimalkomma wird zu Punkt. Nutzt zuerst den TI-Nspire-CAS (`math.eval("approx(...)")`), sonst einen Lua-Ausdruck, der nur die `math`-Funktionen sieht (`sqrt(2)`, `pi`, `sin(...)` ohne `math.`-Praefix).
+- **Grenzen:** Kein Fehlertext bei ungueltiger Eingabe (gibt `nil` zurueck); `NaN` wird ebenfalls als ungueltig behandelt.
 
 ### `floatToFrac_lua(value, tolerance, max_denominator)`
 - **Zweck:** Nach Kettenbruch-Algorithmus die kuerzeste Bruchdarstellung einer Dezimalzahl finden.
@@ -69,7 +69,11 @@ Sie beschreibt zu jeder Funktion: **Zweck**, **Moeglichkeiten** und **Grenzen/be
 ### `coordinatesForDisplay(u, v)` / `coordinatesFromDisplay(u, v)`
 - **Zweck:** Zentrale Vorzeichen-/Achsentransformation zwischen internen (u,v) und angezeigten Koordinaten je nach `rotation`.
 - **Moeglichkeiten:** Wird fuer alle Anzeige-Texte, Kraftkomponenten, Momentendichten und den Schubmittelpunkt konsistent verwendet.
+- **Zuordnung:** 0°: (u, v); 90°: (v, -u); 180°: (-u, -v); 270°: (-v, u). `coordinatesFromDisplay` ist die exakte Umkehrung (Rundtrip im Test geprueft).
 - **Grenzen:** Muss als lokale Vorwaertsreferenz deklariert sein (`local coordinatesForDisplay` vor der Definition), da mehrere fruehere Funktionen (`displayedVector`) sie referenzieren, bevor sie definiert wird. Nur 4 Rotationsstufen abgedeckt.
+
+### `inertiaForDisplay(Iy, Iz, Iyz)` / `alphaForDisplay(alpha)`
+- **Zweck:** Flaechenmomente und Hauptachsenwinkel im angezeigten KOS. Bei 90°/270° werden `I_y` und `I_z` vertauscht und `I_yz` wechselt das Vorzeichen. Genutzt von Ergebnisfeld, Elementtabelle und Sigma-Rechnung.
 
 ### `forceComponentsForDisplay/FromDisplay(fu, fv)`
 - **Zweck:** Wrapper um `coordinatesForDisplay/FromDisplay` speziell fuer Kraftkomponenten.
@@ -100,7 +104,7 @@ Sie beschreibt zu jeder Funktion: **Zweck**, **Moeglichkeiten** und **Grenzen/be
 
 ### `sector_props(p1, p2, p3, is_segment)`
 - **Zweck:** Flaeche/Schwerpunkt/Traegheitsmomente eines Kreisausschnitts (`is_segment=false`) oder Kreisabschnitts (`is_segment=true`).
-- **Grenzen:** `p1` = Mittelpunkt, `p2`/`p3` definieren Start-/Endradius bzw. Sehne; Winkel wird immer im mathematisch positiven Sinn ab `p2` bestimmt.
+- **Grenzen:** `p1` = Mittelpunkt, `p2`/`p3` definieren Start-/Endradius bzw. Sehne; Winkel wird immer im mathematisch positiven Sinn ab `p2` bestimmt. Kreisabschnitt = Sektor minus Dreieck (Mittelpunkt, p2, p3), auch fuer die Traegheitsmomente.
 
 ### `thin_line_props(p1, p2, t)`
 - **Zweck:** Flaeche/Schwerpunkt/Traegheitsmomente eines geraden duennwandigen Linienelements der Dicke `t`.
@@ -129,66 +133,63 @@ Sie beschreibt zu jeder Funktion: **Zweck**, **Moeglichkeiten** und **Grenzen/be
 
 ### `getBoundingBox(elem)`
 - **Zweck:** Achsparallele Bounding-Box eines Elements (fuer Zoom, numerische Integration, Kernflaechen-Punktesammlung).
-- **Grenzen:** Fuer Kreisboegen wird der volle Kreis als Box angenaehert (keine exakte Bogen-Box).
+- **Moeglichkeiten:** Sektor, Kreisabschnitt und duenner Kreisbogen: exakte Box aus Bogenendpunkten, den im Winkelbereich liegenden Kreispunkten bei 0/90/180/270 Grad und (nur Sektor) dem Mittelpunkt.
 
 ### `checkOverlapStatus(new_elem)`
 - **Zweck:** Prueft, ob ein neues Massiv-Element ein bestehendes vollstaendig ueberdeckt (`"inside"`), teilweise ueberlappt (`"partial"`) oder frei steht (`"none"`).
 - **Moeglichkeiten:** Steuert die Lochabzugs-/Additions-Abfrage (`mode = "overlap_prompt"`).
-- **Grenzen:** Stichprobenbasiert (5x5 innere Punkte); sehr duenne Ueberlappungsbereiche koennen uebersehen werden.
+- **Moeglichkeiten:** Testpunkte in den Zellmitten eines 20x20-Rasters ueber der Bounding-Box. Ein Punkt zaehlt nur, wenn er samt kleiner Umgebung (`eps`) in beiden Formen liegt; gemeinsame Kanten oder Beruehrpunkte (z. B. Halbkreis auf Rechteck) sind daher keine Ueberlappung. `"inside"` ab 99,5 % der Testpunkte.
+- **Grenzen:** Stichprobenbasiert; Ueberlappungen schmaler als etwa 1/20 der Elementgroesse koennen uebersehen werden.
 
 ---
 
 ## 5. Duennwand-Graph, Schubfluss & Torsion (Kernstueck)
 
-### `find_closed_cells()`
-- **Zweck:** Baut einen Knoten/Kanten-Graph aus allen `duenn_elemente`, entfernt iterativ freie Enden (Grad ≤ 1) und ermittelt die verbleibende geschlossene Zelle: torsionswirksame Flaeche `Am` und `I_T,geschlossen = 4*Am^2 / Σ(L/t)` (Bredt'sche Formel).
-- **Grenzen:** Unterstuetzt nur **eine** zusammenhaengende geschlossene Zelle sauber; bei mehrzelligen Profilen wird nur ein Umlauf (erster gefundener Pfad) ausgewertet, kein Mehrzellen-Gleichungssystem.
+Grundsatz: Es wird nur gerechnet, was nach TM2 statisch bestimmt ist. Statisch unbestimmte Faelle
+(mehrzellig, unsymmetrisch geschlossen, Querkraft quer zur einzigen Symmetrieachse, Torsion massiver
+Querschnitte) werden mit einer Meldung abgelehnt, statt eine Naeherung auszugeben.
 
-### `berechneMaxSchubspannung(Vz)`
-- **Zweck:** Rasterbasierte Ermittlung der maximalen Schubspannung eines **massiven** Querschnitts unter vertikaler Querkraft (klassische `τ = V*S/(I*b)`-Methode ueber Zeilenintegration).
-- **Grenzen:** Nur fuer Massiv-Querschnitte (keine Duennwand-Kombination); 100x140-Raster, Genauigkeit rasterabhaengig. Aktuell nicht mehr im aktiven Berechnungspfad referenziert (Altfunktion, siehe `berechneSchubspannungsResultate` fuer den TM2-Streifenansatz).
+### `duennGraph(achse_u, achse_v)`
+- **Zweck:** Mittelliniengraph aller geraden `duenn_elemente`. Elemente werden an Schnitt- und Beruehrpunkten (T-Knoten, Kreuzungen, kollineare Ueberlappungen) und optional an den Achsen `u = achse_u`, `v = achse_v` geteilt. Doppelt gezeichnete Kanten werden zu einer Kante mit addierter Dicke zusammengelegt.
+- **Grenzen:** Duennwandige Kreise/Boegen werden nicht als Kanten abgebildet (`nicht_gerade`); Schub wird dann abgelehnt.
+
+### `duennZellen(nodes, edges)`
+- **Zweck:** Schneidet freie Aeste ab und bestimmt die Zellenzahl `Kanten - Knoten + Komponenten` des Restgraphen. Bei genau einer Zelle: Umlauf mit `A_m`, `∮ds/t`, `t_min`, Umlaufsinn je Kante und `I_T = 4 A_m^2/∮ds/t` (Bredt).
+
+### `duennSymmetrie(nodes, edges, ys, zs)`
+- **Zweck:** Prueft Spiegelsymmetrie des Graphen inklusive Wanddicken zur senkrechten Achse `u = ys` (`sym_v`) und zur waagerechten Achse `v = zs` (`sym_h`). Ersetzt die fruehere Pruefung `|I_yz| < 1e-5`, die keine Symmetrie nachweist.
+
+### `find_closed_cells()`
+- **Zweck:** Bredt fuer genau eine geschlossene Zelle (auch mit offenen Aesten und T-Knoten). Rueckgabe `I_T, A_m, Zellenzahl, Info`.
+- **Grenzen:** Mehrzellige Profile liefern `I_T = 0, A_m = 0` und die Zellenzahl; Aufrufer lehnen sie ab.
 
 ### `berechneDuenneSchubspannung(Qa, Qb)`
-- **Zweck:** Kernfunktion der duennwandigen Schubspannungsberechnung. Zerlegt alle `duenn_elemente` in atomare Kanten (inkl. Schnittpunkte/T-Knoten/Symmetrieachsen-Schnitte), baut einen Graphen und integriert den Schubfluss entlang aller Pfade.
-- **Moeglichkeiten:**
-  - Erkennt automatisch Verzweigungsknoten, freie Enden und T-Stoesse.
-  - Reihenfolge der Integration: (1) freie Enden zuerst, (2) `resolve_branch_nodes()` fasst an Verzweigungen ankommende Teilmomente zusammen, sobald nur noch ein Ast offen ist, (3) bei **symmetrischen** Profilen (`|Iyz| < 1e-5`) wird zusaetzlich an einem Symmetrieachsen-Schnittpunkt gestartet (fixiert den unbestimmten Schubfluss `q0` einer geschlossenen Zelle), danach erneut `resolve_branch_nodes()` – das behandelt auch **Mischprofile** (geschlossene Zelle mit angehaengten freien Aesten) korrekt.
-  - Liefert `samples` (mit `tau_a`, `tau_b`, `tau`, `Sy`, `Sz`, `moment_*_density`, `torsion_sign`, `s`, ...) und `paths` (fuer die Pfeil-/Start-Markierungen im Schubverlaufsbild); jeder Pfad kennzeichnet den fachlichen Starttyp (`free` oder `symmetry`), sofern er an einem freien Rand bzw. an der Symmetrieachse beginnt.
-  - Verwendet fuer die Vorzeichenkonvention der Querkräfte den Schubfluss `q = -Q*S/I` und die Schubspannung `tau = -Q*S/(I*t)`.
-  - Statische Momente und Momentendichten werden intern in der geometrischen KOS gespeichert und erst bei der Verlaufsdarstellung mit derselben Rotationsabbildung wie die gezeichnete KOS orientiert. Freie Integrationsanfaenge starten mit statischem Moment null.
-- **Grenzen:**
-  - Fuer **unsymmetrische geschlossene Zellen** wird `q0` nicht ueber die allgemeine Vertraeglichkeitsgleichung (`∮ dq/t = 0`) bestimmt – der Restschnitt wird deterministisch mit Startwert 0 orientiert, das Ergebnis ist dann **nicht exakt**.
-  - Mehrzellige geschlossene Profile werden nicht als gekoppeltes Gleichungssystem geloest.
-  - Integrationsschrittweite ist an `raster` gekoppelt (mind. 64 Teilintervalle pro atomarer Kante, zusaetzlich maximal `raster/8` bzw. `0.025` Laengeneinheiten pro Schritt), nicht an die Bildschirmzoomstufe. Die hoehere Aufloesung erhoeht den Rechenaufwand.
-
-### `berechneOffenenSchubmittelpunkt()`
-- **Zweck:** Schubmittelpunkt ueber Momentengleichgewicht der tatsaechlichen Schubspannungsverteilung (Einheitslasten `Qa=1`/`Qb=1`).
-- **Moeglichkeiten:** Funktioniert fuer offene Profile immer exakt (statisch bestimmt). Seit der Erweiterung auch fuer **symmetrische geschlossene/gemischte** Profile (nutzt dieselben, dort korrekt mit `q0` fixierten Samples).
-- **Grenzen:** Bei **unsymmetrischen geschlossenen** Profilen (`is_closed and not symmetric_profile`) wird weiterhin nur der Schwerpunkt als Naeherung zurueckgegeben (`closed = true`, keine echte Momentenberechnung), da die q0-Vertraeglichkeitsgleichung fehlt.
+- **Zweck:** Schubfluss im duennwandigen Profil (interne Querkraefte `Qa` in u-, `Qb` in v-Richtung).
+- **Ablauf:** (1) von allen freien Enden (q = 0), (2) an Verzweigungen mit nur noch einem offenen Ast Start mit der Summe der angekommenen statischen Momente, (3) eine geschlossene Zelle an beliebiger Stelle aufschneiden, (4) Zellschubfluss `q0` je Komponente aus der Symmetrie: fuer eine Querkraft parallel zur Symmetrieachse ist q im Umlaufsinn antisymmetrisch, `q(P) + q(P') = 0` fuer Spiegelpunkte. Das erfuellt automatisch die Vertraeglichkeit `∮τ ds = 0` (im Test geprueft).
+- **Formel:** mit `I_yz`-Kopplung `τ_a = -Q_a (I_y S_a + I_yz S_b)/((I_y I_z - I_yz^2) t)`, `τ_b = -Q_b (I_z S_b + I_yz S_a)/((I_y I_z - I_yz^2) t)` (Gross-Vorzeichen `I_yz = -∫uv dA`; fuer `I_yz = 0` die bekannte Form `τ = -Q S/(I t)`).
+- **Rueckgabe:** `maximum, samples, paths, fehler, info`. Samples tragen zusaetzlich `in_cell`, `cell_sign` (Umlaufsinn), `edge_i`, `fwd`.
+- **Grenzen:** mehrzellig, unsymmetrisch geschlossen oder Querkraft quer zur einzigen Symmetrieachse: `nil` und Begruendung in `fehler`.
 
 ### `berechneSchubmittelpunkt()`
-- **Zweck:** Wrapper um `berechneOffenenSchubmittelpunkt()`; faellt bei unbekanntem Ergebnis auf eine geometrische Schnittpunkt-Heuristik zweier nicht-paralleler duennwandiger Elemente zurueck.
-- **Grenzen:** Die Fallback-Heuristik ist nur fuer einfache, aus zwei geraden Segmenten bestehende offene Profile sinnvoll; bei komplexeren Formen ohne eindeutigen Schnittpunkt wird `known = false` zurueckgegeben (Anzeige: "Symmetriepruefung offen").
+- **Zweck:** Schubmittelpunkt aus dem Moment der Schubfluesse fuer Einheitsquerkraefte. Offene Profile: beide Koordinaten. Eine Zelle: nur die Koordinate(n), fuer die eine Symmetrieachse parallel zur Querkraft existiert (`known_u`, `known_v`; `known` nur wenn beide). Ergebnis wird bis zur naechsten `berechneSystem()`-Rechnung zwischengespeichert (`shear_center_cache`).
 
 ### `berechneSchubMomentTabelle()`
-- **Zweck:** Pro Element aufgeschluesselte Tabelle der resultierenden Schubkraefte in den aktuell aktiven KOS-Achsen und deren Momentbeitrag um den Schwerpunkt, fuer Einheitslasten `Qa=1` und `Qb=1`.
-- **Moeglichkeiten:** Gibt hinter jeder Lastspalte die signierte resultierende Teilschubkraft und den signierten effektiven Hebelarm `r = M/F` in der aktuellen Laengeneinheit aus. Kleine nichtverschwindende Kraftwerte unter `0.01` in der Anzeigeeinheit werden exponentiell dargestellt; bei verschwindender Teilkraft wird kein Hebelarm angezeigt.
-- **Grenzen:** Nutzt dieselbe Sample-Basis wie `berechneDuenneSchubspannung`; bei unsymmetrischen geschlossenen Zellen daher mit denselben Einschraenkungen behaftet (q0 nicht exakt bestimmt).
+- **Zweck:** Pro Element aufgeschluesselte resultierende Schubkraefte und Momentbeitraege fuer Einheitslasten, mit signiertem Hebelarm `r = M/F`.
+- **Grenzen:** Statisch unbestimmte Lastrichtungen liefern keine Beitraege.
 
 ### `berechneTorsionsResultat(moment)`
-- **Zweck:** Aus einem St. Venant'schen Torsionsmoment `moment` die maximale Torsionsspannung berechnen, getrennt fuer geschlossene (`τ = M/(2*Am*t)`) und offene (`τ = M*t/I_T`) Profile.
-- **Grenzen:** Nutzt `default_t`/`max(elem.t)` als Bezugsdicke fuer offene Profile, nicht die tatsaechliche lokale Dicke jeder Stelle.
+- **Zweck:** Torsion nur fuer rein duennwandige Profile: offen `I_T = Σ ξ/3 h t^3`, `τ_max = M_T t_max/I_T`; einzellig geschlossen (Bredt) `τ_max = M_T/(2 A_m t_min)` mit `t_min` der Zellwaende.
+- **Grenzen:** Massive oder gemischte Querschnitte (keine Prandtl-Loesung) und mehrzellige Profile: `nil` mit Meldung.
 
-### `aktualisiereTorsionsverlauf(result)`
-- **Zweck:** Ergaenzt bereits vorhandene Schubfluss-Samples (`shear_results.samples`) um den Torsionsanteil `tau_t` und das kombinierte `tau_total` (offen: Betragssumme, geschlossen: vorzeichenrichtige Summe).
-
-### `torsionTauAtSample(sample)` / `combinedTauAtSample(sample)`
-- **Zweck:** Torsionsspannung bzw. kombinierte Schub+Torsionsspannung an einer einzelnen Stichprobe fuer die Profildarstellung.
-- **Grenzen:** Vorzeichenlogik unterscheidet offen (`sample.direction`) vs. geschlossen (`sample.torsion_sign`); bei Mischprofilen wird das ueber `shear_results.thin_closed` bzw. `torsion_results.closed` gesteuert.
+### `aktualisiereTorsionsverlauf(result)`, `torsionTauAtSample(sample)`, `combinedTauAtSample(sample)`
+- **Zweck:** Torsionsanteil je Stuetzstelle: Zellwaende Bredt `q_T/t` im Umlaufsinn (`cell_sign`), offene Teile `M_T t/I_T`. Kombination: in der Zelle vorzeichenrichtig, in offenen Teilen als Betragssumme.
 
 ### `berechneKraftTorsion()`
-- **Zweck:** Torsionsmoment aus allen platzierten Kraeften um den Schwerpunkt berechnen (Kreuzprodukt aus Hebelarm und Kraftkomponenten in Anzeige-Koordinaten) und darauf `berechneTorsionsResultat` anwenden.
-- **Grenzen:** Nur Kraftkomponenten in der Querschnittsebene (`fa`,`fb`); Kraft senkrecht zur Ebene (`fc`) erzeugt keine Torsion (das ist physikalisch korrekt fuer eine zentrische Normalkraft, aber es gibt keine Exzentrizitaets-Kopplung mit `fc`).
+- **Zweck:** Torsionsmoment der Kraefte in der Querschnittsebene um den **Schubmittelpunkt** (`M_x = Δu F_v - Δv F_u`), danach `berechneTorsionsResultat`.
+- **Grenzen:** Ist die benoetigte Koordinate des Schubmittelpunkts statisch unbestimmt, wird nicht gerechnet (Meldung).
+
+### `berechneSchubspannungsResultate(input_Qa, input_Qb)`
+- **Zweck:** Gesamtfunktion Schub. Eingaben beziehen sich auf das angezeigte KOS und werden intern gedreht; eingetragene Kraefte kommen hinzu. Massiv: `τ = Q S/(I b)` ueber waagerechte/senkrechte Schnitte (Breiten auch fuer Sektor, Kreisabschnitt und dicke Linie ueber `massiv_outline_polygon`), nur bei `I_yz = 0`. Gemischt massiv/duennwandig: abgelehnt. Begruendungen landen in `schub_grund` bzw. `status`.
 
 ---
 
