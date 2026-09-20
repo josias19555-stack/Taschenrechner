@@ -123,6 +123,13 @@ local overlap_pending_elem = nil
 local is_numeric_system = false
 local inputMode, inputText = false, ""
 local status = "Massiv | Duennwand | Ergebnisse"
+-- Meldungen, die der Nutzer sehen muss (Fehlergruende, Hinweise), als Box; ESC schliesst sie.
+-- Global, weil on.paint und on.escapeKey kaum freie Upvalues haben.
+qsMeldung = nil   -- { titel = ..., text = ..., fehler = true/false }
+local function meldung(text, titel, fehler)
+    status = text
+    qsMeldung = { text = text, titel = titel or "Hinweis", fehler = fehler and true or false }
+end
 local escape_clear_pending = false
 local sigma_input_step = 0
 local sigma_N, sigma_My, sigma_Mz = nil, nil, nil
@@ -194,6 +201,7 @@ local function current_axes()
 end
 
 local function openSigmaInput(oblique)
+    qsMeldung = nil
     sigma_oblique = oblique == true
     sigma_input_step, inputText = 1, ""
     sigma_results, sigma_scroll_y, sigma_table_scroll_y = nil, 0, 0
@@ -204,6 +212,7 @@ local function openSigmaInput(oblique)
 end
 
 local function openShearInput()
+    qsMeldung = nil
     shear_input_step, inputText = 1, ""
     shear_N, shear_M = 0, 0
     shear_results = nil
@@ -214,6 +223,7 @@ local function openShearInput()
 end
 
 local function openShearFromForces()
+    qsMeldung = nil
     shear_input_step, shear_Qa, shear_Qb = 0, 0, 0
     shear_results = berechneSchubspannungsResultate(0, 0)
     shear_view_mode, shear_selector_open = 0, false
@@ -222,12 +232,13 @@ local function openShearFromForces()
         shear_selector_open = true
         status = "Eingetragene Kräfte ausgewertet. V: Verlauf wählen."
     else
-        status = schub_grund or "Schubspannung nicht berechenbar."
+        meldung(schub_grund or "Schubspannung nicht berechenbar.", "Schub nicht berechnet", true)
     end
     platform.window:invalidate()
 end
 
 local function openTorsionInput()
+    qsMeldung = nil
     torsion_input_step, inputText = 1, ""
     torsion_results = nil
     showResults, showTable, menuOpen = true, false, false
@@ -242,12 +253,12 @@ local function berechneTorsionsResultat(moment)
     local r = system_results
     if not r then return nil end
     if #duenn_elemente == 0 or #massiv_elemente > 0 then
-        status = "Torsion nur fuer rein duennwandige Profile (offen oder einzellig geschlossen)."
+        meldung("Torsion nur fuer rein duennwandige Profile (offen oder einzellig geschlossen); fuer massive Querschnitte keine TM2-Formel.", "Torsion nicht berechnet", true)
         return nil
     end
     local It_closed, Am, cells, info = find_closed_cells()
     if cells >= 2 then
-        status = "Mehrzelliges Profil: Torsion statisch unbestimmt, nicht berechnet."
+        meldung("Mehrzelliges Profil: Torsion statisch unbestimmt, nicht berechnet.", "Torsion nicht berechnet", true)
         return nil
     end
     if cells == 1 then
@@ -258,7 +269,7 @@ local function berechneTorsionsResultat(moment)
     for _, elem in ipairs(duenn_elemente) do t_max = math.max(t_max, elem.t or default_t) end
     local It = r.It or 0
     if It <= 1e-12 then
-        status = "I_T = 0: Torsion nicht berechenbar."
+        meldung("I_T = 0: Torsion nicht berechenbar.", "Torsion nicht berechnet", true)
         return nil
     end
     return {M = moment, It = It, Am = 0, tau = math.abs(moment) / It * t_max, closed = false, t_max = t_max}
@@ -315,7 +326,7 @@ end
 
 local function enterTorsionInput()
     local value = evaluate_input(inputText)
-    if not value then status = "Ungueltige Torsionseingabe."; inputText = ""; return true end
+    if not value then meldung("Ungueltige Torsionseingabe.", "Eingabe", true); inputText = ""; return true end
     value = input_to_internal(value, moment_unit)
     torsion_M, torsion_input_step, inputText = value, 0, ""
     torsion_results = berechneTorsionsResultat(value)
@@ -339,7 +350,7 @@ local function berechneKraftTorsion()
     for _, kraft in ipairs(kraefte) do
         local fa, fb = tonumber(kraft.fa) or 0, tonumber(kraft.fb) or 0
         if (math.abs(fb) > 1e-12 and not center.known_u) or (math.abs(fa) > 1e-12 and not center.known_v) then
-            status = "Torsion aus Kraeften: Schubmittelpunkt statisch unbestimmt."
+            meldung("Torsion aus Kraeften: Schubmittelpunkt statisch unbestimmt, Torsionsmoment nicht bestimmbar.", "Torsion nicht berechnet", true)
             return nil
         end
         -- M_x = du * F_v - dv * F_u (intern rechtshaendig, x aus der Bildebene)
@@ -352,7 +363,7 @@ end
 local function enterShearInput()
     local val = evaluate_input(inputText)
     if not val then
-        status = "Ungueltige Schubkraft-Eingabe."
+        meldung("Ungueltige Schubkraft-Eingabe.", "Eingabe", true)
         inputText = ""
         platform.window:invalidate()
         return true
@@ -370,7 +381,8 @@ local function enterShearInput()
             shear_input_step = 0
             shear_results = berechneSchubspannungsResultate(shear_Qa, shear_Qb)
             shear_selector_open = shear_results ~= nil
-            status = shear_results and "Schubkräfte ausgewertet. V: Verlauf waehlen." or (schub_grund or "Schubspannung nicht berechenbar.")
+            if shear_results then status = "Schubkräfte ausgewertet. V: Verlauf waehlen."
+            else meldung(schub_grund or "Schubspannung nicht berechenbar.", "Schub nicht berechnet", true) end
         end
     elseif shear_input_step == 3 then
         shear_N, shear_input_step, inputText = input_to_internal(val, force_unit), 4, ""
@@ -385,7 +397,7 @@ local function enterShearInput()
         shear_selector_open = shear_results ~= nil
         showResults = true
         if shear_results then status = "Belastungen ausgewertet. V: Verlauf waehlen."
-        elseif schub_grund then status = schub_grund end
+        elseif schub_grund then meldung(schub_grund, "Schub nicht berechnet", true) end
     end
     platform.window:invalidate()
     return true
@@ -406,7 +418,7 @@ local function toggleCalculationMenu()
         menuOpen = false
         return
     end
-    if not system_results then status = "Kein Querschnitt vorhanden." end
+    if not system_results then meldung("Kein Querschnitt vorhanden.", "Hinweis", true) end
     menuOpen, menuPage, menuRow = true, 5, 1
     showResults, showTable = false, false
 end
@@ -1128,6 +1140,7 @@ function on.backspaceKey()
 end
 
 local function berechneSystem()
+    qsMeldung = nil   -- Querschnitt geaendert: alte Meldung gilt nicht mehr
     sigma_results = nil
     shear_center_cache = nil
     local sumA, sumSyu, sumSzu = 0, 0, 0
@@ -1264,7 +1277,7 @@ end
 
 local function verschiebeKOSZumSchwerpunkt()
     if not system_results then
-        status = "Kein Querschnitt vorhanden."
+        meldung("Kein Querschnitt vorhanden.", "Hinweis", true)
         return
     end
     local shift_u, shift_v = system_results.ys, system_results.zs
@@ -1722,11 +1735,18 @@ berechneSchubspannungsResultate = function(input_Qa, input_Qb)
         }
         shear_results = result
         if force_torsion then aktualisiereTorsionsverlauf(torsion_results) end
+        -- Hauptachsen nicht parallel zu y/z (Winkel kein Vielfaches von 90 Grad): Hinweis auf schiefe Biegung
+        if math.abs(r.Iyz) > 1e-6 * math.sqrt(math.abs(r.Iy * r.Iz)) then
+            result.iyz_kopplung = true
+            meldung(string.format("Hauptachsen nicht parallel zu %s/%s (I_%s%s ~= 0, Hauptachse bei %.2f Grad). Der Schubfluss wurde mit I_%s%s-Kopplung berechnet (schiefe Biegung), nicht mit tau = Q S/(I t).",
+                a, b, a, b, math.deg(alphaForDisplay(r.alpha)), a, b), "Hinweis")
+        end
         return result
     end
     -- Massiv: TM2-Schubformel nur fuer Hauptachsen parallel zu y/z
     if math.abs(r.IyzS) > 1e-6 * math.sqrt(math.abs(r.IyS * r.IzS)) then
-        return ablehnen("Massiv mit I_yz ~= 0: tau = Q S/(I b) nur fuer Hauptachsen parallel zu " .. a .. "/" .. b .. ".")
+        return ablehnen(string.format("Hauptachsen nicht parallel zu %s/%s (I_%s%s ~= 0, Hauptachse bei %.2f Grad). Fuer massive Querschnitte gilt tau = Q S/(I b) nur bei Hauptachsen parallel zu %s/%s.",
+            a, b, a, b, math.deg(alphaForDisplay(r.alpha)), a, b))
     end
     local min_u, max_u, min_v, max_v = math.huge, -math.huge, math.huge, -math.huge
     for _, elem in ipairs(massiv_elemente) do
@@ -2118,10 +2138,15 @@ local function drawSpreadsheet(gc, w, h)
             gc:drawString(text, left + 5, top + 20 + i * 16)
         end
 
-        if math.abs(r.Iyz) < 1e-5 and math.abs(r.A) > 1e-9 then
-            gc:setColorRGB(35, 150, 70)
+        if math.abs(r.A) > 1e-9 then
             gc:setFont("sansserif", "b", 9)
-            gc:drawString("Hauptachsen parallel zu den Achsen (I_yz = 0)", left + 5, top + 20 + (#lines + 2) * 16)
+            if math.abs(r.Iyz) <= 1e-6 * math.sqrt(math.abs(r.Iy * r.Iz)) then
+                gc:setColorRGB(35, 150, 70)
+                gc:drawString("Hauptachsen parallel zu den Achsen (I_yz = 0)", left + 5, top + 20 + (#lines + 2) * 16)
+            else
+                gc:setColorRGB(220, 110, 0)
+                gc:drawString("Hauptachsen nicht parallel zu den Achsen (I_yz ~= 0)", left + 5, top + 20 + (#lines + 2) * 16)
+            end
         end
         if is_numeric_system then
             gc:setColorRGB(255, 100, 0)
@@ -3359,7 +3384,8 @@ local function openSigmaFromForces()
     sigma_results, sigma_scroll_y, sigma_table_scroll_y = nil, 0, 0
     local success = finishSigmaCalculation(0)
     showResults, showTable, menuOpen = success, false, false
-    status = success and "σx aus den eingetragenen Kraeften berechnet." or "σx nicht berechenbar."
+    status = "σx aus den eingetragenen Kraeften berechnet."
+    if not success then meldung("σx nicht berechenbar.", "Spannung nicht berechnet", true) end
     platform.window:invalidate()
 end
 
@@ -3825,6 +3851,29 @@ function on.paint(gc)
     if not sigma_results then drawSpreadsheet(gc, w, h) end
     drawOverlapPrompt(gc, w, h)
     drawMenu(gc, w, h)
+    if qsMeldung then
+        -- Meldungsbox: rot bei Fehlergruenden, gelb bei Hinweisen; Text auf Boxbreite umbrechen
+        local boxW = math.min(w - 20, 300)
+        gc:setFont("sansserif", "r", 9)
+        local zeilen, zeile = {}, ""
+        for wort in tostring(qsMeldung.text):gmatch("%S+") do
+            local probe = (zeile == "") and wort or (zeile .. " " .. wort)
+            if zeile ~= "" and gc:getStringWidth(probe) > boxW - 16 then zeilen[#zeilen + 1] = zeile; zeile = wort else zeile = probe end
+        end
+        if zeile ~= "" then zeilen[#zeilen + 1] = zeile end
+        local boxH = math.min(28 + 13 * #zeilen, h - 10)
+        local boxX, boxY = math.floor((w - boxW) / 2), math.floor((h - boxH) / 2)
+        if qsMeldung.fehler then gc:setColorRGB(255, 205, 200) else gc:setColorRGB(255, 235, 150) end
+        gc:fillRect(boxX, boxY, boxW, boxH)
+        gc:setColorRGB(0, 0, 0); gc:setPen("thin", "smooth"); gc:drawRect(boxX, boxY, boxW, boxH)
+        gc:setFont("sansserif", "b", 10); gc:drawString(qsMeldung.titel .. ":", boxX + 8, boxY + 6)
+        gc:setFont("sansserif", "r", 9)
+        for zi, z in ipairs(zeilen) do
+            local y = boxY + 12 + 13 * zi
+            if y + 12 <= boxY + boxH then gc:drawString(z, boxX + 8, y) end
+        end
+        gc:drawString("[Esc]", boxX + boxW - 34, boxY + 6)
+    end
     
     if #massiv_elemente == 0 and #duenn_elemente == 0 and mode == "idle" and not menuOpen then
         gc:setColorRGB(0, 0, 0)
@@ -4052,7 +4101,7 @@ function on.charIn(c)
             shear_selector_open = true
             status = "Schubverlauf waehlen: 0 bis 9. Esc schliesst."
         else
-            status = "V ist nur im Schubspannungsmodus verfuegbar."
+            meldung("V ist nur im Schubspannungsmodus verfuegbar.", "Hinweis")
         end
     elseif shear_selector_open and (c == "0" or c == "1" or c == "2" or c == "3" or c == "4" or c == "5" or c == "6" or c == "7" or c == "8" or c == "9") then
         local choice = c == "0" and 10 or tonumber(c)
@@ -4066,7 +4115,7 @@ function on.charIn(c)
     elseif c == "h" then autoZoom()
     elseif c == "k" then
         if not system_results then
-            status = "Kein Querschnitt vorhanden."
+            meldung("Kein Querschnitt vorhanden.", "Hinweis", true)
         else
             kernMode = (kernMode + 1) % 3
             hover_type, hover_idx = nil, nil
@@ -4148,7 +4197,7 @@ end
 local function enterSigmaInput()
     local val = evaluate_input(inputText)
     if not val then
-        status = "Ungueltige σx-Eingabe."
+        meldung("Ungueltige σx-Eingabe.", "Eingabe", true)
         inputText = ""
         platform.window:invalidate()
         return true
@@ -4165,11 +4214,13 @@ local function enterSigmaInput()
             status = "M" .. moment_b .. " in " .. moment_unit .. " eingeben, dann Enter."
         else
             sigma_input_step = 0
-            status = finishSigmaCalculation(0) and "Normale σx-Minimum und -Maximum berechnet." or "σx nicht berechenbar: Nenner ist 0."
+            if finishSigmaCalculation(0) then status = "Normale σx-Minimum und -Maximum berechnet."
+            else meldung("σx nicht berechenbar: Nenner ist 0.", "Spannung nicht berechnet", true) end
         end
     else
         sigma_Mz, sigma_input_step, inputText = input_to_internal(val, moment_unit), 0, ""
-        status = finishSigmaCalculation(sigma_Mz) and "Schiefe σx-Minimum und -Maximum berechnet." or "σx nicht berechenbar: Nenner ist 0."
+        if finishSigmaCalculation(sigma_Mz) then status = "Schiefe σx-Minimum und -Maximum berechnet."
+        else meldung("σx nicht berechenbar: Nenner ist 0.", "Spannung nicht berechnet", true) end
     end
     platform.window:invalidate()
     return true
@@ -4222,7 +4273,7 @@ local function enterMenuInput()
             berechneSystem()
         end
     else
-        status = "Ungueltige Eingabe."
+        meldung("Ungueltige Eingabe.", "Eingabe", true)
     end
     inputMode, inputText = false, ""
     platform.window:invalidate()
@@ -4331,6 +4382,11 @@ function on.contextMenu()
 end
 
 function on.escapeKey()
+    if qsMeldung then
+        qsMeldung = nil
+        platform.window:invalidate()
+        return
+    end
     if menuOpen or inputMode or shear_selector_open then
         menuOpen = false
         inputMode, inputText = false, ""

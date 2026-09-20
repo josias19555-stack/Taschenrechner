@@ -51,8 +51,10 @@ fall('1 Gleichmaessig symbolisch', function()
         check('wv1(x) = 0', 'wv1(x)', '0')
         check('uneu1(x) = EA u = 10^10 a dT x', 'uneu1(x)', '10^10*a*dt*x')
         T.wahr('Hinweis zu den Diagrammen offen', hinweisOffen == true)
+        on.escapeKey()   -- schliesst zuerst die Exportmeldung des Rand-LGS
+        T.wahr('erstes ESC schliesst die Exportmeldung', meldungText == nil and hinweisOffen == true)
         on.escapeKey()
-        T.wahr('ESC schliesst den Hinweis', hinweisOffen == false)
+        T.wahr('zweites ESC schliesst den Hinweis', hinweisOffen == false)
         pcall(starteBerechnung)
         T.wahr('gleiche Eingaben: Hinweis bleibt zu', hinweisOffen == false)
         getStaebe()[1].To_str = 'dt2'

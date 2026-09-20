@@ -19,6 +19,7 @@ local REIHEN = {
     { name = 'Starre Staebe (biegesteif, dehnsteif)', datei = dir .. 'starr.lua' },
     { name = 'Starre Staebe: direkt gegen Grenzwert', datei = dir .. 'starr_direkt.lua' },
     { name = 'Temperatur (auch symbolisch)', datei = dir .. 'temperatur.lua' },
+    { name = 'KGV-Matrizen gegen FEM', datei = dir .. 'kgv.lua' },
     { name = 'Oberflaeche Tragwerk (ESC, Obermenue)', datei = dir .. 'oberflaeche.lua' },
     { name = 'Querschnitt (Handrechnung, Oberflaeche)', datei = dir .. 'querschnitt.lua' },
 }

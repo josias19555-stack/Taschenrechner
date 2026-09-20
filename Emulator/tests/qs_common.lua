@@ -55,6 +55,15 @@ _G.__Q = {
   setView = function(mode, sichtbar) shear_view_mode = mode; shear_profile_visible = sichtbar end,
   setFlags = function(center, tab, momtab) show_shear_center = center; showTable = tab; show_shear_moment_table = momtab; if momtab then shear_moment_table = berechneSchubMomentTabelle() end end,
   update = aktualisiereTorsionsverlauf,
+  -- Schub wie auf dem Rechner eingeben: Q_y, Enter, Q_z, Enter (angezeigtes KOS)
+  schubEingabe = function(qa, qb)
+    openShearInput()
+    inputText = tostring(qa); enterShearInput()
+    inputText = tostring(qb); enterShearInput()
+    return shear_results
+  end,
+  meldung = function() return qsMeldung end,
+  paint = function(gc) showResults = false; on.paint(gc) end,
 }
 ]]
 assert(loadstring(code .. export, '=' .. pfad))()

@@ -230,8 +230,16 @@ fall('8 Hinweise', function()
     T.wahr('Hinweisbox gezeichnet', sichtbarGenau('Hinweis:'))
     on.escapeKey()
     T.wahr('ESC schliesst die Hinweisbox', hinweisOffen == false and not sichtbarGenau('Hinweis:'))
+    zeichne()   -- Zeichnen darf den Fingerabdruck nicht veraendern
     pcall(starteBerechnung)
-    T.wahr('gleiche Eingaben: Box bleibt zu', hinweisOffen == false)
+    T.wahr('gleiches System neu gerechnet: Box bleibt zu', hinweisOffen == false)
+    getStaebe()[5].EA_str = '3*EA'   -- andere Dehnsteifigkeit, aber weiter keine Gelenke
+    pcall(starteBerechnung)
+    T.wahr('System geaendert (EA Stab 5): Hinweis wieder offen', hinweisOffen == true and hinweisMit('Stab 5, 6: EI ist eine Zahl'))
+    on.escapeKey()
+    getKnoten()[2].last_y_str = '2*F'   -- auch eine Laststaenderung zaehlt als Aenderung
+    pcall(starteBerechnung)
+    T.wahr('Last geaendert: Hinweis wieder offen', hinweisOffen == true)
     klausur4(true)
     T.wahr('mit Gelenken: kein EI-Hinweis', not hinweisMit('EI ist eine Zahl'), table.concat(hinweisListe, ' | '))
     -- Zweigelenkrahmen mit EI symbolisch, EA Zahl: Hinweis EA, mit Standard-EA dehnstarr keiner
@@ -277,6 +285,30 @@ fall('9 Schalter Methode', function()
     on.enterKey()
     T.wahr('nochmal Enter: wieder direkt', randStarrDirekt == true)
     menuOffen = false
+end)
+
+fall('10 Exportmeldungen', function()
+    T.abschnitt('Exporte melden sich sichtbar (frueher nur Konsole bzw. Disp)')
+    leer({ pinned(node(0)), roller(node(2)) })
+    stabZeichnen(1, 2, '1')
+    -- Export ohne Berechnung
+    exportVerschiebungenToTI()
+    T.wahr('Meldung "zuerst berechnen"', meldungText ~= nil and meldungText:find('berechnen', 1, true) ~= nil, meldungText)
+    T.wahr('Box gezeichnet', sichtbarGenau('Export fehlgeschlagen:'))
+    on.escapeKey()
+    T.wahr('ESC schliesst die Meldung', meldungText == nil and not sichtbarGenau('Export fehlgeschlagen:'))
+    -- erfolgreicher Rand-LGS-Export
+    pcall(starteBerechnung)
+    T.wahr('Berechnung raeumt die Meldung weg', meldungText == nil)
+    exportBiegelinienNeuToTI()
+    T.wahr('Rand-LGS meldet den Export', meldungText ~= nil and meldungText:find('Rand-LGS:', 1, true) ~= nil, meldungText)
+    T.wahr('Box mit Titel Export', sichtbarGenau('Export:'))
+    on.escapeKey()
+    -- fehlgeschlagener Rand-LGS-Export (keine Staebe)
+    leer({ pinned(node(0)), roller(node(2)) })
+    exportBiegelinienNeuToTI()
+    T.wahr('Rand-LGS meldet den Fehlschlag', meldungText ~= nil and meldungText:find('Keine Staebe', 1, true) ~= nil, meldungText)
+    on.escapeKey()
 end)
 
 T.ende('Oberflaeche Tragwerk')

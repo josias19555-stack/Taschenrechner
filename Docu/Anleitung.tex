@@ -1,0 +1,770 @@
+% Anleitung zu den beiden TI-Nspire-Lua-Skripten
+%   Tragwerksskript/Biegelinieneu.lua  und  Querschnitte/Querschnitt.lua
+% Uebersetzen mit pdflatex (zweimal, wegen Inhaltsverzeichnis und Verweisen).
+% Bilder: \bildplatz{dateiname}{Bildunterschrift} setzt einen Platzhalterrahmen.
+%         Zum Einfuegen eines echten Bildes die Zeile durch
+%         \begin{figure}[htbp]\centering\includegraphics[width=0.8\linewidth]{bilder/datei}\caption{...}\end{figure}
+%         ersetzen.
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[ngerman]{babel}
+\usepackage[a4paper,margin=2.4cm]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage[autostyle,german=quotes]{csquotes}
+\usepackage[hidelinks]{hyperref}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.6em}
+
+\newcommand{\taste}[1]{\textsf{\textbf{#1}}}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\bildplatz}[2]{%
+  \begin{figure}[htbp]
+    \centering
+    \fbox{\parbox[c][3.0cm][c]{0.78\linewidth}{\centering\itshape Platz für ein Bild: \texttt{#1}}}
+    \caption{#2}
+  \end{figure}}
+
+\title{Anleitung\\[0.3em]\large Tragwerksskript und Querschnittsskript für den TI-Nspire CX II CAS}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+%=====================================================================
+\section{Überblick}
+
+Die beiden Lua-Skripte laufen direkt auf dem Rechner (oder im Computer-Emulator) und decken
+zusammen den Stoff der Technischen Mechanik~II ab:
+
+\begin{itemize}
+  \item \textbf{Tragwerksskript} (\code{Biegelinieneu.lua}): ebene Stabtragwerke, Schnittgrößen,
+        Verformungen, Kraftgrößenverfahren, Prinzip der virtuellen Verschiebungen, Export der
+        Biege- und Längslinien ins CAS.
+  \item \textbf{Querschnittsskript} (\code{Querschnitt.lua}): Querschnittswerte, Normalspannung,
+        Schubspannung, Schubmittelpunkt, Torsion, Kernfläche.
+\end{itemize}
+
+Beide Skripte werden in den Script-Editor eines Dokuments eingefügt und gespeichert; sie laufen
+dann auf ihrer eigenen Seite. Für alle Exporte und für symbolische Rechnungen wird eine
+\textbf{CAS}-Version des Rechners gebraucht.
+
+\subsection*{Grundprinzip der Bedienung}
+
+\begin{itemize}
+  \item Gezeichnet wird mit der Maus bzw.\ dem Touchpad, Punkte rasten auf dem Raster ein.
+  \item Ein Objekt unter dem Mauszeiger (\emph{Hover}) wird hervorgehoben. \taste{Enter} öffnet
+        dessen Menü.
+  \item In Menüs bewegt man sich mit den Pfeiltasten \taste{$\uparrow$}/\taste{$\downarrow$};
+        \taste{$\leftarrow$}/\taste{$\rightarrow$} blättert die Seiten. \taste{Enter} öffnet eine
+        Eingabe oder schaltet einen Wert um, ein zweites \taste{Enter} übernimmt die Eingabe.
+  \item \taste{Esc} bricht ab und schließt Boxen, \taste{Backspace} löscht.
+  \item Alle Zahlenfelder akzeptieren Ausdrücke: \code{2/3}, \code{sqrt(2)}, \code{1e8},
+        Dezimalkomma (\code{1,5}) und – im Tragwerksskript – Symbole wie \code{q} oder \code{EI}.
+\end{itemize}
+
+\bildplatz{uebersicht}{Startbildschirm der beiden Skripte}
+
+%=====================================================================
+\part{Tragwerksskript}
+
+\section{Ein erstes System in fünf Schritten}
+
+\begin{enumerate}
+  \item \textbf{Knoten setzen:} in die Zeichenfläche klicken. Die Punkte rasten auf dem Raster ein
+        (Standard 1{,}0~m, änderbar im Obermenü \taste{o}, Seite~1).
+  \item \textbf{Stäbe zeichnen:} einen Knoten anklicken, dann den zweiten. Der Stab entsteht
+        zwischen beiden.
+  \item \textbf{Lager und Gelenke:} Knoten anfahren, \taste{Enter}, im Knotenmenü Seite~1
+        \emph{Lager X}, \emph{Lager Y}, \emph{Lager M} bzw.\ \emph{Gelenkig} umschalten.
+  \item \textbf{Lasten:} Knotenmenü Seite~2 für Einzellasten, Stabmenü Seite~1 und~3 für
+        Streckenlasten.
+  \item \textbf{Rechnen:} \taste{b}. Danach mit \taste{n}, \taste{q}, \taste{m}, \taste{w},
+        \taste{u} zwischen den Verläufen wechseln, mit \taste{s} zurück zur Systemansicht.
+\end{enumerate}
+
+\bildplatz{tragwerk-system}{Systemansicht mit Lagern, Gelenken und Lasten}
+
+\section{Knoten}
+
+Knotenmenü (\taste{Enter} auf einem Knoten), vier Seiten:
+
+\begin{longtable}{p{0.16\linewidth}p{0.36\linewidth}p{0.42\linewidth}}
+  \toprule
+  \textbf{Seite} & \textbf{Zeilen} & \textbf{Bedeutung} \\
+  \midrule \endhead
+  1 Geometrie & X-Koordinate, Y-Koordinate, Gelenkig, Lager X, Lager Y, Lager M &
+    Koordinaten auch als Ausdruck oder Symbol. \emph{Gelenkig} macht den Knoten zum Vollgelenk
+    (alle Stabenden dort momentenfrei). Die drei Lager sind einzeln schaltbar: X und Y zusammen
+    ergeben ein Festlager, nur eines davon ein Rollenlager, alle drei eine Einspannung. \\
+  2 Lasten & Last $F_x$, Last $F_y$, Last $M$, Lastwinkel &
+    Einzellasten am Knoten. Der Winkel dreht das Lastpaar $F_x$/$F_y$. \\
+  3 Federn & Feder $c_x$, $c_y$, $c_m$, Federwinkel &
+    Weg- und Drehfedern am Knoten; der Winkel dreht die Federachsen. Federwerte dürfen
+    symbolisch sein, z.\,B.\ \code{3*EA*l}. \\
+  4 Ergebnisse & $R_\xi$, $R_\eta$, $R_m$, \code{ü\_x}, \code{ü\_y}, \code{ü\_ges}, Export &
+    Auflagerreaktionen in Lagerrichtung nach der Berechnung; unten lässt sich der Knoten
+    einzeln ins CAS exportieren. \\
+  \bottomrule
+\end{longtable}
+
+Ein gedrehtes Lager entsteht über den Lagerwinkel (Knotenmenü Seite~1 bzw.\ die Winkelangabe des
+Knotens): Die Lagerrichtungen $\xi$ und $\eta$ drehen sich mit, die Auflagerkräfte werden in
+diesen Richtungen ausgegeben.
+
+\section{Stäbe}
+
+Stabmenü (\taste{Enter} auf einem Stab), sieben Seiten:
+
+\begin{longtable}{p{0.16\linewidth}p{0.38\linewidth}p{0.40\linewidth}}
+  \toprule
+  \textbf{Seite} & \textbf{Zeilen} & \textbf{Bedeutung} \\
+  \midrule \endhead
+  1 Steifigkeit und Lasten & $EI$, \emph{biegesteif}, $EA$, \emph{dehnsteif}, Last $q(x)$,
+    Last $n(x)$, Momentenlast $m$, Bogenradius &
+    $q$ wirkt quer, $n$ längs, $m$ als Streckenmoment. \emph{biegesteif}/\emph{dehnsteif} machen
+    den Stab starr (Abschnitt~\ref{sec:starr}); das zugehörige Eingabefeld ist dann gesperrt und
+    zeigt \emph{starr}. Ein Bogenradius $\ne 0$ macht aus dem Stab einen Kreisbogen. \\
+  2 Globale Linienlasten & Global $p_X$, $p_X$ projiziert, Global $p_Y$, $p_Y$ projiziert &
+    Lasten in globaler Richtung, wahlweise auf die Stabachse projiziert (z.\,B.\ Schnee auf einem
+    geneigten Dach). \\
+  3 Trapezlasten und Temperatur & Trapez $q$ Start/Ende, Trapez $n$ Start/Ende,
+    $T_{oben}$, $T_{unten}$, $\alpha_T$, Höhe $h$ &
+    Trapezanteile addieren sich zur konstanten Last aus Seite~1. Temperatur siehe
+    Abschnitt~\ref{sec:temperatur}. \\
+  4 Gelenke & M-Gelenk Start/Ende, N-Gelenk Start/Ende, Q-Gelenk Start/Ende &
+    Gelenke am jeweiligen Stabende. Ein M-Gelenk überträgt kein Moment, ein N-Gelenk keine
+    Normalkraft, ein Q-Gelenk keine Querkraft. \\
+  5 Schnittgrößen & $N_a$, $Q_a$, $M_a$, $N_b$, $Q_b$, $M_b$ & Stabendgrößen nach der Berechnung. \\
+  6 Auflager-/Endkräfte & $h_a$, $v_a$, $M_a$, \dots & Endkräfte in globaler Richtung. \\
+  7 Verformungen und Export & $u_a$, $v_a$, $\varphi_a$, \dots, \emph{In TI speichern} &
+    Stabendverformungen; Export des einzelnen Stabes ins CAS. \\
+  \bottomrule
+\end{longtable}
+
+\taste{f} dreht einen Stab unter dem Mauszeiger um (Anfang und Ende tauschen, die Anfangs- und
+Endlasten wandern mit). Das ist nützlich, wenn die lokale $x$-Richtung für den Export anders
+laufen soll.
+
+\bildplatz{tragwerk-stabmenue}{Stabmenü, Seite 1}
+
+\section{Berechnung, Ansichten und Diagramme}
+
+\taste{b} rechnet das System. Danach stehen zur Verfügung:
+
+\begin{longtable}{p{0.12\linewidth}p{0.84\linewidth}}
+  \toprule
+  \textbf{Taste} & \textbf{Ansicht} \\
+  \midrule \endhead
+  \taste{s} & Systemansicht \\
+  \taste{n} & Normalkraft $N$ \\
+  \taste{q} & Querkraft $Q$ \\
+  \taste{m} & Moment $M$ \\
+  \taste{w} & Biegelinie $w$ \\
+  \taste{u} & Längsverformung $u$ \\
+  \taste{e} & Explosionsansicht (freigeschnittene Stäbe, Seiten mit erneutem \taste{e}) \\
+  \taste{t} & Beschriftungen in der Explosionsansicht ein- und ausblenden \\
+  \taste{v} & Kinematik bzw.\ Verschiebungszustand (siehe PvV) \\
+  \taste{p} & Polplan \\
+  \taste{l} & globales Gleichungssystem anzeigen \\
+  \bottomrule
+\end{longtable}
+
+Im Obermenü (\taste{o}) lässt sich die Darstellung steuern: Seite~1 schaltet die Anzeige der
+Normalkraft und den Schnittgrößenmodus (\emph{Hover} zeigt den Wert unter dem Mauszeiger,
+\emph{Start\&End} die Stabendwerte), Seite~3 steuert Zahlenformat (Wurzelbrüche, nur Brüche,
+Dezimal), Bemaßung, Punkte pro Stab und die Anzeige der Maximalwerte, Seite~4 die
+Verlaufsskalierung.
+
+\bildplatz{tragwerk-momente}{Momentenverlauf mit Maximalwerten}
+
+\section{Steifigkeiten und starre Stäbe}\label{sec:starr}
+
+Jeder Stab hat $EA$ und $EI$. Voreingestellt sind $EA = 10^{10}$ und $EI = 10^{8}$; beide Werte
+lassen sich im Obermenü Seite~1 für alle Stäbe auf einmal setzen (\emph{Alle EA setzen},
+\emph{Alle EI setzen}). Dieser Wert gilt auch für später gezeichnete Stäbe, ebenso wenn er
+symbolisch ist (z.\,B.\ \code{EA}).
+
+\textbf{Starre Stäbe} werden im Stabmenü Seite~1 geschaltet:
+
+\begin{itemize}
+  \item \emph{biegesteif}: $EI \to \infty$, der Stab verbiegt sich nicht.
+  \item \emph{dehnsteif}: $EA \to \infty$, der Stab ändert seine Länge nicht.
+\end{itemize}
+
+Das wirkt überall: in den Diagrammen, in den Auflagerkräften und im Export. In der Berechnung
+werden die Stabenden exakt gekoppelt, die Schnittgrößen folgen aus dem Gleichgewicht. Eine
+sehr große Ersatzsteifigkeit wird bewusst \emph{nicht} verwendet, weil das neben weichen Federn
+zu Zahlenproblemen führt.
+
+Zusätzlich gibt es im Obermenü Seite~4 den Schalter \emph{Standard-EA dehnstarr} (ab Werk aus):
+Dann gelten alle Stäbe als dehnsteif, deren $EA$ nicht im Stabmenü eingegeben wurde. Ein im
+Stabmenü eingetragenes $EA$ nimmt den Stab aus (Anzeige \emph{dehnsteif: Nein}); \emph{Alle EA
+setzen} macht alle Stäbe wieder zu Standard-Stäben. Ein symbolisches $EA$ bleibt immer dehnbar.
+
+Der Schalter \emph{Starre Stäbe (Export)} (Obermenü Seite~4) wählt das Verfahren für den
+Rand-LGS-Export: \emph{direkt} (Standard, schnell) oder \emph{Grenzwert}. Beide liefern dieselben
+Ergebnisse; halten sich starre Teile gegenseitig statisch unbestimmt, wechselt das Programm
+automatisch auf den Grenzwert.
+
+\textbf{Pendelstäbe} (nur Normalkraft) modelliert man mit Gelenken an beiden Enden, also
+M-Gelenke im Stabmenü Seite~4 oder gelenkige Knoten. Ohne Gelenke ist ein Stab immer ein
+Biegestab und nimmt mit seinem $EI$ am Tragverhalten teil.
+
+\section{Temperatur}\label{sec:temperatur}
+
+Im Stabmenü Seite~3 stehen $T_{oben}$, $T_{unten}$, der Ausdehnungskoeffizient $\alpha_T$ und die
+Querschnittshöhe $h$. Daraus werden zwei Anteile:
+
+\begin{align*}
+  \varepsilon_T &= \alpha_T \,\frac{T_{oben} + T_{unten}}{2} && \text{(gleichmäßige Erwärmung, Längenänderung)}\\
+  \kappa_T &= \alpha_T \,\frac{T_{unten} - T_{oben}}{h} && \text{(Temperaturunterschied, Krümmung)}
+\end{align*}
+
+\textbf{Achtung:} Mit $h = 0$ gibt es keinen Temperaturunterschied, es wirkt nur die mittlere
+Erwärmung. Wer einen Stab gleichmäßig um $\Delta T$ erwärmen will, trägt
+$T_{oben} = T_{unten} = \Delta T$ ein. Trägt man nur $T_{oben} = \Delta T$ ein und lässt $h = 0$,
+wirkt nur $\Delta T/2$. Auf diesen Fall weist das Programm mit einer gelben Box hin.
+
+Temperatur darf auch symbolisch eingegeben werden (z.\,B.\ \code{dt}, \code{t1}, \code{a}); der
+Rand-LGS-Export rechnet dann symbolisch.
+
+\section{Symbolischer Modus}\label{sec:symbolisch}
+
+Sobald in einem Eingabefeld ein Symbol steht (z.\,B.\ \code{q}, \code{F}, \code{EI}, \code{dt}),
+schaltet das Programm in den symbolischen Modus. Oben rechts erscheint \emph{symb.}
+
+\begin{itemize}
+  \item \textbf{Referenzlänge:} Enthält die Geometrie ein Symbol, ist dieses die Referenzlänge.
+        Sonst gilt automatisch ein Rasterabstand als $l$, und alle Stablängen erscheinen als
+        Vielfache davon (Raster 0,5~m, Stab 2~m $\rightarrow$ \code{4*l}).
+  \item \textbf{Diagramme} werden mit symbolischen Werten beschriftet.
+  \item \textbf{Exporte} (Abschnitt~\ref{sec:export}) sind vollständig symbolisch.
+\end{itemize}
+
+\textbf{Was nicht geht} (rote Box, die Berechnung bricht ab):
+
+\begin{longtable}{p{0.45\linewidth}p{0.51\linewidth}}
+  \toprule
+  \textbf{Meldung} & \textbf{Grund} \\
+  \midrule \endhead
+  Nur ein Längensymbol erlaubt & Mehrere verschiedene Symbole in den Koordinaten. \\
+  Koordinate kein Vielfaches von $l$ & Koordinaten wie \code{a+2}. \\
+  Symbol \code{t} ist reserviert & \code{t} ist die Integrationsvariable des Exports; der Rechner
+    unterscheidet \code{t} und \code{T} nicht. Stattdessen \code{dt}, \code{t1}, \dots verwenden. \\
+  Symbol EI/EA kommt vor, aber Stab~$i$ hat EI/EA als Zahl & Symbol und Zahl dürfen nicht gemischt
+    werden; $EI$ bzw.\ $EA$ für alle Stäbe symbolisch setzen. \\
+  Temperatur als Funktion von $x$ & $x$ in $T_{oben}$, $T_{unten}$, $\alpha_T$ oder $h$. \\
+  Lastfunktion $f(x)$ & $x$ in $q$, $n$, $m$, $p_X$ oder $p_Y$ (numerisch ist das erlaubt). \\
+  Bögen nicht symbolisch möglich & Bogenradius $\ne 0$. \\
+  \bottomrule
+\end{longtable}
+
+Griechische Buchstaben werden nicht als Symbol erkannt; also \code{a} statt $\alpha$ schreiben.
+
+\bildplatz{tragwerk-symbolisch}{Symbolische Beschriftung der Schnittgrößen}
+
+\section{Export ins CAS}\label{sec:export}
+
+Die Exporte stehen im Obermenü (\taste{o}) auf Seite~2. Nach dem Export meldet sich das Programm
+mit einer gelben Box; die Ergebnisse stehen als Variablen im Dokument und lassen sich in einer
+Calculator-Seite weiterverwenden.
+
+\begin{longtable}{p{0.32\linewidth}p{0.64\linewidth}}
+  \toprule
+  \textbf{Menüpunkt} & \textbf{Variablen im CAS} \\
+  \midrule \endhead
+  Alles exportieren & Systemmatrizen und Stabdaten (\code{sys\_k}, \code{sys\_f}, \code{sys\_u},
+    \code{stab\_i}, \code{knot\_i}) \\
+  Nur Biegelinien & \code{v\_EI\_stab\_i}: $EI\,w(x)$ je Stab aus der FEM-Lösung \\
+  Nur Längslinien & \code{u\_EA\_stab\_i}: $EA\,u(x)$ je Stab \\
+  Verschiebungslinien & beides zusammen \\
+  KGV-Daten & \code{kgv\_delta}, \code{kgv\_delta0} (Abschnitt~\ref{sec:kgv}) \\
+  Arbeitssatz & \code{w\_eq1}, \code{w\_eq2} (nur im PvV-Modus) \\
+  Nur Schnittgrößen & \code{n\_stab\_i(x)}, \code{q\_stab\_i(x)}, \code{m\_stab\_i(x)} \\
+  LGS-Matrix & \code{ggw\_a}, \code{ggw\_b}, \code{ggw\_x}, \code{lgs} \\
+  Neue Biegelinie / Neue Längslinie & Rand-LGS, siehe unten \\
+  \bottomrule
+\end{longtable}
+
+\subsection{\texorpdfstring{Rand-LGS: \code{wneu}, \code{uneu}, \code{wv}, \code{uv}, \code{randbed}}{Rand-LGS: wneu, uneu, wv, uv, randbed}}
+
+Die beiden Menüpunkte \emph{Neue Biegelinie} und \emph{Neue Längslinie} rufen dieselbe Rechnung
+auf. Sie stellt für jeden Stab den Ansatz
+
+\[
+  EI\,w_i(x) = w_{p,i}(x) + c_1\frac{x^3}{6} + c_2\frac{x^2}{2} + c_3 x + c_4,
+  \qquad
+  EA\,u_i(x) = u_{p,i}(x) + C_1 x + C_2
+\]
+
+auf und bestimmt die Konstanten aus \emph{allen} Rand- und Übergangsbedingungen des Systems.
+Exportiert werden:
+
+\begin{longtable}{p{0.22\linewidth}p{0.74\linewidth}}
+  \toprule
+  \textbf{Variable} & \textbf{Inhalt} \\
+  \midrule \endhead
+  \code{wneu\_i(x)} & $EI\,w_i(x)$, die Biegelinie in der Form der Handrechnung \\
+  \code{uneu\_i(x)} & $EA\,u_i(x)$; die Ableitung liefert die Normalkraft \\
+  \code{wv\_i(x)} & $w_i(x)$, die Durchbiegung selbst \\
+  \code{uv\_i(x)} & $u_i(x)$, die Längsverschiebung selbst \\
+  \code{randbed} & Spaltenvektor mit allen verwendeten Bedingungen als Text \\
+  \code{randinfo} & Legende: starre Stäbe, verwendete Methode, Bedeutung der Funktionen \\
+  \bottomrule
+\end{longtable}
+
+In \code{randbed} stehen die Bedingungen so, wie man sie von Hand aufschreibt, mit den
+Schnittgrößen als Ableitungen, also \code{-EIw'''} statt $Q$, \code{-EIw''} statt $M$ und
+\code{EAu'} statt $N$:
+
+\begin{center}
+\code{["w1(x1=0)=0";"EIw1''(x1=0)=0";"w1(x1=l)=w2(x2=0)";\dots]}
+\end{center}
+
+\subsection{Nach einer gesuchten Größe auflösen}
+
+Weil \code{wv} und \code{uv} die Verschiebungen selbst sind, lassen sich typische Klausurfragen
+direkt auf dem Rechner lösen:
+
+\begin{itemize}
+  \item \enquote{Bestimmen Sie $\Delta T$, sodass sich Punkt A nicht verschiebt:}\\
+        \code{solve(uv1(l)=0,dt)}
+  \item \enquote{Welche Kraft $F$ verschiebt den Punkt um 0,5?}\\
+        \code{solve(wv2(2*l)=0.5,f)}
+\end{itemize}
+
+Voraussetzung ist, dass die gesuchte Größe als Symbol eingegeben wurde. Die Funktionen sind exakt;
+\code{approx(wneu1(x))} liefert bei Bedarf Dezimalzahlen.
+
+\textbf{Grenzen des Rand-LGS:} keine Bögen, kein KGV-Einheitszustand (Zustand~0 wählen),
+keine Lasten in frei beweglichen Richtungen. Schlägt etwas fehl, steht der Grund in einer roten
+Box und zusätzlich in \code{randbed} als \code{["Fehler: \dots"]}; alte Funktionen werden vorher
+gelöscht, es bleiben also keine veralteten Ergebnisse stehen.
+
+\section{Kraftgrößenverfahren (KGV)}\label{sec:kgv}
+
+Mit \emph{Auto-KGV} (Obermenü Seite~1) sucht das Programm selbst ein statisch bestimmtes
+Hauptsystem und zeigt die Anzahl der überzähligen Größen als $n$ an. Die Zifferntasten
+\taste{1}\,\dots\,\taste{9} schalten zwischen dem Lastzustand (Zustand~0) und den Einheitszuständen
+$X_i = 1$ um.
+
+Gelöst werden, in dieser Reihenfolge: Einspannmomente, Lagerkräfte, Momentengelenke und zuletzt
+unbelastete Pendelstäbe. Der Export \emph{KGV-Daten} liefert $\delta_{ij}$ (\code{kgv\_delta}) und
+$\delta_{i0}$ (\code{kgv\_delta0}), daraus folgt $\underline{X} = -\delta^{-1}\,\delta_0$.
+
+\textbf{Wichtig bei gelösten Pendelstäben:} Der Stab ist im Hauptsystem entfernt, die
+Einheitskräfte greifen an seinen Knoten an. Seine eigene Längenänderung $NL/(EA)$ steckt daher
+nicht in den Knotenverschiebungen und wird zu $\delta_{ii}$ addiert. Nur zu diesem einen Eintrag:
+Im Einheitszustand $i$ trägt allein der gelöste Stab~$i$ die Kraft $N = 1$, alle anderen gelösten
+Stäbe sind ebenfalls aufgetrennt und kraftfrei. Dehnsteife Stäbe liefern keinen Beitrag. Bei
+gelösten Lagern und eingefügten Gelenken entfällt der Zusatz, weil der Stab dort im System bleibt.
+
+\section{Prinzip der virtuellen Verschiebungen (PvV)}
+
+\taste{v} öffnet den Verschiebungszustand. Ist das System noch nicht kinematisch, erscheint die
+Meldung \emph{System ist starr! [Enter] für PvV-Modus}. Nach \taste{Enter} wählt man mit
+\taste{Enter} auf einem Knoten oder Stab die zu lösende Bindung:
+
+\begin{itemize}
+  \item am Knoten: Lager X, Lager Y, Lager M entfernen oder ein Gelenk einfügen (nur bei zwei
+        Stäben),
+  \item am Stab: M-, N- oder Q-Gelenk an Anfang oder Ende.
+\end{itemize}
+
+Danach zeigt das Programm die kinematische Kette, den Polplan (\taste{p}) und in den Menüs die
+Starrkörperverschiebungen, die Lastangriffspunkte und die Arbeitsanteile $W$. Der Menüpunkt
+\emph{Arbeitssatz} exportiert die Gleichung als \code{w\_eq1} und \code{w\_eq2}.
+
+\bildplatz{tragwerk-pvv}{PvV-Modus mit Polplan und Arbeitsanteilen}
+
+\section{Meldungen im Tragwerksskript}
+
+Alle Meldungen erscheinen als Box in der Bildmitte. \taste{Esc} schließt immer die oberste Box:
+zuerst Eingabe oder Menü, dann die Box, dann Sondermodi und die Auswahl.
+
+\subsection{Warnungen (rot bzw.\ orange)}
+
+\begin{longtable}{p{0.34\linewidth}p{0.29\linewidth}p{0.31\linewidth}}
+  \toprule
+  \textbf{Meldung} & \textbf{Wann} & \textbf{Warum} \\
+  \midrule \endhead
+  Symbolischer Modus nicht möglich & Symbolische Eingabe, die das Verfahren nicht abbilden kann
+    (Liste in Abschnitt~\ref{sec:symbolisch}) & Verhindert falsche Ergebnisse; Berechnung und
+    Rand-LGS bleiben gesperrt, auch nachdem die Box geschlossen wurde \\
+  System ist kinematisch! & Das Gleichungssystem ist singulär & Das System ist ein Mechanismus,
+    es gibt keine eindeutige Lösung \\
+  Starrmodus \& statisch unbestimmt! & Statisch unbestimmtes System mit sehr steifen Stäben
+    ($EA$, $EI \ge 10^7$, auch die Standardwerte) & In unbestimmten Systemen hängt die
+    Kraftverteilung von den Steifigkeitsverhältnissen ab \\
+  System ist starr! [Enter] für PvV-Modus & PvV-Ansicht bei nicht kinematischem System &
+    Für PvV muss erst eine Bindung gelöst werden \\
+  \bottomrule
+\end{longtable}
+
+\subsection{Hinweise (gelb)}
+
+Diese Box erscheint nach der Berechnung; das Ergebnis ist gültig. Nach \taste{Esc} kommt sie erst
+wieder, wenn sich am System etwas geändert hat.
+
+\begin{longtable}{p{0.34\linewidth}p{0.29\linewidth}p{0.31\linewidth}}
+  \toprule
+  \textbf{Hinweis} & \textbf{Wann} & \textbf{Warum} \\
+  \midrule \endhead
+  $T_{oben} \ne T_{unten}$, aber $h = 0$ & Temperaturunterschied ohne Höhe &
+    Es wirkt nur die mittlere Erwärmung, keine Krümmung \\
+  Temperatur symbolisch: Diagrammwerte ohne Temperaturanteil & Symbolischer Modus mit Temperatur &
+    Die Diagrammbeschriftung entsteht durch Superposition und enthält die Temperatur nicht; der
+    Export schon \\
+  Stab~$i$: $EI$ ist eine Zahl & Symbolischer Modus, der Stab wird gebogen, hat keine Gelenke an
+    beiden Enden und ein Zahlen-$EI$ & Das Ergebnis mischt Zahl und Symbol; entweder Pendelstab
+    mit Gelenken, oder $EI$ symbolisch, oder biegesteif \\
+  Stab~$i$: $EA$ ist eine Zahl & wie oben mit $N \ne 0$ & Abhilfe: dehnsteif, Standard-EA
+    dehnstarr oder $EA$ symbolisch \\
+  \bottomrule
+\end{longtable}
+
+\subsection{Export- und Rand-LGS-Meldungen}
+
+Erfolgreiche Exporte melden sich mit Titel \emph{Export}, Fehlschläge mit \emph{Export
+fehlgeschlagen}. Typische Fehlermeldungen: \emph{Bitte zuerst das System berechnen},
+\emph{KGV nicht aktiv oder System statisch bestimmt}, \emph{bitte zuerst in den PvV-Modus
+wechseln}, \emph{Dieser Export erfordert das CAS}. Beim Rand-LGS zusätzlich: nicht quadratisch,
+singulär, Bögen nicht unterstützt, Last in frei beweglicher Richtung, unendliche Zwangskraft bei
+behinderter Temperaturverformung eines starren Stabes.
+
+\section{Was das Tragwerksskript nicht kann}
+
+\begin{itemize}
+  \item Nur ebene Stabtragwerke, keine räumlichen Systeme, keine Flächentragwerke.
+  \item Lineare Theorie I.~Ordnung: keine Stabilität (Knicken), keine großen Verformungen,
+        keine Plastizität, kein Schubverformungsanteil.
+  \item Keine bewegten Lasten, keine Einflusslinien, keine Lastfallkombinationen.
+  \item Der symbolische Modus deckt nur die in Abschnitt~\ref{sec:symbolisch} genannten Fälle ab.
+  \item Bögen werden für die Diagramme in Teilstäbe zerlegt; im Rand-LGS-Export sind sie nicht
+        möglich.
+  \item Das automatisch gewählte Hauptsystem des KGV muss fachlich nicht dem entsprechen, das man
+        von Hand wählen würde.
+  \item Es gibt keine Materialdatenbank und keine Bemessung; $EA$ und $EI$ sind einzugeben.
+\end{itemize}
+
+\section{Wie gerechnet wird}
+
+\textbf{Diagramme und Auflagerkräfte} entstehen mit dem Weggrößenverfahren (Finite Elemente für
+den ebenen Stab): Für jeden Stab wird die Steifigkeitsmatrix aufgestellt, Gelenke werden
+kondensiert, Lasten als Festeinspannkräfte eingerechnet, Federn und gedrehte Lager
+transformiert. Aus den Knotenverschiebungen folgen die Stabendkräfte und daraus die Verläufe.
+Starre Stäbe werden dabei nicht mit großen Zahlen angenähert, sondern als exakte
+Zwangsbedingungen zwischen den Stabenden geführt; ihre Schnittgrößen kommen aus den zugehörigen
+Zwangskräften.
+
+\textbf{Die exportierten Linien} entstehen unabhängig davon über das Rand-LGS: Ansatz je Stab,
+alle Rand- und Übergangsbedingungen des Systems, Lösung im CAS mit \code{simult}. Dadurch sind die
+Funktionen exakt und im symbolischen Modus auch symbolisch. Für starre Stäbe gibt es zwei Wege:
+direkt (Starrkörperbewegung plus Gleichgewicht) oder als Grenzwert $EA, EI \to \infty$.
+
+\textbf{Die symbolische Beschriftung der Diagramme} entsteht durch Superposition: Jede Last wird
+einzeln mit einem Platzhalterwert gerechnet und das Ergebnis als Vielfaches des Symbols und der
+Referenzlänge wieder zusammengesetzt. Temperaturlasten passen nicht in dieses Schema, darum der
+Hinweis oben.
+
+%=====================================================================
+\part{Querschnittsskript}
+
+\section{Ein erster Querschnitt}
+
+\begin{enumerate}
+  \item \taste{m} öffnet das Menü für massive Formen, \taste{d} das für dünnwandige Profile.
+  \item Form auswählen (Ziffer) und die nötigen Punkte klicken.
+  \item \taste{e} zeigt die Querschnittswerte, \taste{t} die Einzelwerte je Element.
+  \item \taste{b} öffnet das Berechnungsmenü für Spannungen, Schub, Torsion und Kernfläche.
+\end{enumerate}
+
+\bildplatz{querschnitt-eingabe}{Eingabe eines dünnwandigen Profils}
+
+\section{Elemente zeichnen}
+
+\begin{longtable}{p{0.30\linewidth}p{0.66\linewidth}}
+  \toprule
+  \textbf{Massiv (\taste{m})} & \textbf{Klicks} \\
+  \midrule \endhead
+  Rechteck & 2 (gegenüberliegende Ecken) \\
+  Kreis & 2 (Mittelpunkt, Randpunkt) \\
+  Dreieck & 3 \\
+  Trapez/Polygon & beliebig viele, \taste{Enter} schließt \\
+  Kreisausschnitt & 3 (Mittelpunkt, Start, Ende) \\
+  Kreisabschnitt & 3 \\
+  Dicke Linie & 2 (Rechteck um die Verbindungslinie, Dicke $t$) \\
+  Kraft platzieren & 1 \\
+  \bottomrule
+\end{longtable}
+
+\begin{longtable}{p{0.30\linewidth}p{0.66\linewidth}}
+  \toprule
+  \textbf{Dünnwandig (\taste{d})} & \textbf{Klicks} \\
+  \midrule \endhead
+  Linienzug & beliebig viele, \taste{Enter} schließt ab \\
+  Kreis & 2 \\
+  Kreisbogen & 3 \\
+  Kraft platzieren & 1 \\
+  \bottomrule
+\end{longtable}
+
+Die Wanddicke kommt aus der Standarddicke $t$ (Optionsmenü \taste{o}); einzelne Elemente lassen
+sich nachträglich über Hover~+~\taste{Enter} ändern. \taste{Backspace} löscht das letzte Element,
+\taste{c} löscht alles.
+
+\textbf{Überlappung:} Überdeckt ein neues Massivelement ein vorhandenes wirklich (gemeinsame
+Kanten zählen nicht), fragt das Programm: \taste{1} zieht es als Loch ab, \taste{2} addiert es
+numerisch (Rasternäherung, im Ergebnisfeld erscheint dann \emph{Warnung: Numerisch berechnet!}),
+\taste{3} verwirft die Eingabe.
+
+\section{Koordinatensystem, Einheiten, Optionen}
+
+Im Optionsmenü (\taste{o}):
+
+\begin{itemize}
+  \item Raster und Standarddicke $t$,
+  \item KOS-Ebene und KOS drehen (Schritte von 90°), KOS-Größe,
+  \item Zahlenformat (Wurzel/Bruch, Bruch, Dezimal),
+  \item Einheiten für Kraft, Länge und Moment,
+  \item Profilbeiwert $\xi$ für die Torsion offener Profile.
+\end{itemize}
+
+Alle Ein- und Ausgaben beziehen sich auf das \emph{angezeigte} Koordinatensystem: Drehst du das
+KOS, werden Koordinaten, Trägheitsmomente, eingegebene Schnittgrößen und Ergebnisse mitgedreht.
+Über das Menü \emph{Editieren} lässt sich das KOS in den Schwerpunkt verschieben.
+
+\section{Querschnittswerte}
+
+\taste{e} zeigt das Ergebnisfeld mit Fläche, Schwerpunkt, Flächenmomenten (lokal, gedreht,
+global mit Steiner-Anteilen), Hauptträgheitsmomenten und Hauptachsenwinkel, Widerstandsmomenten
+und – nach einer Schubrechnung – den Schubwerten. \taste{t} zeigt dieselben Werte je Element.
+
+Zwei Zeilen im Ergebnisfeld sind besonders wichtig:
+
+\begin{itemize}
+  \item \textcolor{green!50!black}{\textbf{Hauptachsen parallel zu den Achsen ($I_{yz} = 0$)}}:
+        Die einfachen Formeln gelten.
+  \item \textcolor{orange!80!black}{\textbf{Hauptachsen nicht parallel zu den Achsen}}:
+        schiefe Biegung; $\sigma_x$ und der Schubfluss brauchen die gekoppelten Formeln.
+\end{itemize}
+
+\bildplatz{querschnitt-werte}{Ergebnisfeld mit Querschnittswerten}
+
+\section{\texorpdfstring{Normalspannung $\sigma_x$}{Normalspannung sigma-x}}
+
+Im Berechnungsmenü (\taste{b}) unter \emph{$\sigma_x$-Berechnung}:
+
+\begin{itemize}
+  \item \emph{Normalspannung} $(N, M_y)$ für gerade Biegung,
+  \item \emph{Schiefe Spannung} $(N, M_y, M_z)$,
+  \item \emph{$\sigma_x$ aus Kräften}, wenn Kräfte platziert wurden.
+\end{itemize}
+
+Ausgegeben werden Minimum und Maximum mit ihren Orten, die Nulllinie und eine
+Spannungsverteilung über den Querschnitt. Die Formel ist die allgemeine Biegeformel mit
+$I_{yz}$-Kopplung, sie gilt also auch für unsymmetrische Querschnitte.
+
+\section{Schubspannung und Schubmittelpunkt}
+
+\emph{Schubspannung} im Berechnungsmenü fragt $Q_y$ und $Q_z$ ab (im angezeigten KOS); platzierte
+Kräfte werden addiert. Danach wählt \taste{v} den Verlauf, die Ziffern schalten um:
+
+\begin{longtable}{p{0.10\linewidth}p{0.86\linewidth}}
+  \toprule
+  \textbf{Taste} & \textbf{Anzeige} \\
+  \midrule \endhead
+  1, 2 & Momentendichten $y\,h(y)$ bzw.\ $z\,h(z)$ \\
+  3, 4 & statische Momente $S_y$, $S_z$ \\
+  5, 6 & Schubspannungsanteile $\tau_y$, $\tau_z$ \\
+  7 & Resultierende aus Querkraft \\
+  8 & Torsionsanteil \\
+  9 & Gesamtschubspannung \\
+  0 & Laufvariable $s$ \\
+  \bottomrule
+\end{longtable}
+
+Der \emph{Schubmittelpunkt} wird aus den Momenten der Schubflüsse für Einheitsquerkräfte bestimmt
+und kann mit der Momententabelle (\taste{t} im Zusatzmenü) nachvollzogen werden.
+
+\textbf{Berechnet wird nur, was nach TM2 statisch bestimmt ist:}
+
+\begin{itemize}
+  \item offene dünnwandige Profile, auch unsymmetrische (mit $I_{yz}$-Kopplung),
+  \item Profile mit genau einer geschlossenen Zelle, auch mit offenen Ästen, sofern die Querkraft
+        parallel zu einer Symmetrieachse wirkt,
+  \item massive Querschnitte mit $\tau = QS/(Ib)$, aber nur bei $I_{yz} = 0$.
+\end{itemize}
+
+Nicht berechnet werden: mehrzellige Profile, unsymmetrische geschlossene Zellen, Querkraft quer
+zur einzigen Symmetrieachse, gemischt massiv-dünnwandige Querschnitte und massive Querschnitte
+mit gedrehten Hauptachsen. In diesen Fällen erscheint eine rote Box mit dem Grund. Ist der
+Schubmittelpunkt nur teilweise bestimmt, gibt das Programm nur die bestimmte Koordinate an.
+
+Bei $I_{yz} \ne 0$ und dünnwandigem Profil erscheint ein gelber Hinweis mit dem
+Hauptachsenwinkel: Der Schubfluss wurde mit der Kopplung
+
+\[
+  \tau\,t = -\frac{Q_z\,(I_z S_y + I_{yz} S_z) + Q_y\,(I_y S_z + I_{yz} S_y)}{I_y I_z - I_{yz}^2}
+\]
+
+berechnet und nicht mit $\tau = QS/(It)$.
+
+\bildplatz{querschnitt-schub}{Schubspannungsverlauf mit Schubmittelpunkt}
+
+\section{Torsion}
+
+Torsion wird nur für rein dünnwandige Profile gerechnet:
+
+\begin{itemize}
+  \item offen: $I_T = \sum \frac{\xi}{3} h t^3$, \quad $\tau_{max} = \dfrac{M_T\,t_{max}}{I_T}$,
+  \item eine geschlossene Zelle (Bredt): $I_T = \dfrac{4A_m^2}{\oint \frac{ds}{t}}$,
+        \quad $\tau_{max} = \dfrac{M_T}{2 A_m t_{min}}$.
+\end{itemize}
+
+Das Torsionsmoment kann eingegeben oder aus platzierten Kräften bestimmt werden; Bezugspunkt ist
+dann der \emph{Schubmittelpunkt}. Für massive und gemischte Querschnitte gibt es keine
+TM2-Formel, ebenso wenig für mehrzellige Profile: Das Programm lehnt mit Begründung ab und
+rechnet bewusst keine Prandtl-Lösung.
+
+\section{Kernfläche}
+
+\taste{k} schaltet den Kernflächenmodus weiter: umhüllende Geraden, Kernfläche, aus. Die
+Kernfläche ist der Bereich, in dem eine Normalkraft angreifen darf, ohne dass im Querschnitt ein
+Vorzeichenwechsel der Spannung auftritt.
+
+\section{Meldungen im Querschnittsskript}
+
+Meldungen erscheinen als Box in der Bildmitte: rot, wenn etwas nicht berechnet wurde oder eine
+Eingabe ungültig war, gelb bei Hinweisen. \taste{Esc} schließt zuerst die Box; ebenso
+verschwindet sie beim Start einer neuen Berechnung oder bei einer Änderung am Querschnitt.
+
+\begin{longtable}{p{0.40\linewidth}p{0.55\linewidth}}
+  \toprule
+  \textbf{Meldung} & \textbf{Bedeutung} \\
+  \midrule \endhead
+  Schub: Kombination massiv und dünnwandig & Für gemischte Querschnitte gibt es keine TM2-Formel \\
+  Schub: Hauptachsen nicht parallel (massiv) & $\tau = QS/(Ib)$ gilt nur bei $I_{yz} = 0$ \\
+  Schub: nur für gerade dünnwandige Elemente & Dünnwandige Kreise und Bögen sind nicht im
+    Profilgraph \\
+  Schub: mehrzelliges Profil & Statisch unbestimmt \\
+  Schub: Querkraft quer zur Symmetrieachse & Der Zellschubfluss folgt nur aus der Symmetrie \\
+  Schub: Trägheitsmomente singulär & $I_yI_z - I_{yz}^2 \approx 0$ \\
+  Hinweis: Hauptachsen nicht parallel, $I_{yz}$-Kopplung & Schiefe Biegung, siehe oben \\
+  Torsion: nur rein dünnwandige Profile & Keine Prandtl-Lösung \\
+  Torsion: mehrzelliges Profil & Statisch unbestimmt \\
+  Torsion: $I_T = 0$ & Kein Torsionswiderstand \\
+  Torsion aus Kräften: Schubmittelpunkt statisch unbestimmt & Das Moment ist nicht bestimmbar \\
+  $\sigma_x$ nicht berechenbar (Nenner 0) & Fläche oder $I_yI_z - I_{yz}^2$ ist null \\
+  Ungültige Eingabe & Der Ausdruck ließ sich nicht auswerten \\
+  Kein Querschnitt vorhanden & Es wurde noch nichts gezeichnet \\
+  \taste{v} nur im Schubspannungsmodus & Erst Schub rechnen, dann Verlauf wählen \\
+  \bottomrule
+\end{longtable}
+
+\section{Was das Querschnittsskript nicht kann}
+
+\begin{itemize}
+  \item Kein Schub und keine Torsion für statisch unbestimmte Fälle (siehe oben).
+  \item Keine Prandtlsche Torsionsrechnung für massive Querschnitte.
+  \item Keine Wölbkrafttorsion, keine Querschnittsverformung, keine lokalen Spannungsspitzen,
+        keine Kerbwirkung.
+  \item Dünnwandige Kreise und Bögen gehen in die Querschnittswerte ein, nicht aber in die
+        Schubrechnung.
+  \item Numerisch addierte Elemente sind eine Rasternäherung (Warnung im Ergebnisfeld).
+  \item Ein Material gibt es nicht; gerechnet wird rein geometrisch, $E$ kürzt sich heraus.
+\end{itemize}
+
+\section{Wie gerechnet wird}
+
+Flächen, Schwerpunkte und Flächenmomente kommen aus geschlossenen Formeln je Grundform
+(Polygone über die Gaußsche Trapezformel, Kreisausschnitte und -abschnitte über die
+entsprechenden Integrale), zusammengesetzt mit dem Satz von Steiner. Dünnwandige Elemente werden
+als Mittellinie mit Dicke behandelt.
+
+Für den Schub wird aus den dünnwandigen Elementen ein Profilgraph gebaut: Die Elemente werden an
+Kreuzungen und Berührpunkten geteilt, der Schubfluss startet an den freien Enden und wird
+aufsummiert; bei einer geschlossenen Zelle wird sie aufgeschnitten und der konstante Anteil
+$q_0$ aus der Symmetrie bestimmt. Massive Querschnitte werden über waagerechte bzw.\ senkrechte
+Schnitte mit $\tau = QS/(Ib)$ ausgewertet.
+
+%=====================================================================
+\appendix
+\part{Anhang}
+
+\section{Tastenkürzel Tragwerksskript}
+
+\begin{longtable}{p{0.14\linewidth}p{0.82\linewidth}}
+  \toprule
+  \textbf{Taste} & \textbf{Funktion} \\
+  \midrule \endhead
+  \taste{b} & Tragwerk berechnen \\
+  \taste{s} & Systemansicht \\
+  \taste{n}, \taste{q}, \taste{m} & Normalkraft, Querkraft, Moment \\
+  \taste{w}, \taste{u} & Biegelinie, Längsverformung \\
+  \taste{e}, \taste{t} & Explosionsansicht, Beschriftungen dort \\
+  \taste{v}, \taste{p} & Verschiebungszustand (PvV), Polplan \\
+  \taste{l} & globales Gleichungssystem \\
+  \taste{o} & Obermenü (Einstellungen und Exporte) \\
+  \taste{h} & System einpassen \\
+  \taste{f} & Stabrichtung umdrehen \\
+  \taste{c} & alles löschen \\
+  \taste{+}, \taste{-} & Zoom \\
+  \taste{1}\dots\taste{9} & KGV-Einheitszustand wählen (bei Auto-KGV) \\
+  \taste{Enter} & Menü öffnen, Wert umschalten, Eingabe übernehmen \\
+  \taste{Esc} & Box, Eingabe, Menü oder Modus schließen \\
+  \taste{Backspace} & Eingabe oder Objekt löschen \\
+  \bottomrule
+\end{longtable}
+
+\section{Tastenkürzel Querschnittsskript}
+
+\begin{longtable}{p{0.14\linewidth}p{0.82\linewidth}}
+  \toprule
+  \textbf{Taste} & \textbf{Funktion} \\
+  \midrule \endhead
+  \taste{m}, \taste{d} & Massiv- bzw.\ Dünnwandmenü \\
+  \taste{b} & Berechnungsmenü \\
+  \taste{e}, \taste{t} & Querschnittswerte, Einzelwerte-Tabelle \\
+  \taste{v} & Schubverlauf wählen (danach Ziffern \taste{0}\dots\taste{9}) \\
+  \taste{k} & Kernflächenmodus weiterschalten \\
+  \taste{o} & Optionen (Raster, Dicke, KOS, Einheiten, $\xi$) \\
+  \taste{h} & Geometrie einpassen \\
+  \taste{c} & alles löschen \\
+  \taste{+}, \taste{-} & Zoom \\
+  \taste{Enter} & Menüpunkt wählen, Element bearbeiten, Eingabe übernehmen \\
+  \taste{Esc} & Box, Eingabe oder Ansicht schließen \\
+  \taste{Backspace}, \taste{Del} & letztes Element löschen \\
+  \bottomrule
+\end{longtable}
+
+\section{Häufige Stolpersteine}
+
+\begin{itemize}
+  \item \textbf{\code{t} und \code{T} gehen nicht als Symbol}, das ist die Integrationsvariable.
+        Nimm \code{dt} oder \code{t1}.
+  \item \textbf{Griechische Buchstaben} werden nicht als Symbol erkannt; \code{a} statt $\alpha$.
+  \item \textbf{Zahl und Symbol nicht mischen:} Wenn $EA$ symbolisch ist, sollten alle Stäbe ein
+        symbolisches $EA$ haben; sonst kommen Terme wie \code{3*l\^{}2*ea + 125000000} heraus.
+  \item \textbf{Pendelstäbe brauchen Gelenke} an beiden Enden, sonst sind es Biegestäbe mit dem
+        voreingestellten $EI$.
+  \item \textbf{Lager, an denen nur Stäbe mit Endgelenk hängen}, brauchen ein Knotengelenk; sonst
+        ist die Knotenverdrehung unbestimmt und das System gilt als kinematisch.
+  \item \textbf{Gleichmäßige Erwärmung:} $T_{oben} = T_{unten} = \Delta T$ eingeben.
+  \item \textbf{Nach dem Export} lohnt ein Blick in \code{randinfo}: Dort steht, welche Funktionen
+        Verschiebungen und welche $EI\,w$ bzw.\ $EA\,u$ sind.
+\end{itemize}
+
+\end{document}

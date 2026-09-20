@@ -33,9 +33,16 @@ defEA = 1e10
 randDehnstarr = false  -- Standard-EA dehnstarr: alle Staebe ohne eigenes EA (Stabmenue) gelten als dehnsteif
 randStarrDirekt = true -- Rand-LGS: starre Staebe direkt (Starrkoerper + Gleichgewicht) statt Grenzwert EA, EI -> unendlich
 symbolFehlerOffen = false   -- Hinweisbox zu symbolFehler sichtbar (ESC schliesst sie, der Fehler bleibt bestehen)
+meldungText, meldungTitel = nil, nil   -- einmalige Meldung (Export, Rand-LGS); gelbe Box, ESC schliesst sie
+-- Disp aus Lua zeigt der Rechner nicht an: Meldungen muessen gezeichnet werden.
+function zeigeMeldung(text, titel)
+    meldungText, meldungTitel = tostring(text), titel or "Export"
+    print(text)
+    if platform and platform.window then platform.window:invalidate() end
+end
 hinweisListe = {}           -- Hinweise nach der Berechnung (gelbe Box, ESC schliesst sie)
 hinweisOffen = false
-hinweisSig, hinweisQuittiert = nil, nil   -- nach ESC erst bei geaenderten Hinweisen/Eingaben wieder zeigen
+hinweisSig, hinweisQuittiert = nil, nil   -- nach ESC erst wieder zeigen, wenn sich das System geaendert hat
 defEI = 1e8        
 autoKGV = false    
 zeigeN = true      
@@ -533,7 +540,7 @@ local function exportKnotenToTI(i)
 end
 
 local function exportAllToTI()
-    if #staebe == 0 or not staebe[1].mat_k then print("Fehler: Bitte zuerst das System berechnen!"); return end
+    if #staebe == 0 or not staebe[1].mat_k then zeigeMeldung("Bitte zuerst das System berechnen (Taste B).", "Export fehlgeschlagen"); return end
     for i = 1, #staebe do exportStabToTI(i) end
     for i = 1, #knoten do exportKnotenToTI(i) end
     if glob_K and glob_F and glob_u then
@@ -541,7 +548,7 @@ local function exportAllToTI()
         for i = 1, anzahlGleichungen do mat_F[i] = {glob_F[i] or 0}; mat_u[i] = {glob_u[i] or 0} end
         if anzahlGleichungen > 0 then speichereMatrix("sys_f", mat_F); speichereMatrix("sys_u", mat_u) end
     end
-    print("-> Matrizen und Systemdaten exportiert!")
+    zeigeMeldung("Matrizen und Systemdaten exportiert.", "Export")
 end
 
 local function getEqQ(s, L, fN, L_str)
@@ -633,7 +640,9 @@ exportSchnittkraefteToTI = function(stab_index)
                 math.eval("M_stab" .. i .. "(x) := " .. eval_cas_string(expr_M, true))
             end
         end
-        print("-> Analytische Schnittkraftverläufe (N, Q, M) exportiert!")
+        -- nur melden, wenn der Export aus dem Menue kommt (intern je Stab: precalcSymbolicLabels)
+        if not stab_index then zeigeMeldung("Analytische Schnittkraftverlaeufe (N, Q, M) exportiert.", "Export")
+        else print("-> Analytische Schnittkraftverlaeufe (N, Q, M) exportiert!") end
     end
 end
 
@@ -818,7 +827,7 @@ local function precalcSymbolicLabels()
 end
 
 exportBiegelinienToTI = function(stab_index)
-    if #staebe == 0 or not staebe[1].mat_k then print("Fehler: Bitte zuerst das System berechnen!"); return end
+    if #staebe == 0 or not staebe[1].mat_k then zeigeMeldung("Bitte zuerst das System berechnen (Taste B).", "Export fehlgeschlagen"); return end
     if math.eval then
         local fN = fN_export
         
@@ -893,13 +902,13 @@ exportBiegelinienToTI = function(stab_index)
                 math.eval("v_EI_stab" .. i .. "(x) := " .. eval_cas_string(expr, true))
             end
         end
-        print("-> NUR exakte Biegelinien (*EI) exportiert!")
+        zeigeMeldung("Exakte Biegelinien (v_EI_stab_i) exportiert.", "Export")
     end
 end
 
 
 exportULinienToTI = function(stab_index)
-    if #staebe == 0 or not staebe[1].mat_k then print("Fehler: Bitte zuerst das System berechnen!"); return end
+    if #staebe == 0 or not staebe[1].mat_k then zeigeMeldung("Bitte zuerst das System berechnen (Taste B).", "Export fehlgeschlagen"); return end
     if math.eval then
         local fN = fN_export
 
@@ -974,7 +983,7 @@ exportULinienToTI = function(stab_index)
                 math.eval("u_EA_stab" .. i .. "(x) := " .. eval_cas_string(expr, true))
             end
         end
-        print("-> Exakte Laengslinien (*EA) exportiert!")
+        zeigeMeldung("Exakte Laengslinien (u_EA_stab_i) exportiert.", "Export")
     end
 end
 
@@ -1114,8 +1123,9 @@ local function neuCasEval(command, name)
     return ok
 end
 
-local function neuExportStatus(text)
+local function neuExportStatus(text, titel)
     neuShowMessage(text)
+    zeigeMeldung(text, titel or "Export")
 end
 
 -- =====================================================================
@@ -1587,7 +1597,7 @@ end
 
 -- Fehler melden: Status und randbed = {"Fehler: ..."} (auf dem Rechner im Calculator sichtbar)
 local function neuFehler(text)
-    neuExportStatus(text)
+    neuExportStatus(text, "Export fehlgeschlagen")
     if math.eval then pcall(math.eval, 'randbed:=["Fehler: ' .. tostring(text):gsub('"', "'") .. '"]') end
     return false
 end
@@ -1764,7 +1774,7 @@ end
 -- statisch unbestimmten starren Teilen automatisch ueber den Grenzwert)
 local function neuRandLGS()
     neuShowMessage("Rand-LGS gestartet")
-    if not math.eval then neuExportStatus("Fehler: CAS nicht verfuegbar!"); return false end
+    if not math.eval then neuExportStatus("Fehler: CAS nicht verfuegbar!", "Export fehlgeschlagen"); return false end
     -- alte Ergebnisse loeschen, damit nach einem Abbruch nichts Veraltetes stehen bleibt
     local alt = { "randbed", "randinfo", RL_EPS }
     for i = 1, math.max(30, #staebe) do
@@ -1808,15 +1818,15 @@ exportULinienNeuToTI = function()
 end
 
 function exportVerschiebungenToTI()
-    if #staebe == 0 or not staebe[1].mat_k then print("Fehler: Bitte zuerst das System berechnen!"); return end
+    if #staebe == 0 or not staebe[1].mat_k then zeigeMeldung("Bitte zuerst das System berechnen (Taste B).", "Export fehlgeschlagen"); return end
     exportBiegelinienToTI()
     exportULinienToTI()
-    print("-> Verschiebungslinien (v*EI und u*EA) fuer alle Staebe exportiert!")
+    zeigeMeldung("Verschiebungslinien (v*EI und u*EA) fuer alle Staebe exportiert.", "Export")
 end
 
 local function exportKGVToTI()
     if not autoKGV or #X_Werte == 0 then
-        print("Fehler: KGV nicht aktiv oder System statisch bestimmt!")
+        zeigeMeldung("KGV-Export: KGV ist nicht aktiv oder das System ist statisch bestimmt.", "Export fehlgeschlagen")
         return
     end
     print("Berechne KGV Matrizen...")
@@ -1866,6 +1876,20 @@ local function exportKGVToTI()
         return 0
     end
     
+    -- Ein geloester Pendelstab ist aus dem System entfernt; seine eigene Laengenaenderung N*L/(EA)
+    -- steckt nicht in den FEM-Knotenverschiebungen. Im Einheitszustand j traegt nur der eigene Stab
+    -- N = 1, daher kommt L/(EA) genau zu delta_jj dazu (dehnsteife Staebe: 0). Ohne diesen Anteil
+    -- waere das KGV nur fuer dehnstarre geloeste Staebe richtig.
+    local function eigenNachgiebigkeit(x_val)
+        if x_val.typ ~= "pendel_n" then return 0 end
+        local s = staebe[x_val.stab]
+        if not s or stabDehnsteif(s) then return 0 end
+        local k1, k2 = knoten[s.k1], knoten[s.k2]
+        local L = math.sqrt((k2.x - k1.x) ^ 2 + (k2.y - k1.y) ^ 2)
+        if (s.EA or 0) <= 0 then return 0 end
+        return L / s.EA
+    end
+
     applyKGVZustand(0)
     local u0 = berechneSystemGleichungen(false)
     if u0 then for i, x_val in ipairs(X_Werte) do Delta0[i] = {getGap(x_val, u0)} end end
@@ -1873,7 +1897,11 @@ local function exportKGVToTI()
     for j = 1, n do
         applyKGVZustand(j)
         local uj = berechneSystemGleichungen(false)
-        if uj then for i, x_val in ipairs(X_Werte) do Delta[i][j] = getGap(x_val, uj) end end
+        if uj then
+            for i, x_val in ipairs(X_Werte) do
+                Delta[i][j] = getGap(x_val, uj) + ((i == j) and eigenNachgiebigkeit(x_val) or 0)
+            end
+        end
     end
     
     applyKGVZustand(orig_zustand)
@@ -1881,7 +1909,7 @@ local function exportKGVToTI()
     
     speichereMatrix("kgv_delta", Delta)
     speichereMatrix("kgv_delta0", Delta0)
-    print("-> KGV Matrizen (kgv_delta, kgv_delta0) exportiert!")
+    zeigeMeldung("KGV-Matrizen exportiert: kgv_delta, kgv_delta0.", "Export")
 end
 local pvv_cas_cache = {}
 
@@ -1935,7 +1963,7 @@ end
 
 exportArbeitssatzToTI = function()
     if not in_pvv_release or not kinematic_disk_states then
-        print("Fehler: Bitte zuerst in den PvV-Modus wechseln!")
+        zeigeMeldung("Arbeitssatz: bitte zuerst in den PvV-Modus wechseln.", "Export fehlgeschlagen")
         return
     end
     
@@ -2220,14 +2248,14 @@ exportArbeitssatzToTI = function()
         local success1 = pcall(function() math.eval("w_eq1 := " .. cas_wrap .. "(expand(" .. eq1_lhs .. ")) = 0") end)
         local success2 = pcall(function() math.eval("w_eq2 := " .. cas_wrap .. "(expand(" .. eq2_lhs .. ")) = 0") end)
         if success1 and success2 then
-            pcall(function() math.eval('Disp "Arbeitssatz in w_eq1 und w_eq2 exportiert!"') end)
+            zeigeMeldung("Arbeitssatz exportiert: w_eq1 und w_eq2.", "Export")
             print("-> Arbeitssatz als exakte CAS-Gleichung (w_eq1, w_eq2) exportiert!")
         else
-            pcall(function() math.eval('Disp "Fehler beim Export des Arbeitssatzes!"') end)
+            zeigeMeldung("Fehler beim Export des Arbeitssatzes.", "Export fehlgeschlagen")
             print("-> Fehler beim Export des Arbeitssatzes.")
         end
     else
-        print("Export erfordert CAS!")
+        zeigeMeldung("Dieser Export erfordert das CAS.", "Export fehlgeschlagen")
     end
 end
 
@@ -3828,14 +3856,40 @@ end
 --  * Temperatur im symbolischen Modus: Diagrammbeschriftungen ohne Temperaturanteil
 --  * symbolischer Modus: Zahl-EI bzw. Zahl-EA neben symbolischen Steifigkeiten (Ergebnis mischt Zahl
 --    und Symbol), nur fuer Staebe, bei denen die Groesse laut FEM tatsaechlich beansprucht wird
+-- Fingerabdruck aller Eingaben (Knoten, Staebe, Schalter). Nur Eingabefelder, keine Rechenergebnisse,
+-- damit Zeichnen oder erneutes Rechnen ohne Aenderung den Abdruck nicht veraendert.
+local KNOTEN_EINGABEN = { "x", "y", "x_str", "y_str", "gelenk", "lager_x", "lager_y", "lager_m", "winkel",
+    "cx", "cy", "cm", "cx_str", "cy_str", "cm_str", "f_winkel",
+    "last_x", "last_y", "last_m", "last_w", "last_x_str", "last_y_str", "last_m_str" }
+local STAB_EINGABEN = { "k1", "k2", "EA", "EI", "EA_str", "EI_str", "biegesteif", "dehnsteif", "EA_manuell",
+    "bogen_r", "bogen_r_str", "q", "q_str", "n", "n_str", "m", "m_str", "q_A", "q_B", "n_A", "n_B",
+    "q_A_str", "q_B_str", "n_A_str", "n_B_str", "gx", "gy", "gx_str", "gy_str", "gx_proj", "gy_proj",
+    "To", "Tu", "alpha", "h", "To_str", "Tu_str", "alpha_str", "h_str",
+    "gelenk_A", "gelenk_B", "n_gelenk_A", "n_gelenk_B", "q_gelenk_A", "q_gelenk_B", "x_mA", "x_mB" }
+local function systemFingerabdruck()
+    local teile = { tostring(randDehnstarr), tostring(rasterMass), tostring(fachwerkModus), tostring(#knoten), tostring(#staebe) }
+    local function felder(t, namen)
+        local p = {}
+        for i, k in ipairs(namen) do
+            local v = t[k]
+            p[i] = (type(v) == "number") and string.format("%.12g", v) or tostring(v)
+        end
+        return table.concat(p, ",")
+    end
+    for _, k in ipairs(knoten) do teile[#teile + 1] = "K" .. felder(k, KNOTEN_EINGABEN) end
+    for _, st in ipairs(staebe) do
+        if not st.is_virtual then teile[#teile + 1] = "S" .. felder(st, STAB_EINGABEN) end
+    end
+    return table.concat(teile, ";")
+end
+
 local function sammleHinweise()
-    local liste, sig = {}, {}
+    local liste = {}
     local tempStaebe, ohneH = false, {}
     for i, s in ipairs(staebe) do
         local To, Tu = s.To_str or tostring(s.To or 0), s.Tu_str or tostring(s.Tu or 0)
         if (To ~= "" and To ~= "0") or (Tu ~= "" and Tu ~= "0") then
             tempStaebe = true
-            sig[#sig + 1] = i .. ":" .. To .. "," .. Tu .. "," .. tostring(s.alpha_str or s.alpha) .. "," .. tostring(s.h_str or s.h)
             local hNull = (s.h or 0) == 0 and (not s.h_str or s.h_str == "" or s.h_str == "0")
             if hNull and To ~= Tu then ohneH[#ohneH + 1] = tostring(i) end
         end
@@ -3886,7 +3940,8 @@ local function sammleHinweise()
         end
     end
     hinweisListe = liste
-    hinweisSig = (#liste > 0) and (table.concat(liste, "|") .. "#" .. table.concat(sig, ";")) or nil
+    -- nach ESC erst wieder zeigen, wenn sich das System (oder der Hinweis) geaendert hat
+    hinweisSig = (#liste > 0) and (table.concat(liste, "|") .. "#" .. systemFingerabdruck()) or nil
     hinweisOffen = hinweisSig ~= nil and hinweisSig ~= hinweisQuittiert
 end
 
@@ -3906,7 +3961,8 @@ end
 
 local function starteBerechnung()
     clearOldCASVars()
-    warnungKinematisch = false; warnungStarrBestimmt = false; kgv_n = nil; print("Starte Systemanalyse...")
+    warnungKinematisch, warnungStarrBestimmt, meldungText, kgv_n = false, false, nil, nil
+    print("Starte Systemanalyse...")
     checkSymbolischerModus()
     if symbolFehler then
         -- Symbolischer Modus kann dieses System nicht korrekt abbilden: abbrechen statt falsche Ergebnisse
@@ -4466,10 +4522,11 @@ function exportLGSMatrixToTI(only_build)
                 
                 speichereMatrix("ggw_eqs", eq_strings)
                 
-                pcall(function() math.eval('Disp "LGS exportiert: ggw_a, ggw_b, ggw_x, lgs"') end)
                 if #A ~= #x_labels then
-                    pcall(function() math.eval('Disp "WARNUNG: LGS nicht quadratisch!"') end)
-                    pcall(function() math.eval('Disp "' .. #A .. ' Gleichungen, ' .. #x_labels .. ' Unbekannte."') end)
+                    zeigeMeldung("LGS exportiert (ggw_a, ggw_b, ggw_x, lgs). Achtung: LGS nicht quadratisch, " ..
+                        #A .. " Gleichungen fuer " .. #x_labels .. " Unbekannte.", "Export")
+                else
+                    zeigeMeldung("LGS exportiert: ggw_a, ggw_b, ggw_x, lgs.", "Export")
                 end
             else
                 speichereMatrix("ggw_a", A)
@@ -4896,10 +4953,11 @@ end
 function on.escapeKey()
     -- Reihenfolge wie auf dem Bildschirm von oben nach unten: Eingabe/Menue, Warnhinweise, dann Modi.
     -- Ein ESC schliesst alle sichtbaren Warnhinweise und tut sonst nichts.
-    local warnungOffen = (symbolFehler and symbolFehlerOffen) or warnungKinematisch or warnungStarrBestimmt or hinweisOffen
+    local warnungOffen = (symbolFehler and symbolFehlerOffen) or warnungKinematisch or warnungStarrBestimmt or meldungText or hinweisOffen
     if warnungOffen and not eingabeModus and not menuOffen then
         symbolFehlerOffen = false; warnungKinematisch = false; warnungStarrBestimmt = false
-        if hinweisOffen then hinweisOffen = false; hinweisQuittiert = hinweisSig end
+        if meldungText then meldungText = nil
+        elseif hinweisOffen then hinweisOffen = false; hinweisQuittiert = hinweisSig end
         platform.window:invalidate()
         return
     end
@@ -8569,11 +8627,13 @@ function on.paint(gc)
         gc:setColorRGB(255, 165, 0); gc:fillRect(boxX, boxY, boxW, boxH); gc:setColorRGB(0, 0, 0); gc:drawRect(boxX, boxY, boxW, boxH)
         gc:setFont("sansserif", "b", 10); gc:drawString("Starrmodus & statisch unbestimmt!", boxX + 8, boxY + 12)
         gc:setFont("sansserif", "r", 9); gc:drawString("[Esc]", boxX + boxW - 34, boxY + 12)
-    elseif hinweisOffen and #hinweisListe > 0 then
+    elseif meldungText or (hinweisOffen and #hinweisListe > 0) then
+        local liste = meldungText and { meldungText } or hinweisListe
+        local titel = meldungText and (meldungTitel or "Export") or "Hinweis"
         local boxW = math.min(b - 20, 300)
         gc:setFont("sansserif", "r", 9)
         local zeilen = {}
-        for hi, text in ipairs(hinweisListe) do
+        for hi, text in ipairs(liste) do
             if hi > 1 then zeilen[#zeilen + 1] = "" end
             local zeile = ""
             for wort in text:gmatch("%S+") do
@@ -8585,7 +8645,7 @@ function on.paint(gc)
         local boxH = math.min(28 + 13 * #zeilen, h - 10)
         local boxX, boxY = math.floor((b - boxW) / 2), math.floor((h - boxH) / 2)
         gc:setColorRGB(255, 235, 150); gc:fillRect(boxX, boxY, boxW, boxH); gc:setColorRGB(0, 0, 0); gc:drawRect(boxX, boxY, boxW, boxH)
-        gc:setFont("sansserif", "b", 10); gc:drawString("Hinweis:", boxX + 8, boxY + 6)
+        gc:setFont("sansserif", "b", 10); gc:drawString(titel .. ":", boxX + 8, boxY + 6)
         gc:setFont("sansserif", "r", 9)
         for zi, z in ipairs(zeilen) do
             local y = boxY + 12 + 13 * zi

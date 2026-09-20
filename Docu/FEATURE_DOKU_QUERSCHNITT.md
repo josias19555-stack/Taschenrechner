@@ -125,6 +125,7 @@ Diese Datei dokumentiert alle funktionalen Features des Programms, ihre Möglich
 **Grenzen:**
 - Die exakte Visualisierung und Verteilung des Schubflusses ist primär auf dünnwandige Profile zugeschnitten. Bei rein massiven Vollquerschnitten basiert die Berechnung auf einer schichtweisen Integration, die bei komplexen Geometrien (z.B. sternförmig) an die Grenzen der 1D-Balkentheorie stößt.
 - Statisch unbestimmte Fälle (siehe oben) werden bewusst nicht berechnet; es gibt keine Verträglichkeits- oder Mehrzellenrechnung.
+- Liegen die Hauptachsen nicht parallel zu y/z ($I_{yz} \ne 0$, Winkel kein Vielfaches von 90°), erscheint bei dünnwandigem Schub ein gelber Hinweis mit dem Hauptachsenwinkel: Der Schubfluss wurde mit $I_{yz}$-Kopplung (schiefe Biegung) berechnet, nicht mit $\tau = QS/(It)$. Bei massiven Querschnitten wird der Schub in diesem Fall abgelehnt (rote Box mit Begründung). Das Ergebnisfeld zeigt grün „Hauptachsen parallel zu den Achsen“ bzw. orange „Hauptachsen nicht parallel zu den Achsen“.
 - Die Integrationsauflösung ist an das Zeichenraster gekoppelt und kann bei sehr kleinen oder sehr großen Geometrien die Genauigkeit beeinflussen.
 - Die Angaben zur Schubspannung werden in MPa dargestellt, sofern die internen Einheiten N und mm verwendet werden.
 
@@ -192,7 +193,8 @@ Diese Datei dokumentiert alle funktionalen Features des Programms, ihre Möglich
 - `o`: Optionen öffnen.
 - `h`: Geometrie automatisch einpassen.
 - `+`/`-`: Zoom ändern.
-- `Esc`: Aktuelle Eingabe oder Ansicht abbrechen.
+- `Esc`: Aktuelle Eingabe oder Ansicht abbrechen. Ist eine Meldungsbox offen, schließt das erste `Esc` nur die Box.
+- **Meldungsbox:** Gründe, warum etwas nicht berechnet wurde (Schub, Torsion, $\sigma_x$), ungültige Eingaben und Hinweise erscheinen als Box in der Bildmitte (rot: nicht berechnet bzw. Eingabefehler, gelb: Hinweis). Sie verschwindet mit `Esc`, beim Start einer neuen Berechnung oder wenn sich der Querschnitt ändert.
 - `Backspace` beziehungsweise `Delete`: Letztes Element löschen.
 
 **Grenzen:**
@@ -215,3 +217,36 @@ Diese Datei dokumentiert alle funktionalen Features des Programms, ihre Möglich
 - Die TI-Nspire-Lua-Laufzeit besitzt eine Begrenzung für lokale Upvalues pro Funktion; größere Erweiterungen müssen diese technische Grenze berücksichtigen.
 - Eine Prüfung auf realer TI-Nspire-Hardware ist zusätzlich zur Syntaxprüfung empfehlenswert.
 
+## 12. Meldungen und Hinweise (Übersicht)
+
+Meldungen erscheinen als Box in der Bildmitte: rot, wenn etwas nicht berechnet wurde oder eine Eingabe ungültig war, gelb bei Hinweisen. `Esc` schließt zuerst die Box, ebenso der Start einer neuen Berechnung oder eine Änderung am Querschnitt. Die interne Statuszeile (`status`) wird nicht gezeichnet; Aufforderungen wie „Q eingeben“ stehen in den Eingabemasken selbst.
+
+| Titel / Meldung | Wann | Warum |
+|---|---|---|
+| **Schub nicht berechnet:** Kombination massiv und dünnwandig | Gemischter Querschnitt | Dafür gibt es keine TM2-Formel |
+| … Hauptachsen nicht parallel zu y/z (Winkel) | Massiver Querschnitt mit $I_{yz} \ne 0$ | $\tau = QS/(Ib)$ gilt nur bei Hauptachsen parallel zu den Achsen |
+| … nur für gerade dünnwandige Elemente | Dünnwandige Kreise oder Bögen | Der Profilgraph besteht nur aus Geraden |
+| … Mehrzelliges Profil: statisch unbestimmt | Zwei oder mehr geschlossene Zellen | Nur statisch bestimmte Fälle werden gerechnet |
+| … Geschlossene Zelle: Querkraft quer zur Symmetrieachse | Eine Zelle, Querkraft nicht parallel zu einer Symmetrieachse | Der Zellschubfluss $q_0$ folgt nur aus der Symmetrie |
+| … Trägheitsmomente singulär | $I_yI_z - I_{yz}^2 \approx 0$ | Division durch null |
+| … Symmetriepartner in der Zelle nicht gefunden | Numerischer Sonderfall der Symmetrieauswertung | Schutz vor falschem $q_0$ |
+| **Hinweis:** Hauptachsen nicht parallel zu y/z (Winkel), I_yz-Kopplung | Dünnwandiges Profil mit $I_{yz} \ne 0$ | Der Schubfluss wird mit Kopplung gerechnet (schiefe Biegung), nicht mit $\tau = QS/(It)$ |
+| **Torsion nicht berechnet:** nur rein dünnwandige Profile | Massiv oder gemischt | Keine Prandtl-Lösung in TM2 |
+| … Mehrzelliges Profil | Zwei oder mehr Zellen | Statisch unbestimmt |
+| … I_T = 0 | Kein Torsionswiderstand | Division durch null |
+| … Torsion aus Kräften: Schubmittelpunkt statisch unbestimmt | Kraft in einer Richtung, deren Schubmittelpunktkoordinate unbestimmt ist | Das Moment um den Schubmittelpunkt ist nicht bestimmbar |
+| **Spannung nicht berechnet:** σx nicht berechenbar (Nenner 0) | Fläche oder $I_yI_z - I_{yz}^2$ gleich null | Division durch null |
+| **Eingabe:** Ungültige Eingabe (Torsion, Schubkraft, σx, Menüwert) | Ausdruck nicht auswertbar | Rückmeldung statt stillem Abbruch |
+| **Hinweis:** Kein Querschnitt vorhanden | Berechnung, KOS-Verschiebung oder Kernfläche ohne Querschnitt | Rückmeldung |
+| **Hinweis:** V nur im Schubspannungsmodus verfügbar | Taste `V` ohne Schubergebnis | Bedienhinweis |
+
+Weitere Anzeigen außerhalb der Box:
+
+| Anzeige | Wann | Warum |
+|---|---|---|
+| Überlappung erkannt (1 Abziehen, 2 Addieren, 3 Verwerfen) | Ein neues Massivelement überdeckt ein bestehendes wirklich (gemeinsame Kanten zählen nicht) | Entscheidung zwischen Lochabzug und numerischer Addition |
+| Warnung: Numerisch berechnet! (Ergebnisfeld) | Ein Element wurde numerisch addiert | Die Werte sind eine Rasternäherung |
+| Hauptachsen parallel zu den Achsen ($I_{yz} = 0$), grün | $I_{yz} \approx 0$ | Hinweis, dass die einfachen Formeln gelten |
+| Hauptachsen nicht parallel zu den Achsen, orange | $I_{yz} \ne 0$ | Hinweis auf schiefe Biegung |
+| Schubmittelpunkt: statisch unbestimmt / zweite Koordinate statisch unbestimmt | Geschlossene Zelle mit Symmetrie nur in einer Richtung | Es wird nur angegeben, was bestimmt ist |
+| M o. D für Querschnitt | Leerer Bildschirm | Bedienhinweis zum Einstieg |

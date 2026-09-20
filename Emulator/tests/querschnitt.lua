@@ -420,4 +420,61 @@ fall('13 Eingabe', function()
     wahr('os.exit() wird nicht ausgefuehrt', Q.evalInput('os.exit()') == nil)
 end)
 
+
+fall('Hauptachsen gedreht: Meldungen', function()
+    T.abschnitt('Schub bei I_yz ~= 0: Hinweis bzw. Begruendung sichtbar, ESC schliesst')
+    local function texteMit(muster)
+        T.texte = {}
+        Q.paint(T.gc)
+        for _, t in ipairs(T.texte) do if t:find(muster, 1, true) then return true end end
+        return false
+    end
+    -- massives L: Schub wird abgelehnt, die Begruendung steht in der Box
+    T.reset()
+    T.massiv({ type = 'rect', points = { P(0, 0), P(60, 10) } })
+    T.massiv({ type = 'rect', points = { P(0, 10), P(10, 60) } })
+    T.rechne()
+    local res = Q.schubEingabe(0, 1000)
+    local m = Q.meldung()
+    T.wahr('massives L: kein Ergebnis', res == nil)
+    T.wahr('massives L: Box "Schub nicht berechnet"', m ~= nil and m.titel == 'Schub nicht berechnet' and m.text:find('I_yz', 1, true) ~= nil, m and m.text)
+    T.wahr('massives L: Box gezeichnet', texteMit('Schub nicht berechnet:'))
+    on.escapeKey()
+    T.wahr('ESC schliesst die Box', Q.meldung() == nil and not texteMit('Schub nicht berechnet:'))
+    -- duennwandiges Z: Schub wird mit Kopplung gerechnet, Hinweis auf gedrehte Hauptachsen
+    T.reset()
+    T.zug({ 40, 50, 0, 50, 0, 0, -40, 0 }, 2)
+    local r = T.rechne()
+    res = Q.schubEingabe(0, 1000)
+    m = Q.meldung()
+    T.wahr('Z: Ergebnis vorhanden', res ~= nil and res.iyz_kopplung == true)
+    T.wahr('Z: Hinweis Hauptachsen nicht parallel', m ~= nil and m.titel == 'Hinweis' and m.text:find('Hauptachsen nicht parallel', 1, true) ~= nil, m and m.text)
+    if T.verbose then T.write('   ' .. (m and m.text or '') .. '\n') end
+    T.wahr('Z: Hinweis gezeichnet', texteMit('Hinweis:'))
+    on.escapeKey()
+    T.wahr('Z: ESC schliesst den Hinweis, Schubauswahl bleibt', Q.meldung() == nil)
+    local texte = T.ergebnisfeld()
+    local orange = false
+    for _, t in ipairs(texte) do if t:find('nicht parallel zu den Achsen', 1, true) then orange = true end end
+    T.wahr('Ergebnisfeld: "Hauptachsen nicht parallel zu den Achsen"', orange)
+    -- symmetrisches I-Profil: kein Hinweis, Ergebnisfeld gruen
+    T.reset()
+    T.zug({ -30, 50, 30, 50 }, 2); T.zug({ 0, 50, 0, -50 }, 2); T.zug({ -30, -50, 30, -50 }, 2)
+    T.rechne()
+    res = Q.schubEingabe(0, 1000)
+    T.wahr('I-Profil: Ergebnis ohne Hinweis', res ~= nil and Q.meldung() == nil, Q.meldung() and Q.meldung().text)
+    texte = T.ergebnisfeld()
+    local gruen = false
+    for _, t in ipairs(texte) do if t:find('Hauptachsen parallel zu den Achsen', 1, true) then gruen = true end end
+    T.wahr('Ergebnisfeld: "Hauptachsen parallel zu den Achsen"', gruen)
+    -- Querschnitt aendern loescht eine alte Meldung
+    T.reset()
+    T.massiv({ type = 'rect', points = { P(0, 0), P(60, 10) } })
+    T.massiv({ type = 'rect', points = { P(0, 10), P(10, 60) } })
+    T.rechne()
+    Q.schubEingabe(0, 1000)
+    T.rechne()
+    T.wahr('neue Querschnittsberechnung loescht die Meldung', Q.meldung() == nil)
+end)
+
 T.ende('Querschnitt')

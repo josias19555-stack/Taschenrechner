@@ -318,6 +318,10 @@ Querschnitte) werden mit einer Meldung abgelehnt, statt eine Naeherung auszugebe
 
 ## 9. Menü- & Interaktionslogik
 
+### `meldung(text, titel, fehler)` / `qsMeldung`
+- **Zweck:** Meldung sichtbar machen: setzt `status` und die globale Box `qsMeldung = { titel, text, fehler }`, die `on.paint` in der Hauptansicht zeichnet (rot bei `fehler`, sonst gelb, Text umgebrochen). `on.escapeKey` schliesst zuerst die Box; `berechneSystem` und die `open...Input`-Funktionen setzen sie zurueck.
+- **Grenzen:** `status` selbst wird nirgends gezeichnet (es gibt keine Statuszeile); nur ueber `meldung` gesetzte Texte sind sichtbar. In den Eingabe- und Tabellenansichten (fruehe Rueckkehr aus `on.paint`) wird die Box nicht gezeichnet.
+
 ### `toggleCalculationMenu()`
 - **Zweck:** Oeffnet/schliesst das Berechnungsmenue (`menuPage = 5`) bzw. bei bereits vorhandenem `shear_results` das Schubspannungs-Zusatzmenue (`menuPage = 8`).
 - **Moeglichkeiten:** Erreichbar ueber `Strg+Menü` (`on.menuKey`/`on.contextMenu`) **und** die Taste `b`.

@@ -208,6 +208,8 @@ Das Programm warnt bei einem kinematischen System. Bei einem starren und gleichz
 
 Der automatische KGV-Solver erkennt überzählige Bindungen beziehungsweise Freiheitsgrade und bildet Zustände für die überzähligen Größen. Ein Zustand $X_i=1$ kann über die Zifferntasten ausgewählt werden. Zusätzlich können KGV-Matrizen exportiert werden.
 
+Wird ein Pendelstab als überzählige Größe gelöst, ist er im Hauptsystem **entfernt**; die Einheitskräfte greifen an seinen beiden Knoten an. Seine eigene Längenänderung $N L/(EA)$ steckt deshalb nicht in den Knotenverschiebungen und wird zu $\delta_{ii}$ addiert ($X_i = 1$ erzeugt im gelösten Stab $N = 1$, in den übrigen gelösten Stäben $N = 0$). Ohne diesen Anteil wäre das Verfahren nur für dehnstarre gelöste Stäbe richtig; bei einem Fachwerkfeld mit zwei Diagonalen lag der Fehler bei rund 11 %. Dehnsteife Stäbe liefern den Anteil 0. Gelöste Lager und eingefügte Gelenke brauchen keinen Zusatz, weil der Stab dort im System bleibt.
+
 **Grenzen:**
 
 - Die automatische Erkennung hängt von der gewählten Modellierung und den erkannten Bindungen ab.
@@ -333,7 +335,7 @@ Für gerade Stäbe können analytische CAS-Funktionen für $N(x)$, $Q(x)$, $M(x)
 - `h`: System automatisch in den sichtbaren Bereich einpassen.
 - `f`: Richtung eines unter dem Cursor befindlichen Stabs umkehren.
 - `+`/`-`: Zoom ändern.
-- **Gelbe Hinweisbox** (nach der Berechnung, das Ergebnis ist gültig; ESC schließt sie, sie erscheint erst bei geänderten Hinweisen oder Temperatureingaben wieder):
+- **Gelbe Hinweisbox** (nach der Berechnung, das Ergebnis ist gültig; ESC schließt sie, sie erscheint wieder, sobald sich am System etwas ändert, z. B. eine Steifigkeit, Last, Lagerung oder ein Gelenk; erneutes Rechnen ohne Änderung öffnet sie nicht):
   - Temperatur mit $T_o \ne T_u$, aber $h = 0$: Es wirkt nur die mittlere Erwärmung $(T_o+T_u)/2$, keine Krümmung.
   - Temperatur im symbolischen Modus: Die Diagrammbeschriftungen enthalten den Temperaturanteil nicht, der Export schon.
   - Symbolischer Modus: Ein Stab hat ein Zahlen-EI (bzw. -EA), während andere Steifigkeiten symbolisch sind, und wird laut FEM tatsächlich auf Biegung (bzw. Normalkraft) beansprucht. Das Ergebnis mischt dann Zahl und Symbol (z. B. `3·l²·ea + 125000000`, wobei 125000000 aus EI = 10⁸ stammt). Abhilfe: Pendelstab mit Gelenken an beiden Enden, EI/EA symbolisch, biegesteif/dehnsteif bzw. Standard-EA dehnstarr.
@@ -360,3 +362,67 @@ Die Einstellungen sind in mehrere Seiten aufgeteilt:
 - Das Programm speichert die Geometrie und Einstellungen nicht als allgemeine Projektdatei.
 - Sehr lange Menüs, LGS-Ausgaben und Tabellen benötigen Scrollen und können die begrenzte Bildschirmgröße überschreiten.
 - Eine Prüfung auf realer TI-Nspire-Hardware und eine unabhängige Vergleichsrechnung bleiben für wichtige Ergebnisse empfehlenswert.
+
+## 13. Meldungen und Hinweise (Übersicht)
+
+Alles, was der Rechner anzeigen soll, wird gezeichnet: `Disp` aus einem Lua-Skript zeigt der TI-Nspire nicht an, und `print` geht nur in die Konsole des Emulators. Sichtbar sind daher die Boxen in der Bildmitte; `Esc` schließt die oberste Box (erst Eingabe/Menü, dann Box, dann Modi und Auswahl).
+
+### 13.1 Warnboxen (rot/orange)
+
+| Meldung | Wann | Warum |
+|---|---|---|
+| **Symbolischer Modus nicht möglich:** + Grund | Symbolischer Modus mit einer Eingabe, die er nicht abbilden kann | Verhindert falsche Ergebnisse; Berechnung und Rand-LGS-Export bleiben gesperrt, auch nachdem die Box geschlossen wurde |
+| **System ist kinematisch!** | Steifigkeitsmatrix singulär (Mechanismus) | Keine eindeutige Lösung |
+| **Starrmodus & statisch unbestimmt!** | Statisch unbestimmtes System, alle Stäbe sehr steif (EA, EI ≥ 10⁷, auch die Standardwerte) oder Starr-Modus aktiv | In unbestimmten Systemen hängt die Kraftverteilung von den Steifigkeitsverhältnissen ab |
+| **System ist starr! [Enter] für PvV-Modus** | PvV-Ansicht bei nicht kinematischem System | Für das Prinzip der virtuellen Verschiebungen muss erst eine Bindung gelöst werden |
+
+Gründe für „Symbolischer Modus nicht möglich“:
+
+| Grund | Wann | Warum |
+|---|---|---|
+| Nur ein Längensymbol erlaubt | Mehrere Symbole in den Koordinaten | Alle Längen werden als Vielfache einer Referenzlänge `l` ausgegeben |
+| Knoten i: Koordinate kein Vielfaches von `l` | Koordinate wie `a+2` | wie oben |
+| Symbol `t` ist reserviert | Eingabe enthält `t` bzw. `T` | `t` ist die Integrationsvariable des Exports; der Rechner unterscheidet Groß-/Kleinschreibung nicht |
+| Symbol EI/EA kommt vor, aber Stab i hat EI/EA als Zahl | EI/EA symbolisch (z. B. in einer Feder), ein anderer Stab numerisch | Die Platzhalterrechnung würde zwei Zahlenwerte mischen |
+| Stab i: Temperatur als Funktion von x nicht möglich | `x` in To, Tu, α oder h | Nicht vorgesehen |
+| Stab i: Lastfunktion f(x) nicht symbolisch möglich | `x` in q, n, m, gx, gy | Die Superposition kennt nur konstante und trapezförmige Lasten |
+| Stab i: Bögen nicht symbolisch möglich | Bogenradius ≠ 0 | Nicht vorgesehen |
+
+### 13.2 Gelbe Hinweisbox (nach der Berechnung; erscheint nach jeder Systemänderung wieder)
+
+| Hinweis | Wann | Warum |
+|---|---|---|
+| Stab i: To und Tu verschieden, aber h = 0 | h = 0 und To ≠ Tu | Sonst wirkt stillschweigend nur die mittlere Erwärmung (To+Tu)/2, ohne Krümmung |
+| Temperatur symbolisch: Diagrammwerte ohne Temperaturanteil | Symbolischer Modus mit Temperatur | Die Diagrammbeschriftungen entstehen durch Superposition; der Temperaturanteil fehlt dort, im Export nicht |
+| Stab i: EI ist eine Zahl … | Symbolischer Modus: Stab wird gebogen, hat keine Gelenke an beiden Enden, EI numerisch, andere Steifigkeiten symbolisch | Das Ergebnis mischt Zahl und Symbol (typisch: Pendelstab ohne Gelenke) |
+| Stab i: EA ist eine Zahl … | wie oben mit N ≠ 0 und numerischem EA | Ergebnis mischt Zahl und Symbol; Abhilfe: dehnsteif bzw. Standard-EA dehnstarr oder EA symbolisch |
+
+### 13.3 Export- und Rand-LGS-Meldungen (gelbe Box, Titel „Export“ bzw. „Export fehlgeschlagen“)
+
+| Meldung | Wann |
+|---|---|
+| Rand-LGS: n Stäbe, m Bedingungen → wneu_i, uneu_i, wv_i, uv_i, randbed | Erfolgreicher Rand-LGS-Export |
+| Matrizen/Schnittgrößen/Biegelinien/Längslinien/Verschiebungslinien/KGV-Matrizen exportiert | Erfolgreicher Export aus dem Obermenü, Seite 2 |
+| LGS exportiert (ggw_a, ggw_b, ggw_x, lgs), ggf. mit „LGS nicht quadratisch“ | Export der Gleichgewichtsmatrix; die Warnung zeigt ungleiche Anzahl Gleichungen und Unbekannte |
+| Arbeitssatz exportiert: w_eq1, w_eq2 | Erfolgreicher Arbeitssatz-Export (PvV) |
+| Bitte zuerst das System berechnen (Taste B) | Export ohne vorherige Berechnung |
+| KGV-Export: KGV nicht aktiv oder System statisch bestimmt | KGV-Export ohne Einheitszustände |
+| Arbeitssatz: bitte zuerst in den PvV-Modus wechseln | Arbeitssatz-Export außerhalb des PvV-Modus |
+| Dieser Export erfordert das CAS | Kein CAS verfügbar |
+
+Fehler des Rand-LGS stehen zusätzlich auf dem Rechner in `randbed = ["Fehler: …"]`; die alten Funktionen `wneu`, `uneu`, `wv`, `uv` werden vorher gelöscht:
+
+| Meldung | Wann |
+|---|---|
+| Keine Stäbe vorhanden / Kein gültiger Stab | Kein Stab bzw. nur Stäbe der Länge 0 |
+| Symbolischer Modus: … | Symbol-Sperre aktiv |
+| Rand-LGS nicht im KGV-Einheitszustand X_i | Ein KGV-Einheitszustand ist eingestellt; der Export gilt für Zustand 0 |
+| Stab i: Bögen werden vom Rand-LGS nicht unterstützt | Bogen im System |
+| Knoten k: Last in frei beweglicher Richtung (kinematisch) | Last auf einen Knoten, dessen Stabenden in dieser Richtung alle ein N- oder Q-Gelenk haben |
+| Rand-LGS singulär / nicht lösbar: System kinematisch? | Mechanismus |
+| Rand-LGS nicht quadratisch / unerwartete Lösung | Interne Kontrolle der Bedingungszahl bzw. der CAS-Antwort |
+| Starrer Stab i: Grenzwert nicht bestimmbar | Grenzwert-Methode: `limit` scheitert |
+| Starre Stäbe: unendliche Zwangskraft | Behinderte Temperaturverformung eines starren Stabes |
+| Export wneu/uneu/wv/uv i fehlgeschlagen | Das CAS kann die Funktion nicht definieren |
+
+`randinfo` ist kein Fehler, sondern die Legende des Exports: starre Stäbe, welche Funktionen Verschiebungen sind, verwendete Methode (auch der Rückfall auf den Grenzwert) und die Bedeutung von `wv`/`uv`.
