@@ -287,7 +287,10 @@ case('[M] Symbolischer Modus: reservierte/inkonsistente Symbole', function()
     local k = { fixed(node(0)), node(2) }; k[2].cy_str = 'EI/l^3'; k[2].cy = 1; k[2].last_y_str = 'F'; k[2].last_y = 1
     solveSymb(k, { bar(1, 2) })
     write('           Meldung: ' .. tostring(symbolFehler) .. '\n')
-    check('Feder EI/l^3 ohne symbolisches EI am Stab -> Fehler', symbolFehler and symbolFehler:find('EI') and 1 or 0, 1)
+    -- Mischung Zahl/Symbol ist kein Abbruch mehr: es wird gerechnet und gewarnt
+    write('           Hinweis: ' .. table.concat(hinweisListe, ' | ') .. '\n')
+    check('Feder EI/l^3 ohne symbolisches EI am Stab -> kein Abbruch', symbolFehler == nil and 1 or 0, 1)
+    check('Feder EI/l^3 ohne symbolisches EI am Stab -> Hinweis', table.concat(hinweisListe, ' | '):find('EI ist dort eine Zahl', 1, true) and 1 or 0, 1)
     local k2 = { fixed(node(0)), node(2) }; k2[2].cy_str = 'EI/l^3'; k2[2].cy = 1; k2[2].last_y_str = 'F'; k2[2].last_y = 1
     solveSymb(k2, { bar(1, 2, { EI_str = 'EI' }) })
     check('Feder EI/l^3 mit EI am Stab -> ok', symbolFehler == nil and 1 or 0, 1)

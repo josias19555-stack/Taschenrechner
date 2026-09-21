@@ -158,6 +158,11 @@ Querschnitte) werden mit einer Meldung abgelehnt, statt eine Naeherung auszugebe
 
 ### `duennSymmetrie(nodes, edges, ys, zs)`
 - **Zweck:** Prueft Spiegelsymmetrie des Graphen inklusive Wanddicken zur senkrechten Achse `u = ys` (`sym_v`) und zur waagerechten Achse `v = zs` (`sym_h`). Ersetzt die fruehere Pruefung `|I_yz| < 1e-5`, die keine Symmetrie nachweist.
+- **Verfahren:** Jede Kante wird in 13 Punkten abgetastet; der gespiegelte Punkt muss auf einer Kante gleicher Dicke liegen (Punkt-auf-Strecke, Toleranz `1e-6 * Ausdehnung`). Dadurch ist die Erkennung unabhaengig davon, wie die beiden Haelften in Segmente geteilt sind (frueher wurde Kante gegen Kante verglichen, eine anders unterteilte Haelfte galt als unsymmetrisch).
+
+### Zellkorrektur in `berechneDuenneSchubspannung`
+- **Zweck:** Die geschlossene Zelle wird an beliebiger Stelle aufgeschnitten; das statische Moment der Zelle darf danach um eine Konstante verschoben werden. Aus der Symmetrie folgt `S(P) + S(P') = 0` im Umlaufsinn (Schnitt auf der Symmetrieachse, dort ist `q = 0`). Korrigiert werden jetzt `Sz` (waagerechte Symmetrieachse, gehoert zu Q_a) und `Sy` (senkrechte Achse, Q_b); `tau_a`/`tau_b` werden anschliessend aus den korrigierten `S` neu gebildet. Frueher wurde nur `tau` korrigiert, die angezeigten `S`-Verlaeufe blieben auf den zufaelligen Schnitt bezogen.
+- **Grenzen:** Findet sich kein Spiegelpartner in der Zelle, meldet die Funktion "Symmetriepartner in der Zelle nicht gefunden". Ohne erkannte Symmetrie warnt `berechneSchubspannungsResultate`.
 
 ### `find_closed_cells()`
 - **Zweck:** Bredt fuer genau eine geschlossene Zelle (auch mit offenen Aesten und T-Knoten). Rueckgabe `I_T, A_m, Zellenzahl, Info`.
@@ -296,6 +301,7 @@ Querschnitte) werden mit einer Meldung abgelehnt, statt eine Naeherung auszugebe
 
 ### `drawMenu(gc, w, h)` / `buildMenuItems()`
 - **Zweck:** `buildMenuItems()` liefert die Textzeilen der aktuellen Menueseite (`menuPage`), `drawMenu` zeichnet sie inkl. Hervorhebung der aktiven Zeile und Inline-Eingabefeld.
+- **Lage:** Der Kasten steht links (`left = 5`); ebenso die Schubverlaufs-Auswahl `drawShearSelector`, die in `on.paint` zuletzt gezeichnet wird und damit ueber Kraeften und Achsen liegt.
 - **Grenzen:** Feste Kastenbreite (`220px`); bei sehr langen Zeilen (z. B. Elementbearbeitung mit vielen Punkten) kein Zeilenumbruch, nur Kuerzung durch Fensterbreite.
 
 ### `drawOverlapPrompt(gc, w, h)`
@@ -317,6 +323,12 @@ Querschnitte) werden mit einer Meldung abgelehnt, statt eine Naeherung auszugebe
 ---
 
 ## 9. Menü- & Interaktionslogik
+
+### `ftm_bezug` (Obermenue Seite 2, `FTM-Bezug`)
+- **Zweck:** `"schwerpunkt"` (Standard) oder `"kos"`. Steuert die Ergebnisliste (`I_y,S` bzw. `I_y (KOS)` aus `IyS_d` bzw. `IyS_d + A*z_s^2`) und die Einzelwerte-Tabelle (Steiner-Anteile `delta = Element - Bezug`, Gesamtwerte, Ueberschrift). Umschalten ueber `menuPage 9, Zeile 2`.
+
+### `loescheAllesQS()` / `on.clearKey()` / `qsLoeschFrage`
+- **Zweck:** `on.clearKey` setzt nur `qsLoeschFrage` und zeichnet die Rueckfrage; `on.enterKey` ruft `loescheAllesQS()` (der bisherige Inhalt von `clearKey`), `on.escapeKey` bricht ab. Bei leerem Querschnitt wird ohne Rueckfrage geloescht. Der Weg `Esc` + `Backspace` (`escape_clear_pending`) laeuft ueber dieselbe Rueckfrage.
 
 ### `meldung(text, titel, fehler)` / `qsMeldung`
 - **Zweck:** Meldung sichtbar machen: setzt `status` und die globale Box `qsMeldung = { titel, text, fehler }`, die `on.paint` in der Hauptansicht zeichnet (rot bei `fehler`, sonst gelb, Text umgebrochen). `on.escapeKey` schliesst zuerst die Box; `berechneSystem` und die `open...Input`-Funktionen setzen sie zurueck.

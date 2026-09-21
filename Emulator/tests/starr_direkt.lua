@@ -77,7 +77,16 @@ local function vergleiche(titel, bauen, opts, erwarteRueckfall)
         if not stabDehnsteif(s) or erwarteRueckfall then gleich('uneu' .. i, 'uneu' .. i .. '(x)', a['uneu' .. i])
         else gleich('uneu' .. i .. ' = uv' .. i .. ' (starr)', 'uneu' .. i .. '(x)', b['uv' .. i]) end
     end
-    T.wahr('randbed gleich', a.randbed == b.randbed)
+    -- Die Texte duerfen sich unterscheiden: bei der direkten Methode stehen mehr Groessen schon
+    -- vorab fest und werden in der Anzeige eingesetzt. Die Zahl der Bedingungen muss gleich bleiben.
+    local function anzahl(rb)
+        local n = 0
+        for t in rb:gmatch('"([^"]*)"') do if t:sub(1, 3) ~= '---' then n = n + 1 end end
+        return n
+    end
+    T.wahr('gleich viele Bedingungen', anzahl(a.randbed) == anzahl(b.randbed),
+        anzahl(a.randbed) .. ' (Grenzwert) / ' .. anzahl(b.randbed) .. ' (direkt)')
+    if a.randbed ~= b.randbed then T.info('   randbed direkt: ' .. b.randbed) end
 end
 
 local fall = T.fall

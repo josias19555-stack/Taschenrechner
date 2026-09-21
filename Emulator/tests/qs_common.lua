@@ -16,10 +16,14 @@ platform = { window = { width = function() return 318 end, height = function() r
 timer = { start = function() end, stop = function() end, getMilliSecCounter = function() return 0 end }
 var = { store = function() end }
 
--- Zeichen-Attrappe: sammelt alle drawString-Texte
+-- Zeichen-Attrappe: sammelt alle drawString-Texte (M.texte) mit Position (M.pos)
 M.texte = {}
+M.pos = {}
 M.gc = setmetatable({}, { __index = function(_, k)
-    if k == 'drawString' then return function(_, text) M.texte[#M.texte + 1] = tostring(text) end end
+    if k == 'drawString' then return function(_, text, x, y)
+        M.texte[#M.texte + 1] = tostring(text)
+        M.pos[#M.pos + 1] = { t = tostring(text), x = x, y = y }
+    end end
     if k == 'getStringWidth' then return function(_, text) return #tostring(text) * 6 end end
     if k == 'getStringHeight' then return function() return 12 end end
     return function() end
@@ -49,7 +53,7 @@ _G.__Q = {
   spreadsheet = function(gc) showResults = true; drawSpreadsheet(gc, 318, 2000) end,
   evalInput = evaluate_input,
   status = function() return status end,
-  clear = function() on.clearKey() end,
+  clear = function() on.clearKey(); if qsLoeschFrage then on.enterKey() end end,   -- Rueckfrage bestaetigen
   setShear = function(res) shear_results = res end,
   setTorsion = function(t) torsion_results = t end,
   setView = function(mode, sichtbar) shear_view_mode = mode; shear_profile_visible = sichtbar end,
@@ -63,6 +67,14 @@ _G.__Q = {
     return shear_results
   end,
   meldung = function() return qsMeldung end,
+  ftmBezug = function(v) if v then ftm_bezug = v end; return ftm_bezug end,
+  loeschFrage = function() return qsLoeschFrage end,
+  menu = function(page, row) menuOpen, menuPage, menuRow = page ~= nil, page or 1, row or 1 end,
+  menuTexte = function() return buildMenuItems() end,
+  tabelle = function(gc) showTable = true; drawTable(gc, 318, 212); showTable = false end,
+  kraft = function(k) table.insert(kraefte, k) end,
+  auswahl = function(t, i) selected_type, selected_idx = t, i end,
+  selektor = function(offen) shear_selector_open = offen end,
   paint = function(gc) showResults = false; on.paint(gc) end,
 }
 ]]
@@ -84,7 +96,7 @@ function M.rechne() M.Q.berechneSystem(); return M.Q.R() end
 
 -- Ergebnisfeld-Texte (so wie auf dem Bildschirm)
 function M.ergebnisfeld()
-    M.texte = {}
+    M.texte, M.pos = {}, {}
     M.Q.spreadsheet(M.gc)
     return M.texte
 end

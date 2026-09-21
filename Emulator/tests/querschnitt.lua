@@ -101,17 +101,26 @@ fall('3 KOS-Drehung', function()
         [90] = { ys = -30, zs = 20, Iy = 1.28e6, Iz = 2.88e6, Iyz = 1.44e6, alpha = 90 },
         [270] = { ys = 30, zs = -20, Iy = 1.28e6, Iz = 2.88e6, Iyz = 1.44e6, alpha = 90 },
     }
+    -- die Zahlen oben gelten fuer den Bezug KOS-Ursprung (Obermenue: FTM-Bezug)
+    Q.ftmBezug('kos')
     for _, rot in ipairs({ 180, 90, 270 }) do
         Q.setRotation(rot)
         local t = T.ergebnisfeld()
         local s = soll[rot]
         zahl(rot .. ' Grad: y_s', T.zeileWert(t, 'y_s'), s.ys, 1e-3)
         zahl(rot .. ' Grad: z_s', T.zeileWert(t, 'z_s'), s.zs, 1e-3)
-        zahl(rot .. ' Grad: I_y', T.zeileWert(t, 'I_y ='), s.Iy, 1e-3)
-        zahl(rot .. ' Grad: I_z', T.zeileWert(t, 'I_z ='), s.Iz, 1e-3)
-        zahl(rot .. ' Grad: I_yz', T.zeileWert(t, 'I_yz ='), s.Iyz, 1e-3)
+        zahl(rot .. ' Grad: I_y (KOS)', T.zeileWert(t, 'I_y (KOS)'), s.Iy, 1e-3)
+        zahl(rot .. ' Grad: I_z (KOS)', T.zeileWert(t, 'I_z (KOS)'), s.Iz, 1e-3)
+        zahl(rot .. ' Grad: I_yz (KOS)', T.zeileWert(t, 'I_yz (KOS)'), s.Iyz, 1e-3)
         zahl(rot .. ' Grad: |alpha|', math.abs(T.zeileWert(t, 'alpha') or 999), s.alpha, 1e-3)
     end
+    -- Standard ist der Schwerpunkt: I_y,S = 40*60^3/12, I_z,S = 60*40^3/12, I_yz,S = 0
+    Q.ftmBezug('schwerpunkt')
+    Q.setRotation(180)
+    local ts = T.ergebnisfeld()
+    zahl('Schwerpunkt: I_y,S', T.zeileWert(ts, 'I_y,S'), 40 * 60 ^ 3 / 12, 1e-6)
+    zahl('Schwerpunkt: I_z,S', T.zeileWert(ts, 'I_z,S'), 60 * 40 ^ 3 / 12, 1e-6)
+    zahl('Schwerpunkt: I_yz,S', T.zeileWert(ts, 'I_yz,S'), 0, 1e-6)
 end)
 
 fall('4 Sigma', function()
@@ -475,6 +484,177 @@ fall('Hauptachsen gedreht: Meldungen', function()
     Q.schubEingabe(0, 1000)
     T.rechne()
     T.wahr('neue Querschnittsberechnung loescht die Meldung', Q.meldung() == nil)
+end)
+
+fall('20 FTM-Bezug im Menue', function()
+    T.abschnitt('Obermenue: FTM-Bezug umschalten, Tabelle und Ergebnisfeld folgen')
+    -- Rechteck 40x60 mit Ecke im Ursprung: Steiner-Anteil zum KOS ist A*z_s^2 = 2400*30^2
+    T.massiv({ type = 'rect', points = { T.P(0, 0), T.P(-40, -60) } })
+    T.rechne()
+    Q.ftmBezug('schwerpunkt')
+    Q.menu(9, 1)
+    local eintraege = Q.menuTexte()
+    T.wahr('Menueeintrag zeigt den aktuellen Bezug', (eintraege[2] or ''):find('Schwerpunkt', 1, true) ~= nil, eintraege[2])
+    T.wahr('Rueckweg ist Zeile 3', (eintraege[3] or ''):find('Zurueck', 1, true) ~= nil, eintraege[3])
+    -- Zeile 2 waehlen und mit Enter umschalten
+    Q.menu(9, 2)
+    on.enterKey()
+    T.wahr('Bezug jetzt KOS-Ursprung', Q.ftmBezug() == 'kos', Q.ftmBezug())
+    T.wahr('Menuetext folgt', (Q.menuTexte()[2] or ''):find('KOS-Ursprung', 1, true) ~= nil, Q.menuTexte()[2])
+    -- Tabelle: Steiner-Anteil bezieht sich jetzt auf den KOS-Ursprung
+    T.texte, T.pos = {}, {}
+    Q.tabelle(T.gc)
+    local hat_kos, hat_wert = false, false
+    for _, t in ipairs(T.texte) do
+        if t:find('Steiner zu KOS', 1, true) then hat_kos = true end
+        if t == string.format('%.2f', 2400 * 30 ^ 2) then hat_wert = true end
+    end
+    T.wahr('Tabellenkopf nennt den Bezug KOS', hat_kos, table.concat(T.texte, ' | '):sub(1, 120))
+    T.wahr('Steiner-Anteil z^2*A = 2400*30^2', hat_wert)
+    -- zurueckschalten: Steiner zum Schwerpunkt ist 0
+    Q.menu(9, 2); on.enterKey()
+    T.wahr('wieder Schwerpunkt', Q.ftmBezug() == 'schwerpunkt', Q.ftmBezug())
+    T.texte, T.pos = {}, {}
+    Q.tabelle(T.gc)
+    local hat_s, null = false, false
+    for _, t in ipairs(T.texte) do
+        if t:find('Steiner zu S', 1, true) then hat_s = true end
+        if t == '0.00' then null = true end
+    end
+    T.wahr('Tabellenkopf nennt den Schwerpunkt', hat_s)
+    T.wahr('Steiner-Anteil ist 0 (ein Element)', null)
+    Q.menu(nil)
+end)
+
+fall('21 Loeschabfrage', function()
+    T.abschnitt('Alles loeschen fragt nach: Esc bricht ab, Enter loescht')
+    T.massiv({ type = 'rect', points = { T.P(0, 0), T.P(-40, -60) } })
+    T.rechne()
+    on.clearKey()
+    T.wahr('Frage steht', Q.loeschFrage() == true)
+    T.texte, T.pos = {}, {}
+    Q.paint(T.gc)
+    local gefragt = false
+    for _, t in ipairs(T.texte) do if t:find('alles loeschen', 1, true) then gefragt = true end end
+    T.wahr('Frage wird gezeichnet', gefragt, table.concat(T.texte, ' | '):sub(1, 100))
+    on.escapeKey()
+    T.wahr('Esc bricht ab', Q.loeschFrage() == false)
+    T.wahr('Querschnitt ist noch da', #Q.M() == 1, #Q.M())
+    on.clearKey(); on.enterKey()
+    T.wahr('Enter loescht', #Q.M() == 0 and #Q.D() == 0)
+    T.wahr('keine Frage mehr offen', Q.loeschFrage() == false)
+end)
+
+fall('22 Menues links, Auswahlmenue oben', function()
+    T.abschnitt('Menue und Schubauswahl stehen links; die Auswahl liegt ueber den Kraeften')
+    T.massiv({ type = 'rect', points = { T.P(0, 0), T.P(-40, -60) } })
+    T.rechne()
+    Q.menu(4, 1)
+    T.texte, T.pos = {}, {}
+    Q.paint(T.gc)
+    local menue_x
+    for _, e in ipairs(T.pos) do if e.t and e.t:find('Menue (', 1, true) then menue_x = e.x end end
+    T.wahr('Menuetitel steht links', menue_x ~= nil and menue_x < 100, tostring(menue_x))
+    Q.menu(nil)
+    -- Schubauswahl: links und nach den Kraeften gezeichnet
+    Q.kraft({ u = -20, v = -30, fa = 1, fb = 0, fc = 0 })
+    Q.auswahl('kraft', 1)
+    Q.selektor(true)
+    T.texte, T.pos = {}, {}
+    Q.paint(T.gc)
+    local sel_i, sel_x, kraft_i
+    for i, e in ipairs(T.pos) do
+        if e.t == 'Schubspannungsverlauf' then sel_i, sel_x = i, e.x end
+        if e.t == 'K1' then kraft_i = i end
+    end
+    T.wahr('Schubauswahl gezeichnet', sel_i ~= nil)
+    T.wahr('Schubauswahl steht links', sel_x ~= nil and sel_x < 100, tostring(sel_x))
+    T.wahr('Kraft wird vor der Auswahl gezeichnet', kraft_i ~= nil and sel_i ~= nil and kraft_i < sel_i,
+        tostring(kraft_i) .. ' / ' .. tostring(sel_i))
+    Q.selektor(false)
+    Q.auswahl(nil, nil)
+end)
+
+fall('23 Zellsymmetrie trotz anderer Unterteilung', function()
+    T.abschnitt('Kasten 40x20: Obergurt in zwei Segmente geteilt, Untergurt in einem')
+    -- unten ein Segment, oben zwei, Stege je eins: geometrisch symmetrisch zu beiden Achsen
+    T.duenn(T.P(0, 0), T.P(40, 0), 2)
+    T.duenn(T.P(40, 0), T.P(40, 20), 2)
+    T.duenn(T.P(40, 20), T.P(20, 20), 2)
+    T.duenn(T.P(20, 20), T.P(0, 20), 2)
+    T.duenn(T.P(0, 20), T.P(0, 0), 2)
+    T.rechne()
+    local _, _, zellen = Q.zellen()
+    T.wahr('eine geschlossene Zelle', zellen == 1, zellen)
+    local res = Q.schub(0, 1)
+    T.wahr('Schub berechnet', res ~= nil, Q.status())
+    if res then
+        T.wahr('Symmetrie senkrecht erkannt', res.sym_v == true)
+        T.wahr('Symmetrie waagerecht erkannt (Unterteilung egal)', res.sym_h == true)
+    end
+    local res2 = Q.schub(1, 0)
+    T.wahr('auch quer dazu berechenbar', res2 ~= nil, Q.status())
+end)
+
+fall('24 Geschlossene Zelle ohne Symmetrie warnt', function()
+    T.abschnitt('Dreieckszelle: keine Spiegelsymmetrie, q0 bleibt offen')
+    T.duenn(T.P(0, 0), T.P(40, 0), 2)
+    T.duenn(T.P(40, 0), T.P(10, 20), 2)
+    T.duenn(T.P(10, 20), T.P(0, 0), 2)
+    T.rechne()
+    local _, _, zellen = Q.zellen()
+    T.wahr('eine geschlossene Zelle', zellen == 1, zellen)
+    -- ohne Querkraft laeuft die Rechnung (S-Verlauf), muss aber warnen
+    local res = Q.schub(0, 0)
+    T.wahr('S-Verlauf berechnet', res ~= nil, Q.status())
+    if res then
+        T.wahr('keine Symmetrie erkannt', res.sym_v == false and res.sym_h == false)
+    end
+    local m = Q.meldung()
+    T.wahr('Warnung erscheint', m ~= nil and tostring(m.text):find('ohne erkannte Symmetrie', 1, true) ~= nil,
+        m and m.text or 'keine Meldung')
+    -- mit Querkraft: statisch unbestimmt, Begruendung nennt die fehlende Symmetrie
+    local res2 = Q.schub(0, 1)
+    T.wahr('Schub abgelehnt', res2 == nil)
+    T.wahr('Begruendung nennt q0 und Symmetrie',
+        tostring(Q.status()):find('Symmetrie', 1, true) ~= nil and tostring(Q.status()):find('q0', 1, true) ~= nil,
+        Q.status())
+end)
+
+fall('25 Symmetrische Zelle: S auf den symmetrischen Schnitt bezogen', function()
+    T.abschnitt('Kasten 40x20: S muss auf der Symmetrieachse null sein, auch ohne Querkraft')
+    T.duenn(T.P(0, 0), T.P(40, 0), 2)
+    T.duenn(T.P(40, 0), T.P(40, 20), 2)
+    T.duenn(T.P(40, 20), T.P(0, 20), 2)
+    T.duenn(T.P(0, 20), T.P(0, 0), 2)
+    T.rechne()
+    local res = Q.schub(0, 0)
+    T.wahr('S-Verlauf berechnet', res ~= nil, Q.status())
+    if res then
+        -- Schwerpunkt (20,10): auf der senkrechten Achse ist Sy = 0, auf der waagerechten Sz = 0
+        local max_sy, max_sz, n_sy, n_sz = 0, 0, 0, 0
+        for _, sample in ipairs(res.samples) do
+            if sample.in_cell and math.abs(sample.u - 20) < 1e-6 then
+                n_sy = n_sy + 1; max_sy = math.max(max_sy, math.abs(sample.Sy))
+            end
+            if sample.in_cell and math.abs(sample.v - 10) < 1e-6 then
+                n_sz = n_sz + 1; max_sz = math.max(max_sz, math.abs(sample.Sz))
+            end
+        end
+        T.wahr('Punkte auf den Symmetrieachsen gefunden', n_sy >= 2 and n_sz >= 2, n_sy .. ' / ' .. n_sz)
+        T.zahl('Sy auf der senkrechten Achse = 0', max_sy, 0, 1e-6)
+        T.zahl('Sz auf der waagerechten Achse = 0', max_sz, 0, 1e-6)
+    end
+    local m = Q.meldung()
+    T.wahr('keine Warnung bei symmetrischer Zelle', m == nil or tostring(m.text):find('Symmetrie', 1, true) == nil,
+        m and m.text or 'keine Meldung')
+    -- mit Querkraft laengs der Symmetrieachse: tau bleibt richtig (Probe gegen die Handrechnung folgt
+    -- aus den uebrigen Schubtests), hier nur: Rechnung laeuft ohne Warnung
+    local res2 = Q.schub(0, 1)
+    T.wahr('Schub berechnet', res2 ~= nil, Q.status())
+    local m2 = Q.meldung()
+    T.wahr('auch mit Querkraft keine Warnung', m2 == nil or tostring(m2.text):find('Symmetrie', 1, true) == nil,
+        m2 and m2.text or 'keine Meldung')
 end)
 
 T.ende('Querschnitt')

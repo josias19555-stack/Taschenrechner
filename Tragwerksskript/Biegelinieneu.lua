@@ -43,6 +43,7 @@ end
 hinweisListe = {}           -- Hinweise nach der Berechnung (gelbe Box, ESC schliesst sie)
 hinweisOffen = false
 hinweisSig, hinweisQuittiert = nil, nil   -- nach ESC erst wieder zeigen, wenn sich das System geaendert hat
+loeschFrage = false         -- Sicherheitsfrage vor "alles loeschen" (Enter loescht, ESC bricht ab)
 defEI = 1e8        
 autoKGV = false    
 zeigeN = true      
@@ -1190,6 +1191,8 @@ local function rlGroesse(name, lin, vz) return { name = name, lin = lin, vz = vz
 -- Anzeige-Hilfen: einfacher Term = kein + oder - ausser einem fuehrenden Minus
 local function rlEinfach(x) return not x:sub(2):find("[%+%-]") end
 local function rlNegiert(k)
+    local innen = k:match("^%-%((.*)%)$")   -- "-(-2)" -> "-2"
+    if innen and select(2, innen:gsub("%(", "")) == select(2, innen:gsub("%)", "")) then return innen end
     local vz, rest = k:match("^(%-?)(.*)$")
     if rest ~= "" and not rest:find("[%+%-]") then return (vz == "-") and rest or ("-" .. rest) end
     return "-(" .. k .. ")"
@@ -1199,32 +1202,58 @@ local function rlKlammer(x)
     return "(" .. x .. ")"
 end
 
-local function rlBedText(cond)
+-- wert(q) liefert den schon bekannten Wert einer Groesse (sonst nil): er wird statt des Namens
+-- angezeigt, damit z. B. "w1(x1=l)=u2(x2=3*l)" bei dehnstarrem, gehaltenem Stab 2 zu "w1(x1=l)=0" wird.
+-- Zweiter Rueckgabewert: Anzahl der noch offenen Groessen in der Bedingung.
+local function rlBedText(cond, wert)
     -- Anzeigefaktoren: Faktor der Groesse mal Vorzeichen ihres Namens (Q = -EIw''' usw.)
-    local terms = {}
-    for i, t in ipairs(cond.terms) do
-        local vz = t.q.vz or 1
-        local f, ft = t.f, t.ft
-        if vz < 0 then
-            if type(f) == "number" then f = -f else f = "-(" .. f .. ")" end
-            if ft then ft = (ft:sub(1, 1) == "-" and rlEinfach(ft)) and ft:sub(2) or ("-" .. ft) end
+    local terms, bekannt = {}, {}
+    for _, t in ipairs(cond.terms) do
+        local v = wert and wert(t.q)
+        if v then
+            if v ~= "0" then bekannt[#bekannt + 1] = { f = t.f, ft = t.ft, v = v } end
+        else
+            local vz = t.q.vz or 1
+            local f, ft = t.f, t.ft
+            if vz < 0 then
+                if type(f) == "number" then f = -f else f = "-(" .. f .. ")" end
+                if ft then ft = (ft:sub(1, 1) == "-" and rlEinfach(ft)) and ft:sub(2) or ("-" .. ft) end
+            end
+            terms[#terms + 1] = { f = f, ft = ft, q = t.q }
         end
-        terms[i] = { f = f, ft = ft, q = t.q }
     end
     local k = cond.ktext or cond.k or "0"
-    k = k:match("^%(([^()%+%-]*)%)$") or k   -- "(F)" -> "F"
+    k = k:match("^%((%-?[%w_%.]+)%)$") or k:match("^%(([^()%+%-]*)%)$") or k   -- "(F)" -> "F", "(-f)" -> "-f"
+    -- eingesetzte bekannte Groessen gehoeren zum konstanten Teil (Faktor mal Wert)
+    for _, e in ipairs(bekannt) do
+        -- Vorzeichen des Wertes und des Faktors zusammenfassen: nicht "-(-2)", sondern "2"
+        local minus, wert = false, e.v
+        if wert:sub(1, 1) == "-" and rlEinfach(wert) then minus, wert = true, wert:sub(2) end
+        local txt, f = nil, e.f
+        if type(f) == "number" then
+            if f < 0 then minus, f = not minus, -f end
+            if math.abs(f - 1) < 1e-12 then txt = rlKlammer(wert)
+            else txt = rlKlammer(fN_export(f)) .. "*" .. rlKlammer(wert) end
+        else
+            txt = rlKlammer(e.ft or f) .. "*" .. rlKlammer(wert)
+        end
+        if minus then txt = "-" .. txt end
+        if k == "0" then k = txt
+        elseif txt:sub(1, 1) == "-" then k = k .. txt
+        else k = k .. "+" .. txt end
+    end
     local function istEins(f) return type(f) == "number" and math.abs(f - 1) < 1e-12 end
     local function istMinusEins(f) return type(f) == "number" and math.abs(f + 1) < 1e-12 end
     if #terms == 2 and k == "0" and (istEins(terms[1].f) or istMinusEins(terms[1].f)) and (istEins(terms[2].f) or istMinusEins(terms[2].f)) then
         local a, b = terms[1], terms[2]
         if a.f < 0 and b.f > 0 then a, b = b, a end
-        if (a.f > 0) == (b.f > 0) then return a.q.name .. "=-" .. b.q.name end   -- a + b = 0
-        return a.q.name .. "=" .. b.q.name                                          -- a - b = 0
+        if (a.f > 0) == (b.f > 0) then return a.q.name .. "=-" .. b.q.name, 2 end   -- a + b = 0
+        return a.q.name .. "=" .. b.q.name, 2                                          -- a - b = 0
     end
     if #terms == 1 and (istEins(terms[1].f) or istMinusEins(terms[1].f)) then
-        if k == "0" then return terms[1].q.name .. "=0" end
+        if k == "0" then return terms[1].q.name .. "=0", 1 end
         local rhs = istEins(terms[1].f) and rlNegiert(k) or k
-        return terms[1].q.name .. "=" .. rhs
+        return terms[1].q.name .. "=" .. rhs, 1
     end
     local parts = {}
     for i, t in ipairs(terms) do
@@ -1245,7 +1274,7 @@ local function rlBedText(cond)
         elseif rlEinfach(k) then s = s .. "+" .. k
         else s = s .. "+(" .. k .. ")" end
     end
-    return s .. "=0"
+    return s .. "=0", #terms
 end
 
 -- Zeile (Linearform) einer Bedingung
@@ -1564,35 +1593,190 @@ local function neuKnotenBedingungen(kidx, k, ends, conds, extra)
     end
 end
 
--- Eliminiert Zeilen mit nur einer Unbekannten (typisch: Bedingungen bei x=0).
--- Liefert bekannte Werte je Unbekannter und die verbleibenden Zeilen.
-local function neuVorElimination(rows)
-    local values = {}
+-- Eliminiert Zeilen mit nur einer Unbekannten (typisch: Bedingungen bei x=0) und danach Zeilen mit
+-- zwei Unbekannten (x_j = f*x_m + k, "Alias"): x_j wird in allen Zeilen ersetzt, das LGS fuer simult
+-- wird dadurch kleiner. Das greift besonders bei starren Staeben, deren Konstanten unmittelbar an
+-- denen des Nachbarstabs haengen (gleiche Verdrehung, gleiche Normalkraft ...).
+-- Liefert bekannte Werte, verbleibende Zeilen und die vorab eliminierten Unbekannten mit ihrer Zeile.
+local function neuVorElimination(rows, mitAlias)
+    local values, reihe = {}, {}
+    -- wannBekannt[j] = Schritt, in dem x_j feststand (fuer die Anzeige: nur vorher Bekanntes einsetzen)
+    local wannBekannt, schritt = {}, 0
+    -- Zahlenwert eines Koeffizienten-Strings (Zahlen, + - * / ^ und Klammern), sonst nil
+    local function num(txt)
+        if type(txt) ~= "string" then return nil end
+        local pos, expr = 1, nil
+        local function leer() while txt:sub(pos, pos) == " " do pos = pos + 1 end end
+        local function prim()
+            leer()
+            local ch = txt:sub(pos, pos)
+            if ch == "(" then
+                pos = pos + 1
+                local v = expr()
+                leer()
+                if v == nil or txt:sub(pos, pos) ~= ")" then return nil end
+                pos = pos + 1
+                return v
+            end
+            if ch == "-" then pos = pos + 1; local v = prim(); if v == nil then return nil end; return -v end
+            if ch == "+" then pos = pos + 1; return prim() end
+            local z = txt:match("^%d*%.?%d+", pos)
+            if not z then return nil end
+            pos = pos + #z
+            local e = txt:match("^[eE][%+%-]?%d+", pos)
+            if e then pos = pos + #e; z = z .. e end
+            return tonumber(z)
+        end
+        local function pot()
+            local a = prim()
+            if a == nil then return nil end
+            leer()
+            if txt:sub(pos, pos) == "^" then
+                pos = pos + 1
+                local b = pot()
+                if b == nil then return nil end
+                return a ^ b
+            end
+            return a
+        end
+        local function term()
+            local a = pot()
+            while a ~= nil do
+                leer()
+                local ch = txt:sub(pos, pos)
+                if ch ~= "*" and ch ~= "/" then return a end
+                pos = pos + 1
+                local b = pot()
+                if b == nil or (ch == "/" and b == 0) then return nil end
+                a = (ch == "*") and (a * b) or (a / b)
+            end
+            return nil
+        end
+        expr = function()
+            local a = term()
+            while a ~= nil do
+                leer()
+                local ch = txt:sub(pos, pos)
+                if ch ~= "+" and ch ~= "-" then return a end
+                pos = pos + 1
+                local b = term()
+                if b == nil then return nil end
+                a = (ch == "+") and (a + b) or (a - b)
+            end
+            return nil
+        end
+        local v = expr()
+        leer()
+        if v == nil or pos <= #txt then return nil end
+        return v
+    end
+    -- bekannten Wert einsetzen
+    local function setzeWert(r, j, val)
+        local cj = r.c[j]
+        r.k = (r.k == "0") and ("(" .. cj .. ")*(" .. val .. ")") or (r.k .. "+(" .. cj .. ")*(" .. val .. ")")
+        r.c[j] = nil
+    end
+    -- Alias x_j = f*x_m + k einsetzen (Zahlenkoeffizienten werden zusammengefasst)
+    local function setzeAlias(r, j, a)
+        local cj = r.c[j]
+        r.c[j] = nil
+        local cn, alt = num(cj), r.c[a.m]
+        local an = alt and num(alt) or 0
+        if cn and a.fn and (alt == nil or num(alt)) then
+            local s = an + cn * a.fn
+            local gr = math.max(math.abs(an), math.abs(cn * a.fn))
+            r.c[a.m] = (math.abs(s) <= 1e-12 * gr) and nil or neuZahl(s)
+        else
+            local term = "(" .. cj .. ")*(" .. a.f .. ")"
+            r.c[a.m] = alt and (alt .. "+" .. term) or term
+        end
+        if a.k ~= "0" then
+            r.k = (r.k == "0") and ("(" .. cj .. ")*(" .. a.k .. ")") or (r.k .. "+(" .. cj .. ")*(" .. a.k .. ")")
+        end
+    end
     local changed = true
     while changed do
         changed = false
+        -- 1) Zeilen mit einer Unbekannten liefern direkt einen Wert
         for _, r in ipairs(rows) do
             if not r.done then
-                for j, cj in pairs(r.c) do
-                    if values[j] then
-                        r.k = (r.k == "0") and ("(" .. cj .. ")*(" .. values[j] .. ")") or (r.k .. "+(" .. cj .. ")*(" .. values[j] .. ")")
-                        r.c[j] = nil
-                    end
-                end
+                for j in pairs(r.c) do if values[j] then setzeWert(r, j, values[j]) end end
                 local count, single = 0, nil
                 for j in pairs(r.c) do count = count + 1; single = j end
                 if count == 1 then
+                    schritt = schritt + 1
                     values[single] = "-(" .. r.k .. ")/(" .. r.c[single] .. ")"
-                    r.done = true; changed = true
+                    wannBekannt[single] = schritt
+                    r.done = true; r.schritt = schritt; r.quelle = single; changed = true
                 elseif count == 0 then
-                    r.done = true; changed = true
+                    r.done = true; r.schritt = schritt; changed = true
+                end
+            end
+        end
+        -- 2) Unbekannte, die nur in einer Zeile vorkommen: Zeile und Unbekannte fallen aus dem LGS,
+        -- der Wert wird am Schluss aus dieser Zeile nachgerechnet (kein Einsetzen, keine Aufblaehung)
+        if not changed then
+            local zahl, zeile = {}, {}
+            for _, r in ipairs(rows) do
+                if not r.done then
+                    for j in pairs(r.c) do zahl[j] = (zahl[j] or 0) + 1; zeile[j] = r end
+                end
+            end
+            for j, n in pairs(zahl) do
+                if n == 1 and not zeile[j].done then
+                    local satz = {}
+                    for j2 in pairs(zeile[j].c) do satz[#satz + 1] = j2 end
+                    reihe[#reihe + 1] = { j = j, r = zeile[j], satz = satz }
+                    zeile[j].done = true; changed = true
+                end
+            end
+        end
+        -- 3) Zeilen mit zwei Unbekannten: die mit dem groesseren Zahlenkoeffizienten wird ersetzt
+        if not changed and mitAlias then
+            for _, r in ipairs(rows) do
+                if not r.done then
+                    local idx = {}
+                    for j in pairs(r.c) do idx[#idx + 1] = j end
+                    if #idx == 2 then
+                        local a, b = idx[1], idx[2]
+                        local na, nb = num(r.c[a]), num(r.c[b])
+                        local j, m, cj
+                        if na and nb then
+                            if math.abs(na) >= math.abs(nb) then j, m, cj = a, b, na else j, m, cj = b, a, nb end
+                        elseif na then j, m, cj = a, b, na
+                        elseif nb then j, m, cj = b, a, nb end
+                        if j and math.abs(cj) > 1e-12 then
+                            local mn = num(r.c[m])
+                            local fn = mn and (-mn / cj) or nil
+                            -- nur reine Zahlenverhaeltnisse ohne Konstante einsetzen: x_j = f*x_m.
+                            -- Alles andere wuerde die Zeilen verlaengern und kostet am Ende mehr Zeit,
+                            -- als das kleinere LGS spart (lange Ausdruecke in exact/limit).
+                            if fn and r.k == "0" then
+                                local a_j = { m = m, f = neuZahl(fn), fn = fn, k = "0" }
+                                reihe[#reihe + 1] = { j = j, r = r, satz = { j, m } }
+                                r.done = true; changed = true
+                                for _, r2 in ipairs(rows) do
+                                    if not r2.done and r2.c[j] then setzeAlias(r2, j, a_j) end
+                                end
+                                break
+                            end
+                        end
+                    end
                 end
             end
         end
     end
     local rest = {}
     for _, r in ipairs(rows) do if not r.done then rest[#rest + 1] = r end end
-    return values, rest
+    -- Zeilen, die nach der Vorelimination noch zusammenhaengen (fuer die Trennung Biege-/Laengslinie)
+    local koppel = {}
+    for _, r in ipairs(rest) do
+        local t = {}
+        for j in pairs(r.c) do t[#t + 1] = j end
+        koppel[#koppel + 1] = { r = r, satz = t }
+    end
+    for _, e in ipairs(reihe) do koppel[#koppel + 1] = { r = e.r, satz = e.satz } end
+    return values, rest, reihe, wannBekannt, koppel
 end
 
 -- Fehler melden: Status und randbed = {"Fehler: ..."} (auf dem Rechner im Calculator sichtbar)
@@ -1633,32 +1817,150 @@ local function neuRandLGSLoesen(direkt, methodeInfo)
     end
     if extra.fehler then return fehler(extra.fehler) end
     local nUnknown = extra.n
-    -- Zeilen aufbauen
-    local rows, texts = {}, {}
+    -- Zeilen aufbauen (die Anzeigetexte erst nach der Vorelimination, dann mit eingesetzten Werten)
+    local rows = {}
     for _, cond in ipairs(conds) do
-        rows[#rows + 1] = rlBedZeile(cond)
-        texts[#texts + 1] = rlBedText(cond)
+        local r = rlBedZeile(cond)
+        r.idx = #rows + 1
+        r.satzOrig = {}
+        for j in pairs(r.c) do r.satzOrig[#r.satzOrig + 1] = j end
+        rows[#rows + 1] = r
     end
     neuShowMessage(#rows .. " Bedingungen, " .. nUnknown .. " Unbekannte" .. (direkt and " (starre Staebe direkt)" or ""))
     if #rows ~= nUnknown then
         return fehler("Rand-LGS nicht quadratisch: " .. #rows .. " Bedingungen, " .. nUnknown .. " Unbekannte")
     end
     -- Vorelimination und Loesung
-    local values, rest = neuVorElimination(rows)
+    -- Beim Grenzwert (rleps) werden die Ausdruecke durch das Einsetzen zu gross: dort nur Zeilen
+    -- und Unbekannte streichen, die ohne Einsetzen wegfallen.
+    local mitEps = false
+    for _, d in ipairs(bars) do if (d.starr or d.starrI) and not direkt then mitEps = true end end
+    local values, rest, vorab, wannBekannt, koppel = neuVorElimination(rows, not mitEps)
+    -- Anzeigetexte: was vor einer Bedingung schon feststand (meist 0), wird eingesetzt.
+    -- So steht dort "w1(x1=l)=0" statt "w1(x1=l)=u2(x2=3*l)", wenn u2 dehnstarr und gehalten ist.
+    local texts = {}
+    -- w-Unbekannte (c1..c4, Biegelinie) und u-Unbekannte (C1, C2, Laengslinie) eines Stabes
+    local function typVon(j)
+        if j > #bars * 6 then return "n" end   -- Knotenverschiebung, gehoert zu beiden
+        return (((j - 1) % 6 + 1) <= 4) and "w" or "u"
+    end
+    do
+        local cache = {}
+        local function wertVon(q, grenze)
+            local c = cache[q]
+            if c == nil then
+                local teile, schritt, ok = {}, 0, true
+                for j, cj in pairs(q.lin.c) do
+                    local s, w = wannBekannt[j], values[j]
+                    if not s or not w then ok = false; break end
+                    if s > schritt then schritt = s end
+                    if w ~= "0" then teile[#teile + 1] = "(" .. cj .. ")*(" .. w .. ")" end
+                end
+                local wert
+                if ok then
+                    local kq = (q.lin.k ~= "0") and q.lin.k or nil
+                    if #teile == 0 and not kq then
+                        wert = "0"
+                    else
+                        local expr = table.concat(teile, "+")
+                        if kq then expr = (expr == "") and kq or (expr .. "+" .. kq) end
+                        if #expr <= 200 then
+                            -- Grenzwertmethode: die Konstanten starrer Staebe enthalten rleps, die
+                            -- Groesse selbst ist endlich -> Grenzwert bilden (sonst nur vereinfachen)
+                            local v = expr:find(RL_EPS, 1, true) and neuGrenzwert(expr) or neuExakt(expr)
+                            -- nur kurze Werte anzeigen, sonst bleibt der Name stehen
+                            if v and #v <= 24 and not v:find(RL_EPS, 1, true) then wert = v end
+                        end
+                    end
+                end
+                c = wert and { wert = wert, schritt = schritt } or false
+                cache[q] = c
+            end
+            if c and c.schritt < grenze then return c.wert end
+            return nil
+        end
+        for i, cond in ipairs(conds) do
+            local grenze = rows[i].schritt or math.huge
+            local t, offen = rlBedText(cond, function(q) return wertVon(q, grenze) end)
+            local roh = not (offen and offen > 0)
+            texts[i] = roh and rlBedText(cond) or t
+            -- welche Art von Groessen steht im Text noch mit Namen da (nicht eingesetzt)?
+            local zeigt = {}
+            for _, tm in ipairs(cond.terms) do
+                if roh or not wertVon(tm.q, grenze) then
+                    for j in pairs(tm.q.lin.c) do
+                        local ty = typVon(j)
+                        if ty ~= "n" then zeigt[ty] = true end
+                    end
+                end
+            end
+            rows[i].zeigt = zeigt
+        end
+    end
+    local weg = {}
+    for _, e in ipairs(vorab) do weg[e.j] = true end
     local restIdx = {}
-    for j = 1, nUnknown do if not values[j] then restIdx[#restIdx + 1] = j end end
+    for j = 1, nUnknown do if not values[j] and not weg[j] then restIdx[#restIdx + 1] = j end end
     if #rest ~= #restIdx then
         return fehler("Rand-LGS singulaer (" .. #rest .. " Gleichungen fuer " .. #restIdx .. " Unbekannte): System kinematisch?", true)
     end
+    -- Das verbleibende System zerfaellt oft in unabhaengige Bloecke (z. B. Biegung und Laengskraft):
+    -- jeder Block wird einzeln mit simult geloest, das ist deutlich schneller als ein grosses LGS.
+    local bloecke = {}
     if #restIdx > 0 then
-        local aRows, bRows = {}, {}
-        for r = 1, #rest do
-            local entries = {}
-            for c = 1, #restIdx do entries[c] = rest[r].c[restIdx[c]] or "0" end
-            aRows[r] = table.concat(entries, ",")
-            bRows[r] = "-(" .. rest[r].k .. ")"
+        local wz = {}
+        local function suche(j)
+            while wz[j] and wz[j] ~= j do j = wz[j] end
+            return j
         end
-        neuShowMessage("simult mit " .. #restIdx .. " Unbekannten")
+        for _, j in ipairs(restIdx) do wz[j] = j end
+        for _, r in ipairs(rest) do
+            local erste
+            for j in pairs(r.c) do
+                if erste then
+                    local a, b = suche(erste), suche(j)
+                    if a ~= b then wz[b] = a end
+                else
+                    erste = j
+                end
+            end
+        end
+        local nach, teilbar = {}, true
+        local function block(w)
+            if not nach[w] then
+                nach[w] = { zeilen = {}, unbek = {}, nr = #bloecke + 1 }
+                bloecke[#bloecke + 1] = nach[w]
+            end
+            return nach[w]
+        end
+        for _, r in ipairs(rest) do
+            local erste
+            for j in pairs(r.c) do erste = j; break end
+            if not erste then teilbar = false; break end
+            local b = block(suche(erste))
+            b.zeilen[#b.zeilen + 1] = r
+            r.block = b.nr
+        end
+        for _, j in ipairs(restIdx) do
+            local b = block(suche(j))
+            b.unbek[#b.unbek + 1] = j
+        end
+        for _, b in ipairs(bloecke) do if #b.zeilen ~= #b.unbek then teilbar = false end end
+        if not teilbar then                      -- im Zweifel alles zusammen loesen
+            bloecke = { { zeilen = rest, unbek = restIdx, nr = 1 } }
+            for _, r in ipairs(rest) do r.block = 1 end
+        end
+    end
+    for _, b in ipairs(bloecke) do
+        local aRows, bRows = {}, {}
+        for r = 1, #b.zeilen do
+            local entries = {}
+            for c = 1, #b.unbek do entries[c] = b.zeilen[r].c[b.unbek[c]] or "0" end
+            aRows[r] = table.concat(entries, ",")
+            bRows[r] = "-(" .. b.zeilen[r].k .. ")"
+        end
+        neuShowMessage("simult mit " .. #b.unbek .. " Unbekannten"
+            .. ((#bloecke > 1) and (" (Block " .. b.nr .. " von " .. #bloecke .. ")") or ""))
         local cmd = "exact(simult([[" .. table.concat(aRows, "][") .. "]],[[" .. table.concat(bRows, "][") .. "]]))"
         local ok, res = pcall(neuCasString, cmd)
         if not ok or not res or res:sub(1, 2) ~= "[[" then
@@ -1669,10 +1971,61 @@ local function neuRandLGSLoesen(direkt, methodeInfo)
         local c = 0
         for v in (body .. "]["):gmatch("(.-)%]%[") do
             c = c + 1
-            if restIdx[c] then values[restIdx[c]] = v end
+            if b.unbek[c] then values[b.unbek[c]] = v end
         end
-        if c ~= #restIdx then return fehler("Rand-LGS: unerwartete Loesung " .. res:sub(1, 40)) end
+        if c ~= #b.unbek then return fehler("Rand-LGS: unerwartete Loesung " .. res:sub(1, 40)) end
     end
+    -- Welche Bedingungen braucht man nur fuer die Biegelinie (w), welche nur fuer die Laengslinie (u)?
+    -- Dazu von den gesuchten Konstanten aus rueckwaerts durch die Zeilen gehen, die sie bestimmen.
+    -- Groessen, die vorab feststehen, sind dabei Zahlen (sie stehen eingesetzt im Text) und trennen nicht.
+    local bestimmt = {}                      -- Unbekannte -> Zeilennummer bzw. simult-Block
+    for _, r in ipairs(rows) do if r.quelle then bestimmt[r.quelle] = r.idx end end
+    for _, e in ipairs(vorab) do bestimmt[e.j] = e.r.idx end
+    for _, b in ipairs(bloecke) do for _, j in ipairs(b.unbek) do bestimmt[j] = b end end
+    local function huelle(typ)
+        local zeilen, stapel, unbek, drin, rein = {}, {}, {}, {}, true
+        local function nimmZeile(ri)
+            if zeilen[ri] then return end
+            zeilen[ri] = true
+            for ty in pairs(rows[ri].zeigt or {}) do if ty ~= typ then rein = false end end
+            for _, j2 in ipairs(rows[ri].satzOrig) do
+                local ty = typVon(j2)
+                if ty ~= typ and ty ~= "n" and not wannBekannt[j2] then rein = false end
+                if not unbek[j2] and (ty == typ or ty == "n" or not wannBekannt[j2]) then
+                    unbek[j2] = true; stapel[#stapel + 1] = j2
+                end
+            end
+        end
+        for j = 1, #bars * 6 do
+            if typVon(j) == typ then unbek[j] = true; stapel[#stapel + 1] = j end
+        end
+        while #stapel > 0 do
+            local b = bestimmt[table.remove(stapel)]
+            if type(b) == "table" then
+                if not drin[b.nr] then
+                    drin[b.nr] = true
+                    for _, r in ipairs(b.zeilen) do nimmZeile(r.idx) end
+                end
+            elseif b then
+                nimmZeile(b)
+            end
+        end
+        return zeilen, rein
+    end
+    local wZeilen, nurW = huelle("w")
+    local uZeilen, nurU = huelle("u")
+    -- vorab eliminierte Unbekannte rueckwaerts aus ihrer Zeile nachrechnen (alle anderen sind bekannt)
+    for i = #vorab, 1, -1 do
+        local e = vorab[i]
+        local summe = e.r.k
+        for j2, cj in pairs(e.r.c) do
+            if j2 ~= e.j then summe = summe .. "+(" .. cj .. ")*(" .. (values[j2] or "0") .. ")" end
+        end
+        local v = "-(" .. summe .. ")/(" .. e.r.c[e.j] .. ")"
+        -- lange Ausdruecke einmal vereinfachen: sonst wachsen sie beim weiteren Einsetzen stark an
+        values[e.j] = (#v > 60) and neuExakt(v) or v
+    end
+    if #vorab > 0 then neuShowMessage(#vorab .. " Unbekannte vorab eliminiert") end
     local dehnListe, biegeListe, uListe, wListe = {}, {}, {}, {}
     local uStarr, wStarr, spezial = {}, {}, {}
     for _, d in ipairs(bars) do
@@ -1759,12 +2112,43 @@ local function neuRandLGSLoesen(direkt, methodeInfo)
     for _, i in ipairs(uListe) do info[#info + 1] = "uneu" .. i .. "(x)=u" .. i .. "(x)" .. grund end
     if #info == 0 then info[1] = "keine starren Staebe: wneu_i(x)=EI*w_i(x), uneu_i(x)=EA*u_i(x)" end
     if methodeInfo then info[#info + 1] = methodeInfo end
+    if nurW and nurU then
+        info[#info + 1] = "Biege- und Laengslinie unabhaengig: randbed in zwei Gruppen"
+    elseif nurW then
+        info[#info + 1] = "Biegelinie w ohne Laengslinie loesbar: erste Gruppe in randbed"
+    elseif nurU then
+        info[#info + 1] = "Laengslinie u ohne Biegelinie loesbar: erste Gruppe in randbed"
+    end
     info[#info + 1] = "Verschiebungen: wv_i(x)=w_i(x), uv_i(x)=u_i(x)"
     for i, t in ipairs(info) do info[i] = '"' .. t .. '"' end
     pcall(math.eval, "randinfo:=[" .. table.concat(info, ";") .. "]")
-    -- Bedingungsliste als Strings
+    -- Bedingungsliste als Strings; bei entkoppelten Linien nach w und u sortiert mit Ueberschrift
     local quoted = {}
-    for i, t in ipairs(texts) do quoted[i] = '"' .. t .. '"' end
+    if nurW or nurU then
+        -- erst die Bedingungen, die fuer eine Linie allein genuegen, dann der Rest
+        local erst, zweit, titel1, titel2
+        if nurW and nurU then
+            erst, zweit = wZeilen, uZeilen
+            titel1, titel2 = "--- nur Biegelinie w ---", "--- nur Laengslinie u ---"
+        elseif nurW then
+            erst, titel1, titel2 = wZeilen, "--- Biegelinie w: diese genuegen ---", "--- zusaetzlich fuer Laengslinie u ---"
+        else
+            erst, titel1, titel2 = uZeilen, "--- Laengslinie u: diese genuegen ---", "--- zusaetzlich fuer Biegelinie w ---"
+        end
+        quoted[#quoted + 1] = '"' .. titel1 .. '"'
+        for i, t in ipairs(texts) do if erst[i] then quoted[#quoted + 1] = '"' .. t .. '"' end end
+        quoted[#quoted + 1] = '"' .. titel2 .. '"'
+        for i, t in ipairs(texts) do
+            if not erst[i] and (zweit == nil or zweit[i]) then quoted[#quoted + 1] = '"' .. t .. '"' end
+        end
+        if zweit then
+            for i, t in ipairs(texts) do
+                if not erst[i] and not zweit[i] then quoted[#quoted + 1] = '"' .. t .. '"' end
+            end
+        end
+    else
+        for i, t in ipairs(texts) do quoted[i] = '"' .. t .. '"' end
+    end
     pcall(math.eval, "randbed:=[" .. table.concat(quoted, ";") .. "]")   -- Spaltenvektor aus Strings
     neuExportStatus("Rand-LGS: " .. count .. " Staebe, " .. #texts .. " Bedingungen -> wneu_i(x)=EI*w, uneu_i(x)=EA*u, wv_i(x)=w, uv_i(x)=u, randbed")
     return true
@@ -3628,11 +4012,13 @@ local function runSymbolicSuperposition()
         s.symb_u_start, s.symb_u_end = "0", "0"
     end
 
+    -- Zahlenwert eines Superpositionsfaktors als Text. smartToFracStr liefert einen exakten Bruch,
+    -- sonst (Zahlenformat 1) die Wurzel eines Bruchs -- z. B. sqrt(1/2) bei 45-Grad-Fachwerkstaeben --
+    -- und sonst eine Dezimalzahl. Frueher wurde hier ein Naeherungsbruch mit Toleranz 1e-5 gebildet,
+    -- das ergab Beschriftungen wie 169/239 statt sqrt(1/2) und ignorierte das eingestellte Format.
     local function numToSymFrac(val)
         if math.abs(val) < 1e-10 then return "0" end
-        local frac = floatToFrac_lua(val, 1e-5, 10000)
-        if frac then return "(" .. frac .. ")" end
-        return string.format("(%.10g)", val)
+        return "(" .. smartToFracStr(val, 10 ^ (-(casToleranz or 5))) .. ")"
     end
 
     local function runSuperposIter(input_str, input_dummy, input_type)
@@ -3693,7 +4079,8 @@ local function runSymbolicSuperposition()
             local u_a, u_b = s.v_local[1] or 0, s.v_local[4] or 0
             if math.abs(u_a) > 1e-6 or math.abs(u_b) > 1e-6 then
                 local power = (input_type == "DistLoad") and 4 or ((input_type == "Force") and 3 or 2)
-                local stiffness = (sym_vars.EI and "EI") or fN_export(s.EI or 1)
+                -- Stab mit Zahl als EI bekommt die Zahl, nicht das Symbol (Mischung aus Zahl und Symbol)
+                local stiffness = (sym_vars.EI and not neuIstZahlText(s.EI_str) and "EI") or fN_export(s.EI or 1)
                 local scale = input_dummy * L_dummy^power
                 s.symb_u_start = s.symb_u_start .. string.format(" + %s*(%s)*(%s)^%d/(%s)", numToSymFrac(u_a / scale), input_str, L_sym, power, stiffness)
                 s.symb_u_end = s.symb_u_end .. string.format(" + %s*(%s)*(%s)^%d/(%s)", numToSymFrac(u_b / scale), input_str, L_sym, power, stiffness)
@@ -3764,21 +4151,10 @@ local function pruefeSymbolischenModus(geo_list)
         end
     end
     for name in pairs(sym_vars) do
-        local low = name:lower()
-        if low == "t" then return "Symbol t ist reserviert (Integrationsvariable)" end
-        if low == "ei" or low == "ea" then
-            -- EI/EA in Feder- oder Lasttexten nur, wenn alle Staebe diese Steifigkeit symbolisch haben
-            local feld = (low == "ei") and "EI_str" or "EA_str"
-            for i, s in ipairs(staebe) do
-                local txt = (s[feld] or ""):lower()
-                local starr = (low == "ei" and stabBiegesteif(s)) or (low == "ea" and stabDehnsteif(s))
-                if not starr and not txt:find("%f[%w_]" .. low .. "%f[^%w_]") then
-                    local g = feld:sub(1, 2)
-                    return "Symbol " .. g .. " kommt vor, aber Stab " .. i .. " hat " .. g .. " als Zahl. " .. g .. " fuer alle Staebe symbolisch setzen."
-                end
-            end
-        end
+        if name:lower() == "t" then return "Symbol t ist reserviert (Integrationsvariable)" end
     end
+    -- Mischung aus symbolischer und numerischer Steifigkeit ist kein Fehler mehr: es wird gerechnet
+    -- und exportiert. sammleHinweise warnt nur, wenn der Zahlenwert das Ergebnis wirklich beeinflusst.
     for i, s in ipairs(staebe) do
         for _, f in ipairs({ s.To_str, s.Tu_str, s.alpha_str, s.h_str }) do
             if type(f) == "string" and f:hasx() then
@@ -3901,7 +4277,7 @@ local function sammleHinweise()
         liste[#liste + 1] = "Temperatur symbolisch: Diagrammwerte ohne Temperaturanteil. Vollstaendig im Export (wneu, uneu, wv, uv)."
     end
     if symbolischer_modus and not warnungKinematisch then
-        -- gibt es ueberhaupt symbolische Steifigkeiten (Stab-EI/EA oder Federn)?
+        -- gibt es ueberhaupt symbolische Steifigkeiten (Stab-EI/EA, Federn oder EI/EA in einem Lasttext)?
         local symbolisch = false
         for _, s in ipairs(staebe) do
             if (not stabBiegesteif(s) and not neuIstZahlText(s.EI_str)) or (not stabDehnsteif(s) and not neuIstZahlText(s.EA_str)) then symbolisch = true end
@@ -3910,6 +4286,10 @@ local function sammleHinweise()
             for _, t in ipairs({ k.cx_str, k.cy_str, k.cm_str }) do
                 if type(t) == "string" and t ~= "" and not neuIstZahlText(t) then symbolisch = true end
             end
+        end
+        for name in pairs(sym_vars) do
+            local low = name:lower()
+            if low == "ei" or low == "ea" then symbolisch = true end
         end
         if symbolisch then
             local maxK = 0
@@ -3931,11 +4311,18 @@ local function sammleHinweise()
                     end
                 end
             end
+            -- Folge der Mischung: bei statisch bestimmten Systemen nur die Verformung, sonst auch die Kraefte
+            local folge
+            if getTopologicalN() ~= 0 then
+                folge = "Das System ist statisch unbestimmt, deshalb kann der Zahlenwert auch die Schnittgroessen verfaelschen (Symbole rechnen intern mit 1)."
+            else
+                folge = "Die Schnittgroessen bleiben richtig (statisch bestimmt), Biegelinie und Export mischen aber Zahl und Symbol."
+            end
             if #eiListe > 0 then
-                liste[#liste + 1] = "Stab " .. table.concat(eiListe, ", ") .. ": EI ist eine Zahl, andere Steifigkeiten sind symbolisch; das Ergebnis mischt Zahl und Symbol. Pendelstab: Gelenke an beiden Enden setzen, sonst EI symbolisch eingeben oder biegesteif."
+                liste[#liste + 1] = "Stab " .. table.concat(eiListe, ", ") .. " wird auf Biegung belastet, EI ist dort eine Zahl, andere Steifigkeiten sind symbolisch. " .. folge .. " Abhilfe: EI symbolisch eingeben, Stab biegesteif setzen oder bei einem Pendelstab Gelenke an beiden Enden."
             end
             if #eaListe > 0 then
-                liste[#liste + 1] = "Stab " .. table.concat(eaListe, ", ") .. ": EA ist eine Zahl, andere Steifigkeiten sind symbolisch; das Ergebnis mischt Zahl und Symbol. Dehnsteif bzw. Standard-EA dehnstarr einschalten oder EA symbolisch eingeben."
+                liste[#liste + 1] = "Stab " .. table.concat(eaListe, ", ") .. " traegt Normalkraft, EA ist dort eine Zahl, andere Steifigkeiten sind symbolisch. " .. folge .. " Abhilfe: EA symbolisch eingeben oder Stab dehnsteif setzen (bzw. Standard-EA dehnstarr)."
             end
         end
     end
@@ -4679,6 +5066,7 @@ local function getMenuMaxZeile()
 end
 
 function on.enterKey()
+    if loeschFrage then loescheAlles(); return end
     if pvvPrompt then
         pvvPrompt = false
         pvvModus = true
@@ -4843,7 +5231,11 @@ function on.enterKey()
                 end                
             elseif menuSeite == 3 then
                 if menuZeile == 5 then zeigeBemassung = not zeigeBemassung; platform.window:invalidate()
-                elseif menuZeile == 7 then zahlenFormat = (zahlenFormat % 3) + 1; platform.window:invalidate()
+                elseif menuZeile == 7 then
+                    zahlenFormat = (zahlenFormat % 3) + 1
+                    -- die symbolischen Beschriftungen stecken in den Stabdaten: neu rechnen
+                    if symbolischer_modus and systemBerechnet and starteBerechnung then starteBerechnung() end
+                    platform.window:invalidate()
                 elseif menuZeile == 8 then zeigeMaxWerte = not zeigeMaxWerte; platform.window:invalidate()
                 elseif eingabeModus then
                     eingabeModus = false
@@ -4920,7 +5312,9 @@ function on.arrowKey(key)
     end
 end
 
-function on.clearKey()
+-- Alles loeschen; on.clearKey fragt vorher nach (loeschFrage), damit nichts versehentlich verschwindet
+function loescheAlles()
+    loeschFrage = false
     knoten = {}
     staebe = {}
     auswahl = 1
@@ -4933,6 +5327,12 @@ function on.clearKey()
     systemBerechnet = false
     eingabeModus = false
     eingabeText = ""
+    platform.window:invalidate()
+end
+
+function on.clearKey()
+    if #knoten == 0 and #staebe == 0 then loescheAlles(); return end
+    loeschFrage = true
     platform.window:invalidate()
 end
 
@@ -4951,6 +5351,7 @@ function on.backspaceKey()
 end
 
 function on.escapeKey()
+    if loeschFrage then loeschFrage = false; platform.window:invalidate(); return end
     -- Reihenfolge wie auf dem Bildschirm von oben nach unten: Eingabe/Menue, Warnhinweise, dann Modi.
     -- Ein ESC schliesst alle sichtbaren Warnhinweise und tut sonst nichts.
     local warnungOffen = (symbolFehler and symbolFehlerOffen) or warnungKinematisch or warnungStarrBestimmt or meldungText or hinweisOffen
@@ -8719,6 +9120,9 @@ function on.paint(gc)
         elseif menuTyp == "pvv_stab" then menueHoehe = 160 end
 
         local mW = (menuTyp == "obermenue") and 210 or 155
+        -- Menues stehen links: alle Positionen im Menue sind relativ zur Fensterbreite b,
+        -- daher genuegt hier ein eigener Bezugswert; der Kasten liegt damit bei x = 10.
+        local b = mW + 20
         local mX = b - mW - 10
         gc:setColorRGB(240, 240, 240); gc:fillRect(mX, 10, mW, menueHoehe); gc:setColorRGB(0, 0, 0); gc:drawRect(mX, 10, mW, menueHoehe)
         
@@ -9446,6 +9850,14 @@ function on.paint(gc)
                 gc:drawString(randStarrDirekt and "direkt" or "Grenzwert", b - 80, 100)
             end
         end
+    end
+    if loeschFrage then
+        local boxW, boxH = math.min(b - 20, 260), 44
+        local boxX, boxY = math.floor((b - boxW) / 2), math.floor((h - boxH) / 2)
+        gc:setColorRGB(255, 165, 0); gc:fillRect(boxX, boxY, boxW, boxH)
+        gc:setColorRGB(0, 0, 0); gc:setPen("thin", "smooth"); gc:drawRect(boxX, boxY, boxW, boxH)
+        gc:setFont("sansserif", "b", 10); gc:drawString("Wirklich alles loeschen?", boxX + 8, boxY + 6)
+        gc:setFont("sansserif", "r", 9); gc:drawString("[Enter] loeschen    [Esc] abbrechen", boxX + 8, boxY + 24)
     end
     ansichtsModus = orig_ansichtsModus
 end

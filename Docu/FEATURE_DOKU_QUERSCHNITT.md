@@ -190,16 +190,20 @@ Diese Datei dokumentiert alle funktionalen Features des Programms, ihre Möglich
 - `t`: Einzelwertetabelle öffnen.
 - `v`: Schubverlaufs-Auswahl öffnen; Ziffern `0` bis `9` wählen die Darstellung.
 - `k`: Kernflächenmodus weiterschalten.
-- `o`: Optionen öffnen.
+- `o`: Optionen öffnen. Seite 2 (`Weitere Optionen`) enthält `KOS in Schwerpunkt verschieben` und `FTM-Bezug`: dieser Schalter legt fest, ob die angezeigten Flächenträgheitsmomente auf den **Schwerpunkt** (Standard) oder auf den **Ursprung des gezeichneten KOS** bezogen sind. Er wirkt auf die Ergebnisliste (`I_y,S` bzw. `I_y (KOS)`) und auf die Einzelwerte-Tabelle (Steiner-Anteile und Gesamtwerte, Überschrift nennt den Bezug).
 - `h`: Geometrie automatisch einpassen.
 - `+`/`-`: Zoom ändern.
 - `Esc`: Aktuelle Eingabe oder Ansicht abbrechen. Ist eine Meldungsbox offen, schließt das erste `Esc` nur die Box.
 - **Meldungsbox:** Gründe, warum etwas nicht berechnet wurde (Schub, Torsion, $\sigma_x$), ungültige Eingaben und Hinweise erscheinen als Box in der Bildmitte (rot: nicht berechnet bzw. Eingabefehler, gelb: Hinweis). Sie verschwindet mit `Esc`, beim Start einer neuen Berechnung oder wenn sich der Querschnitt ändert.
 - `Backspace` beziehungsweise `Delete`: Letztes Element löschen.
+- `c` beziehungsweise die Clear-Taste: alles löschen. Vorher erscheint die Rückfrage **„Wirklich alles loeschen?“** – `Enter` löscht, `Esc` bricht ab. Bei leerem Querschnitt entfällt die Rückfrage.
+- Alle Menüs (Zeichnen, Optionen, Berechnungen, Element-Editor) und die Schubverlaufs-Auswahl stehen am **linken** Bildschirmrand; die Auswahl wird zuletzt gezeichnet und liegt damit über Kräften und Achsen.
 
 **Grenzen:**
 - Die Berechnung verwendet die im Programm hinterlegte Mittellinien- und Balkentheorie-Idealisierung; reale 3D-Effekte und lokale Spannungsspitzen werden nicht abgebildet.
 - Das Modell besitzt keine persistenten Lastkombinationen, Materialdatenbank, Projektdatei-Verwaltung oder automatische Berichtserzeugung.
+
+**Geschlossene Zellen und Symmetrie:** Bei genau einer geschlossenen Zelle folgt der konstante Umlaufschubfluss $q_0$ aus der Spiegelsymmetrie des Profils. Die Erkennung tastet die Mittellinien ab (jeder Punkt muss gespiegelt wieder auf einer Kante gleicher Dicke liegen), ist also unabhängig davon, wie fein die beiden Hälften in Segmente geteilt sind. Die Ergebnisliste zeigt bei geschlossenen Profilen `Zellsymmetrie: <Achse>` bzw. `keine erkannt (q0 offen)`. Wird keine Symmetrie erkannt, erscheint bei jeder Schubrechnung eine **Warnung**: die Zelle wurde an beliebiger Stelle aufgeschnitten, $S$ und $\tau$ gelten nur bis auf den konstanten Anteil $q_0$. Wird eine Symmetrie erkannt, werden die **statischen Momente der Zelle** auf den symmetrischen Schnitt bezogen ($S = 0$ auf der Symmetrieachse, dort ist $q = 0$) – die angezeigten $S$-Verläufe stimmen damit auch ohne eingegebene Querkraft mit der Handrechnung überein, nicht nur $\tau$. Mit Querkraft quer zur einzigen Symmetrieachse bleibt die Rechnung abgelehnt; die Begründung nennt jetzt, welche Symmetrieachsen erkannt wurden.
 
 ## 11. Bekannte fachliche und technische Grenzen
 **Geometrie:**

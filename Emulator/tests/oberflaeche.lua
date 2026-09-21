@@ -226,7 +226,7 @@ fall('8 Hinweise', function()
         pcall(starteBerechnung)
     end
     klausur4(false)
-    T.wahr('ohne Gelenke: Hinweis EI Zahl fuer Stab 5, 6', hinweisMit('Stab 5, 6: EI ist eine Zahl'), table.concat(hinweisListe, ' | '))
+    T.wahr('ohne Gelenke: Hinweis EI Zahl fuer Stab 5, 6', hinweisMit('Stab 5, 6 wird auf Biegung belastet'), table.concat(hinweisListe, ' | '))
     T.wahr('Hinweisbox gezeichnet', sichtbarGenau('Hinweis:'))
     on.escapeKey()
     T.wahr('ESC schliesst die Hinweisbox', hinweisOffen == false and not sichtbarGenau('Hinweis:'))
@@ -235,13 +235,13 @@ fall('8 Hinweise', function()
     T.wahr('gleiches System neu gerechnet: Box bleibt zu', hinweisOffen == false)
     getStaebe()[5].EA_str = '3*EA'   -- andere Dehnsteifigkeit, aber weiter keine Gelenke
     pcall(starteBerechnung)
-    T.wahr('System geaendert (EA Stab 5): Hinweis wieder offen', hinweisOffen == true and hinweisMit('Stab 5, 6: EI ist eine Zahl'))
+    T.wahr('System geaendert (EA Stab 5): Hinweis wieder offen', hinweisOffen == true and hinweisMit('Stab 5, 6 wird auf Biegung belastet'))
     on.escapeKey()
     getKnoten()[2].last_y_str = '2*F'   -- auch eine Laststaenderung zaehlt als Aenderung
     pcall(starteBerechnung)
     T.wahr('Last geaendert: Hinweis wieder offen', hinweisOffen == true)
     klausur4(true)
-    T.wahr('mit Gelenken: kein EI-Hinweis', not hinweisMit('EI ist eine Zahl'), table.concat(hinweisListe, ' | '))
+    T.wahr('mit Gelenken: kein EI-Hinweis', not hinweisMit('EI ist dort eine Zahl'), table.concat(hinweisListe, ' | '))
     -- Zweigelenkrahmen mit EI symbolisch, EA Zahl: Hinweis EA, mit Standard-EA dehnstarr keiner
     local function portal(dehnstarr)
         leer({ pinned(node(0, 1)), node(0, 0), node(1, 0), pinned(node(1, 1)) })
@@ -253,7 +253,7 @@ fall('8 Hinweise', function()
         pcall(starteBerechnung)
     end
     portal()
-    T.wahr('Rahmen: Hinweis EA Zahl', hinweisMit('EA ist eine Zahl'), table.concat(hinweisListe, ' | '))
+    T.wahr('Rahmen: Hinweis EA Zahl', hinweisMit('EA ist dort eine Zahl'), table.concat(hinweisListe, ' | '))
     portal(true)
     T.wahr('Rahmen mit Standard-EA dehnstarr: kein Hinweis', #hinweisListe == 0, table.concat(hinweisListe, ' | '))
     randDehnstarr = false
@@ -309,6 +309,51 @@ fall('10 Exportmeldungen', function()
     exportBiegelinienNeuToTI()
     T.wahr('Rand-LGS meldet den Fehlschlag', meldungText ~= nil and meldungText:find('Keine Staebe', 1, true) ~= nil, meldungText)
     on.escapeKey()
+end)
+
+fall('11 Loeschabfrage', function()
+    T.abschnitt('Alles loeschen fragt nach: Esc bricht ab, Enter loescht')
+    leer({ pinned(node(0)), roller(node(2)) })
+    stabZeichnen(1, 2, 'q')
+    on.clearKey()
+    T.wahr('Frage steht', loeschFrage == true)
+    T.wahr('Frage wird gezeichnet', sichtbar('Wirklich alles loeschen?'))
+    T.wahr('Enter/Esc stehen dabei', sichtbar('[Enter] loeschen'))
+    on.escapeKey()
+    T.wahr('Esc bricht ab', loeschFrage == false)
+    T.wahr('System ist noch da', #getKnoten() == 2 and #getStaebe() == 1)
+    T.wahr('Frage verschwindet', not sichtbar('Wirklich alles loeschen?'))
+    on.clearKey()
+    on.enterKey()
+    T.wahr('Enter loescht alles', #getKnoten() == 0 and #getStaebe() == 0)
+    T.wahr('keine Frage mehr offen', loeschFrage == false)
+    -- leeres System: keine Rueckfrage noetig
+    on.clearKey()
+    T.wahr('leeres System fragt nicht', loeschFrage == false)
+end)
+
+fall('12 Menues links', function()
+    T.abschnitt('Obermenue, Knoten- und Stabmenue stehen am linken Rand')
+    leer({ pinned(node(0)), roller(node(2)) })
+    stabZeichnen(1, 2, 'q')
+    local breite = platform.window:width()
+    local function menuX(muster)
+        local x
+        for _, e in ipairs(zeichne()) do
+            if e.t:find(muster, 1, true) and (x == nil or e.x < x) then x = e.x end
+        end
+        return x
+    end
+    menuOffen, menuTyp, menuSeite, menuZeile, eingabeModus = true, 'obermenue', 1, 1, false
+    local x1 = menuX('Raster')
+    T.wahr('Obermenue links', x1 ~= nil and x1 < breite / 2, tostring(x1))
+    menuOffen, menuTyp, menuIndex, menuSeite, menuZeile = true, 'knoten', 1, 1, 1
+    local x2 = menuX('Knoten 1')
+    T.wahr('Knotenmenue links', x2 ~= nil and x2 < breite / 2, tostring(x2))
+    menuOffen, menuTyp, menuIndex, menuSeite, menuZeile = true, 'stab', 1, 1, 1
+    local x3 = menuX('Stab 1')
+    T.wahr('Stabmenue links', x3 ~= nil and x3 < breite / 2, tostring(x3))
+    menuOffen = false
 end)
 
 T.ende('Oberflaeche Tragwerk')

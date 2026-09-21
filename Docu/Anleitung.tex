@@ -66,6 +66,7 @@ dann auf ihrer eigenen Seite. Für alle Exporte und für symbolische Rechnungen 
   \item Gezeichnet wird mit der Maus bzw.\ dem Touchpad, Punkte rasten auf dem Raster ein.
   \item Ein Objekt unter dem Mauszeiger (\emph{Hover}) wird hervorgehoben. \taste{Enter} öffnet
         dessen Menü.
+  \item Alle Menüs stehen am linken Bildschirmrand.
   \item In Menüs bewegt man sich mit den Pfeiltasten \taste{$\uparrow$}/\taste{$\downarrow$};
         \taste{$\leftarrow$}/\taste{$\rightarrow$} blättert die Seiten. \taste{Enter} öffnet eine
         Eingabe oder schaltet einen Wert um, ein zweites \taste{Enter} übernimmt die Eingabe.
@@ -263,13 +264,16 @@ schaltet das Programm in den symbolischen Modus. Oben rechts erscheint \emph{sym
   Koordinate kein Vielfaches von $l$ & Koordinaten wie \code{a+2}. \\
   Symbol \code{t} ist reserviert & \code{t} ist die Integrationsvariable des Exports; der Rechner
     unterscheidet \code{t} und \code{T} nicht. Stattdessen \code{dt}, \code{t1}, \dots verwenden. \\
-  Symbol EI/EA kommt vor, aber Stab~$i$ hat EI/EA als Zahl & Symbol und Zahl dürfen nicht gemischt
-    werden; $EI$ bzw.\ $EA$ für alle Stäbe symbolisch setzen. \\
   Temperatur als Funktion von $x$ & $x$ in $T_{oben}$, $T_{unten}$, $\alpha_T$ oder $h$. \\
   Lastfunktion $f(x)$ & $x$ in $q$, $n$, $m$, $p_X$ oder $p_Y$ (numerisch ist das erlaubt). \\
   Bögen nicht symbolisch möglich & Bogenradius $\ne 0$. \\
   \bottomrule
 \end{longtable}
+
+Eine Mischung aus Symbol und Zahl bei den Steifigkeiten (z.\,B. Feder \code{3*EA*l} neben
+Stäben mit $EA$ als Zahl) bricht \emph{nicht} ab: es wird gerechnet und exportiert. Ein gelber
+Hinweis erscheint nur dann, wenn der Zahlenwert das Ergebnis wirklich beeinflusst, also wenn der
+Stab tatsächlich gebogen wird bzw.\ Normalkraft trägt (Abschnitt~\ref{sec:hinweise}).
 
 Griechische Buchstaben werden nicht als Symbol erkannt; also \code{a} statt $\alpha$ schreiben.
 
@@ -332,6 +336,20 @@ Schnittgrößen als Ableitungen, also \code{-EIw'''} statt $Q$, \code{-EIw''} st
 \begin{center}
 \code{["w1(x1=0)=0";"EIw1''(x1=0)=0";"w1(x1=l)=w2(x2=0)";\dots]}
 \end{center}
+
+Was vor einer Bedingung schon feststeht, steht dort gleich als Wert -- wie in einer Handrechnung.
+Ist Stab~2 dehnstarr und gehalten, wird aus \code{"w1(x1=l)=u2(x2=3*l)"} also
+\code{"w1(x1=l)=0"}. Lässt sich eine der beiden Linien ohne die andere bestimmen --
+typisch, wenn dehnstarre oder biegesteife Stäbe die Kopplung auflösen --, ist \code{randbed}
+mit Überschriften in zwei Gruppen geteilt:
+
+\begin{center}
+\code{["--- nur Biegelinie w ---";\dots;"--- nur Laengslinie u ---";\dots]}
+\end{center}
+
+Für die Biegelinie genügen dann die Bedingungen der ersten Gruppe; \code{randinfo} nennt den
+Fall. Bei gekoppelten Systemen (Rahmen, deren Normalkräfte die Querkräfte des Nachbarstabs
+aufnehmen) bleibt die Liste ungeteilt.
 
 \subsection{Nach einer gesuchten Größe auflösen}
 
@@ -413,7 +431,7 @@ zuerst Eingabe oder Menü, dann die Box, dann Sondermodi und die Auswahl.
   \bottomrule
 \end{longtable}
 
-\subsection{Hinweise (gelb)}
+\subsection{Hinweise (gelb)}\label{sec:hinweise}
 
 Diese Box erscheint nach der Berechnung; das Ergebnis ist gültig. Nach \taste{Esc} kommt sie erst
 wieder, wenn sich am System etwas geändert hat.
@@ -427,11 +445,14 @@ wieder, wenn sich am System etwas geändert hat.
   Temperatur symbolisch: Diagrammwerte ohne Temperaturanteil & Symbolischer Modus mit Temperatur &
     Die Diagrammbeschriftung entsteht durch Superposition und enthält die Temperatur nicht; der
     Export schon \\
-  Stab~$i$: $EI$ ist eine Zahl & Symbolischer Modus, der Stab wird gebogen, hat keine Gelenke an
-    beiden Enden und ein Zahlen-$EI$ & Das Ergebnis mischt Zahl und Symbol; entweder Pendelstab
-    mit Gelenken, oder $EI$ symbolisch, oder biegesteif \\
-  Stab~$i$: $EA$ ist eine Zahl & wie oben mit $N \ne 0$ & Abhilfe: dehnsteif, Standard-EA
-    dehnstarr oder $EA$ symbolisch \\
+  Stab~$i$ wird auf Biegung belastet, $EI$ ist dort eine Zahl & Symbolischer Modus, der Stab wird
+    wirklich gebogen (kein Pendelstab) und hat ein Zahlen-$EI$, während andere Steifigkeiten
+    symbolisch sind & Nur dann beeinflusst der Zahlenwert das Ergebnis. Statisch bestimmt: die
+    Schnittgrößen bleiben richtig, Biegelinie und Export mischen Zahl und Symbol. Statisch
+    unbestimmt: auch die Schnittgrößen können falsch werden (Symbole rechnen intern mit 1).
+    Abhilfe: $EI$ symbolisch, biegesteif oder Gelenke an beiden Enden \\
+  Stab~$i$ trägt Normalkraft, $EA$ ist dort eine Zahl & wie oben mit $N \ne 0$ & Abhilfe:
+    dehnsteif, Standard-EA dehnstarr oder $EA$ symbolisch \\
   \bottomrule
 \end{longtable}
 
@@ -470,7 +491,10 @@ Zwangsbedingungen zwischen den Stabenden geführt; ihre Schnittgrößen kommen a
 Zwangskräften.
 
 \textbf{Die exportierten Linien} entstehen unabhängig davon über das Rand-LGS: Ansatz je Stab,
-alle Rand- und Übergangsbedingungen des Systems, Lösung im CAS mit \code{simult}. Dadurch sind die
+alle Rand- und Übergangsbedingungen des Systems, Lösung im CAS mit \code{simult}. Vorher werden
+alle Bedingungen ausgewertet, die nur eine Unbekannte enthalten, Unbekannte gestrichen, die nur
+in einer einzigen Zeile vorkommen, und reine Zahlenbeziehungen eingesetzt; was übrig bleibt, wird
+in unabhängige Blöcke zerlegt und blockweise gelöst. Dadurch sind die
 Funktionen exakt und im symbolischen Modus auch symbolisch. Für starre Stäbe gibt es zwei Wege:
 direkt (Starrkörperbewegung plus Gleichgewicht) oder als Grenzwert $EA, EI \to \infty$.
 
@@ -539,8 +563,16 @@ Im Optionsmenü (\taste{o}):
   \item KOS-Ebene und KOS drehen (Schritte von 90°), KOS-Größe,
   \item Zahlenformat (Wurzel/Bruch, Bruch, Dezimal),
   \item Einheiten für Kraft, Länge und Moment,
-  \item Profilbeiwert $\xi$ für die Torsion offener Profile.
+  \item Profilbeiwert $\xi$ für die Torsion offener Profile,
+  \item auf Seite 2 (\emph{Weitere Optionen}): KOS in den Schwerpunkt verschieben und
+        \emph{FTM-Bezug}.
 \end{itemize}
+
+\textbf{FTM-Bezug:} Dieser Schalter legt fest, worauf sich die angezeigten Flächenträgheits
+momente beziehen: auf den \emph{Schwerpunkt} (Standard, Anzeige $I_{y,S}$) oder auf den
+\emph{Ursprung des gezeichneten KOS} (Anzeige $I_y$ (KOS)). Er wirkt auf das Ergebnisfeld und auf
+die Einzelwerte-Tabelle; dort ändern sich die Steiner-Anteile (Abstand zum Schwerpunkt bzw. zum
+Ursprung) und die Gesamtwerte, die Überschrift nennt den Bezug.
 
 Alle Ein- und Ausgaben beziehen sich auf das \emph{angezeigte} Koordinatensystem: Drehst du das
 KOS, werden Koordinaten, Trägheitsmomente, eingegebene Schnittgrößen und Ergebnisse mitgedreht.
@@ -612,6 +644,17 @@ Nicht berechnet werden: mehrzellige Profile, unsymmetrische geschlossene Zellen,
 zur einzigen Symmetrieachse, gemischt massiv-dünnwandige Querschnitte und massive Querschnitte
 mit gedrehten Hauptachsen. In diesen Fällen erscheint eine rote Box mit dem Grund. Ist der
 Schubmittelpunkt nur teilweise bestimmt, gibt das Programm nur die bestimmte Koordinate an.
+
+\textbf{Geschlossene Zelle und Symmetrie:} Der konstante Umlaufschubfluss $q_0$ folgt aus der
+Spiegelsymmetrie des Profils. Das Programm tastet die Mittellinien ab, die Symmetrie wird also auch
+erkannt, wenn beide Hälften unterschiedlich in Segmente geteilt sind. Das Ergebnisfeld zeigt bei
+geschlossenen Profilen \code{Zellsymmetrie: <Achse>} bzw.\ \code{keine erkannt (q0 offen)}.
+Wird eine Symmetrie erkannt, bezieht das Programm die statischen Momente der Zelle auf den
+symmetrischen Schnitt ($S = 0$ auf der Symmetrieachse), sodass auch die angezeigten
+$S$-Verläufe der Handrechnung entsprechen.
+
+Wird keine Symmetrie erkannt, warnt das Programm bei jeder Schubrechnung: die Zelle wurde an
+beliebiger Stelle aufgeschnitten, $S$ und $\tau$ gelten dann nur bis auf $q_0$.
 
 Bei $I_{yz} \ne 0$ und dünnwandigem Profil erscheint ein gelber Hinweis mit dem
 Hauptachsenwinkel: Der Schubfluss wurde mit der Kopplung
@@ -720,7 +763,7 @@ Schnitte mit $\tau = QS/(Ib)$ ausgewertet.
   \taste{o} & Obermenü (Einstellungen und Exporte) \\
   \taste{h} & System einpassen \\
   \taste{f} & Stabrichtung umdrehen \\
-  \taste{c} & alles löschen \\
+  \taste{c}, \taste{Clear} & alles löschen (Rückfrage: \taste{Enter} löscht, \taste{Esc} bricht ab) \\
   \taste{+}, \taste{-} & Zoom \\
   \taste{1}\dots\taste{9} & KGV-Einheitszustand wählen (bei Auto-KGV) \\
   \taste{Enter} & Menü öffnen, Wert umschalten, Eingabe übernehmen \\
@@ -742,7 +785,7 @@ Schnitte mit $\tau = QS/(Ib)$ ausgewertet.
   \taste{k} & Kernflächenmodus weiterschalten \\
   \taste{o} & Optionen (Raster, Dicke, KOS, Einheiten, $\xi$) \\
   \taste{h} & Geometrie einpassen \\
-  \taste{c} & alles löschen \\
+  \taste{c}, \taste{Clear} & alles löschen (Rückfrage: \taste{Enter} löscht, \taste{Esc} bricht ab) \\
   \taste{+}, \taste{-} & Zoom \\
   \taste{Enter} & Menüpunkt wählen, Element bearbeiten, Eingabe übernehmen \\
   \taste{Esc} & Box, Eingabe oder Ansicht schließen \\

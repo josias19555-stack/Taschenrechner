@@ -149,10 +149,17 @@ fall('8 Grenzen', function()
     abbruch('Lastfunktion q*x', { pinned(node(0)), roller(node(2)) }, { bar(1, 2, { q = 1, q_str = 'q*x' }) }, 'Lastfunktion')
     abbruch('Streckenmoment m(x)=x', { pinned(node(0)), roller(node(2)) }, { bar(1, 2, { q = 1, q_str = 'q', m_str = 'x' }) }, 'Lastfunktion')
     abbruch('Symbol t', { pinned(node(0)), roller(node(2)) }, { bar(1, 2, { q = 1, q_str = 't' }) }, 'reserviert')
+    -- Feder EI/l^3 neben numerischem Stab-EI: kein Abbruch mehr, es wird gerechnet und gewarnt
+    T.abschnitt('Feder EI/l^3 ohne symbolisches EI am Stab: rechnet mit Hinweis')
     local K2 = { fixed(node(0)), node(1) }
     K2[2].cy, K2[2].cy_str, K2[2].last_y, K2[2].last_y_str = 1, 'EI/l^3', 1, 'F'
     local S2 = { bar(1, 2) }; S2[1].EI_str = nil
-    abbruch('Feder EI/l^3 ohne symbolisches EI am Stab', K2, S2, 'EI')
+    T.rechne(K2, S2)
+    T.wahr('kein Abbruch', symbolFehler == nil, symbolFehler)
+    local hin = table.concat(hinweisListe, ' | ')
+    T.wahr('Hinweis: EI des Stabes ist eine Zahl', hin:find('EI ist dort eine Zahl', 1, true) ~= nil, hin)
+    T.wahr('Hinweis nennt die statische Unbestimmtheit', hin:find('statisch unbestimmt', 1, true) ~= nil, hin)
+    T.wahr('Rand-LGS laeuft trotzdem', T.randLGS() ~= false)
     local K3 = { pinned(node(0)), node(1, 0, 'a', '0'), roller(node(2, 0, 'a+2', '0')) }
     K3[2].last_y, K3[2].last_y_str = 1, 'F'
     abbruch('Koordinate a+2', K3, { bar(1, 2), bar(2, 3) }, 'Vielfaches')
@@ -214,6 +221,58 @@ fall('10 Weitere Lasten', function()
     if setup('Einfeldtraeger 4l, Eigengewicht gy = g', K6, { bar(1, 2, { gy = 1, gy_str = 'g' }) }) then
         check('wneu1(2l) = 5 g (4l)^4/384', 'wneu1(2*l)', '5*g*(4*l)^4/384')
     end
+end)
+
+fall('12 Fachwerk 45 Grad: Wurzel statt Naeherungsbruch', function()
+    T.abschnitt('Diagonale unter 45 Grad: N = sqrt(2)*F, frueher ein Naeherungsbruch wie 1393*F/985')
+    local function system()
+        local K = { pinned(node(0, 0)), roller(node(1, 0)), node(0, 1), node(1, 1) }
+        for _, k in ipairs(K) do k.gelenk = true end
+        K[3].last_x, K[3].last_x_str = 1, 'F'
+        local S = {}
+        for i, pr in ipairs({ { 1, 2 }, { 1, 3 }, { 2, 4 }, { 3, 4 }, { 1, 4 } }) do
+            S[i] = bar(pr[1], pr[2], { EA = 1e4, EI = 1, EA_str = nil, EI_str = nil })
+        end
+        return K, S
+    end
+    local K, S = system()
+    if not T.rechne(K, S) then return end
+    local d = getStaebe()[5]
+    local koeff = tostring(d.symb_start and d.symb_start.N)
+    T.wahr('Koeffizient als Wurzel', koeff:find('sqrt(2)', 1, true) ~= nil, koeff)
+    T.wahr('kein Naeherungsbruch im Koeffizienten', koeff:find('/') == nil, koeff)
+    T.wahr('Beschriftung N = sqrt(2)*f', tostring(d.symb_N_start):find('sqrt(2)', 1, true) ~= nil, d.symb_N_start)
+    -- Zahlenformat 3 (Dezimal): keine Brueche in der Beschriftung
+    local K3, S3 = system()
+    if not T.rechne(K3, S3, { zahlenFormat = 3 }) then return end
+    local d3 = getStaebe()[5]
+    local koeff3 = tostring(d3.symb_start and d3.symb_start.N)
+    T.wahr('Dezimalformat ohne Bruch', koeff3:find('/') == nil, koeff3)
+    T.wahr('Dezimalformat zeigt 1.4142', koeff3:find('1.4142', 1, true) ~= nil, koeff3)
+    T.wahr('Beschriftung ohne Bruch', tostring(d3.symb_N_start):find('/') == nil, d3.symb_N_start)
+end)
+
+fall('13 Zahlenformat im Obermenue schaltet die Beschriftung um', function()
+    T.abschnitt('Obermenue Seite 3, Zeile 7: nach dem Umschalten muessen die Beschriftungen passen')
+    local K = { pinned(node(0, 0)), roller(node(1, 0)), node(0, 1), node(1, 1) }
+    for _, k in ipairs(K) do k.gelenk = true end
+    K[3].last_x, K[3].last_x_str = 1, 'F'
+    local S = {}
+    for i, pr in ipairs({ { 1, 2 }, { 1, 3 }, { 2, 4 }, { 3, 4 }, { 1, 4 } }) do
+        S[i] = bar(pr[1], pr[2], { EA = 1e4, EI = 1, EA_str = nil, EI_str = nil })
+    end
+    if not T.rechne(K, S) then return end
+    T.wahr('vorher Wurzel', tostring(getStaebe()[5].symb_start.N):find('sqrt(2)', 1, true) ~= nil,
+        getStaebe()[5].symb_start.N)
+    -- zweimal weiterschalten: 1 -> 2 -> 3 (Dezimal)
+    for _ = 1, 2 do
+        menuOffen, menuTyp, menuSeite, menuZeile, eingabeModus = true, 'obermenue', 3, 7, false
+        on.enterKey()
+    end
+    menuOffen = false
+    T.wahr('Zahlenformat ist Dezimal', zahlenFormat == 3, zahlenFormat)
+    local koeff = tostring(getStaebe()[5].symb_start.N)
+    T.wahr('Beschriftung wurde neu gerechnet', koeff:find('1.4142', 1, true) ~= nil, koeff)
 end)
 
 T.ende('Symbolischer Modus')

@@ -20,6 +20,10 @@ local menuOpen, menuRow, menuPage = false, 1, 1
 local default_t = 1 -- Standarddicke fuer duennwandige Profile
 torsion_xi = 1 -- Profilbeiwert fuer offene Duennwandprofile
 local zahlenFormat = 3 -- 1: Brueche/Wurzelbrueche, 2: Brueche, 3: Dezimal
+-- Bezug der angezeigten Flaechentraegheitsmomente: "schwerpunkt" (Standard) oder "kos"
+-- (Ursprung des gezeichneten Koordinatensystems). Gilt fuer Ergebnisliste und Einzelwerte-Tabelle.
+local ftm_bezug = "schwerpunkt"
+local qsLoeschFrage = false   -- Sicherheitsfrage vor "alles loeschen"
 local casToleranz = 5
 
 local function evaluate_input(expr)
@@ -747,27 +751,40 @@ local function duennZellen(nodes, edges)
 end
 
 -- Spiegelsymmetrie des Mittelliniengraphen (inkl. Dicken) zur senkrechten Achse u = ys
--- (sym_v) und zur waagerechten Achse v = zs (sym_h). Der Graph muss an den Achsen geteilt sein.
+-- (sym_v) und zur waagerechten Achse v = zs (sym_h). Geprueft wird durch Abtasten: jeder Punkt
+-- jeder Kante muss gespiegelt wieder auf einer Kante gleicher Dicke liegen. So wird die
+-- Symmetrie auch erkannt, wenn beide Haelften unterschiedlich in Segmente geteilt sind.
 local function duennSymmetrie(nodes, edges, ys, zs)
     if #edges == 0 then return false, false end
     local ext = 0
     for _, n in ipairs(nodes) do ext = math.max(ext, math.abs(n.u - ys), math.abs(n.v - zs)) end
     local tol = 1e-6 * math.max(ext, 1)
-    local function gleich(n, u, v) return math.abs(n.u - u) <= tol and math.abs(n.v - v) <= tol end
-    local function symmetrisch(spiegel)
-        for _, e in ipairs(edges) do
-            local u1, v1 = spiegel(nodes[e.n1].u, nodes[e.n1].v)
-            local u2, v2 = spiegel(nodes[e.n2].u, nodes[e.n2].v)
-            local gefunden = false
-            for _, f in ipairs(edges) do
+    local function liegtAuf(u, v, t)
+        for _, f in ipairs(edges) do
+            if math.abs(f.t - t) <= 1e-9 * math.max(t, 1) then
                 local a, b = nodes[f.n1], nodes[f.n2]
-                if ((gleich(a, u1, v1) and gleich(b, u2, v2)) or (gleich(a, u2, v2) and gleich(b, u1, v1)))
-                    and math.abs(f.t - e.t) <= 1e-9 * math.max(e.t, 1) then
-                    gefunden = true
-                    break
+                local du, dv = b.u - a.u, b.v - a.v
+                local L2 = du * du + dv * dv
+                if L2 > 1e-18 then
+                    local lambda = ((u - a.u) * du + (v - a.v) * dv) / L2
+                    if lambda >= -1e-9 and lambda <= 1 + 1e-9 then
+                        local pu, pv = a.u + lambda * du, a.v + lambda * dv
+                        if (pu - u) ^ 2 + (pv - v) ^ 2 <= tol * tol then return true end
+                    end
                 end
             end
-            if not gefunden then return false end
+        end
+        return false
+    end
+    local function symmetrisch(spiegel)
+        for _, e in ipairs(edges) do
+            local a, b = nodes[e.n1], nodes[e.n2]
+            for k = 0, 12 do
+                local lambda = k / 12
+                local u, v = a.u + lambda * (b.u - a.u), a.v + lambda * (b.v - a.v)
+                local mu, mv = spiegel(u, v)
+                if not liegtAuf(mu, mv, e.t) then return false end
+            end
         end
         return true
     end
@@ -1103,7 +1120,9 @@ local function autoZoom()
     platform.window:invalidate()
 end
 
-function on.clearKey()
+-- Alles loeschen; on.clearKey fragt vorher nach (qsLoeschFrage)
+function loescheAllesQS()
+    qsLoeschFrage = false
     escape_clear_pending = false
     massiv_elemente, duenn_elemente, kraefte, pending = {}, {}, {}, {}
     overlap_pending_elem = nil
@@ -1132,6 +1151,12 @@ function on.clearKey()
     kos_size, kos_pixel_length = 48, 48
     plane, swapped, rotation = 2, false, 180
     status = "Massiv | Duennwand | Ergebnisse"
+    platform.window:invalidate()
+end
+
+function on.clearKey()
+    if #massiv_elemente == 0 and #duenn_elemente == 0 and #kraefte == 0 then loescheAllesQS(); return end
+    qsLoeschFrage = true
     platform.window:invalidate()
 end
 
@@ -1266,6 +1291,12 @@ local function berechneSystem()
         I1 = I1, I2 = I2, alpha = alpha_star,
         It = It_open, It_closed = It_closed, Am = Am
     }
+    -- Spiegelsymmetrie der Mittellinien (entscheidet, ob der Schubfluss einer geschlossenen
+    -- Zelle statisch bestimmt ist); wird im Ergebnisfeld angezeigt.
+    if #duenn_elemente > 0 and It_closed > 1e-9 then   -- nur bei geschlossener Zelle noetig
+        local sym_nodes, sym_edges = duennGraph(global_ys, global_zs)
+        system_results.sym_v, system_results.sym_h = duennSymmetrie(sym_nodes, sym_edges, global_ys, global_zs)
+    end
     local force_torsion = berechneKraftTorsion()
     if force_torsion then
         torsion_results = force_torsion
@@ -1326,7 +1357,11 @@ local function berechneDuenneSchubspannung(Qa, Qb)
         return nil, nil, nil, "Mehrzelliges Profil: Schubfluss statisch unbestimmt.", info
     end
     if zellen.cells == 1 and ((math.abs(Qa) > 1e-12 and not sym_h) or (math.abs(Qb) > 1e-12 and not sym_v)) then
-        return nil, nil, nil, "Geschlossene Zelle: Querkraft quer zur Symmetrieachse ist statisch unbestimmt.", info
+        local erkannt = (sym_v and sym_h) and "senkrecht und waagerecht"
+            or (sym_v and "nur senkrecht") or (sym_h and "nur waagerecht") or "keine"
+        return nil, nil, nil, "Geschlossene Zelle: der Umlaufschubfluss q0 folgt hier nur aus der Symmetrie, "
+            .. "fuer diese Querkraftrichtung fehlt sie (erkannte Symmetrieachsen durch den Schwerpunkt: "
+            .. erkannt .. "). Das Profil ist damit statisch unbestimmt.", info
     end
     local det = r.Iy * r.Iz - r.Iyz^2
     if det <= 1e-12 then return nil, nil, nil, "Traegheitsmomente singulaer.", info end
@@ -1468,6 +1503,10 @@ local function berechneDuenneSchubspannung(Qa, Qb)
         for _, n in ipairs(nodes) do ext = math.max(ext, math.abs(n.u - r.ys), math.abs(n.v - r.zs)) end
         local tol = 1e-6 * math.max(ext, 1)
         local function innen(sample) return sample.parameter > 1e-9 and sample.parameter < 1 - 1e-9 end
+        -- Korrektur des statischen Moments in der Zelle: der Schnitt liegt beliebig, das statische
+        -- Moment darf um eine Konstante verschoben werden. Aus der Symmetrie folgt S(P) + S(P') = 0
+        -- (im Umlaufsinn), das entspricht einem Schnitt auf der Symmetrieachse, wo q = 0 ist.
+        -- Damit stimmen auch die angezeigten S-Verlaeufe, nicht nur tau.
         local function korrigiere(key, spiegel)
             for _, sample in ipairs(loop) do
                 if innen(sample) then
@@ -1481,10 +1520,9 @@ local function berechneDuenneSchubspannung(Qa, Qb)
                             end
                         end
                         if partner then
-                            local q0 = -(sample[key] * sample.thickness * sample.cell_sign
-                                + partner[key] * partner.thickness * partner.cell_sign) / 2
+                            local s0 = -(sample[key] * sample.cell_sign + partner[key] * partner.cell_sign) / 2
                             for _, other in ipairs(loop) do
-                                other[key] = other[key] + other.cell_sign * q0 / other.thickness
+                                other[key] = other[key] + other.cell_sign * s0
                             end
                             return true
                         end
@@ -1493,13 +1531,24 @@ local function berechneDuenneSchubspannung(Qa, Qb)
             end
             return false
         end
-        if math.abs(Qa) > 1e-12 and not korrigiere("tau_a", function(u, v) return u, 2 * r.zs - v end) then
+        -- Sz gehoert zur Querkraft in a-Richtung (Symmetrieachse waagerecht), Sy zur b-Richtung
+        local ok_a = sym_h and korrigiere("Sz", function(u, v) return u, 2 * r.zs - v end)
+        local ok_b = sym_v and korrigiere("Sy", function(u, v) return 2 * r.ys - u, v end)
+        if math.abs(Qa) > 1e-12 and not ok_a then
             return nil, nil, nil, "Symmetriepartner in der Zelle nicht gefunden.", info
         end
-        if math.abs(Qb) > 1e-12 and not korrigiere("tau_b", function(u, v) return 2 * r.ys - u, v end) then
+        if math.abs(Qb) > 1e-12 and not ok_b then
             return nil, nil, nil, "Symmetriepartner in der Zelle nicht gefunden.", info
         end
-        for _, sample in ipairs(samples) do sample.tau = sample.tau_a + sample.tau_b end
+        -- Schubspannungen aus den korrigierten statischen Momenten neu bilden
+        for _, sample in ipairs(samples) do
+            if sample.in_cell then
+                sample.tau_a = -Qa * (r.Iy * sample.Sz + r.Iyz * sample.Sy) / (det * sample.thickness)
+                sample.tau_b = -Qb * (r.Iz * sample.Sy + r.Iyz * sample.Sz) / (det * sample.thickness)
+            end
+            sample.tau = sample.tau_a + sample.tau_b
+        end
+        info.zelle_s_korrigiert = { a = ok_a and true or false, b = ok_b and true or false }
     end
 
     local maximum = {tau = 0, abs_tau = 0, u = r.ys, v = r.zs}
@@ -1724,23 +1773,38 @@ berechneSchubspannungsResultate = function(input_Qa, input_Qb)
     local torsion_constant, enclosed_area, cells = find_closed_cells()
     local thin_closed = #duenn_elemente > 0 and cells == 1
     if #duenn_elemente > 0 then
-        local maximum, samples, paths, fehler = berechneDuenneSchubspannung(Qa, Qb)
+        local maximum, samples, paths, fehler, info = berechneDuenneSchubspannung(Qa, Qb)
         if not maximum then return ablehnen(fehler or "Schubspannung nicht berechenbar.") end
         local result = {
             Qa = Qa_d, Qb = Qb_d, force_Qa = force_Qa_d, force_Qb = force_Qb_d,
             max_tau = maximum.abs_tau, max_u = maximum.u, max_v = maximum.v,
             samples = samples, paths = paths, thin_walled = true, axis_a = a, axis_b = b,
             thin_closed = thin_closed, torsion_constant = torsion_constant, enclosed_area = enclosed_area,
+            sym_v = info and info.sym_v, sym_h = info and info.sym_h,
             shear_center = berechneSchubmittelpunkt(), torsion_open = r.It, torsion_closed = r.It_closed
         }
         shear_results = result
         if force_torsion then aktualisiereTorsionsverlauf(torsion_results) end
+        -- Hinweise sammeln und in einer Box zeigen (sonst ueberschreibt der letzte die vorherigen)
+        local hinweise, ist_warnung = {}, false
+        -- Geschlossene Zelle: q0 (konstanter Umlaufanteil) folgt nur aus der Symmetrie. Ohne erkannte
+        -- Symmetrie bzw. ohne Querkraft bleibt er offen, die Verlaeufe gelten dann nur bis auf q0.
+        if thin_closed then
+            if not (result.sym_v or result.sym_h) then
+                ist_warnung = true
+                hinweise[#hinweise + 1] = "Geschlossene Zelle ohne erkannte Symmetrie: der Umlaufschubfluss q0 "
+                    .. "ist statisch unbestimmt. Die Verlaeufe (S und tau) gelten nur bis auf diesen konstanten "
+                    .. "Anteil, die Zelle wurde an beliebiger Stelle aufgeschnitten. Bei einem symmetrischen "
+                    .. "Profil muessen beide Haelften gleich dick und spiegelbildlich zum Schwerpunkt liegen."
+            end
+        end
         -- Hauptachsen nicht parallel zu y/z (Winkel kein Vielfaches von 90 Grad): Hinweis auf schiefe Biegung
         if math.abs(r.Iyz) > 1e-6 * math.sqrt(math.abs(r.Iy * r.Iz)) then
             result.iyz_kopplung = true
-            meldung(string.format("Hauptachsen nicht parallel zu %s/%s (I_%s%s ~= 0, Hauptachse bei %.2f Grad). Der Schubfluss wurde mit I_%s%s-Kopplung berechnet (schiefe Biegung), nicht mit tau = Q S/(I t).",
-                a, b, a, b, math.deg(alphaForDisplay(r.alpha)), a, b), "Hinweis")
+            hinweise[#hinweise + 1] = string.format("Hauptachsen nicht parallel zu %s/%s (I_%s%s ~= 0, Hauptachse bei %.2f Grad). Der Schubfluss wurde mit I_%s%s-Kopplung berechnet (schiefe Biegung), nicht mit tau = Q S/(I t).",
+                a, b, a, b, math.deg(alphaForDisplay(r.alpha)), a, b)
         end
+        if #hinweise > 0 then meldung(table.concat(hinweise, "  "), ist_warnung and "Warnung" or "Hinweis") end
         return result
     end
     -- Massiv: TM2-Schubformel nur fuer Hauptachsen parallel zu y/z
@@ -2055,18 +2119,21 @@ local function drawSpreadsheet(gc, w, h)
         local a, b = axes()
         local display_ys, display_zs = coordinatesForDisplay(r.ys, r.zs)
         local IyS_d, IzS_d, IyzS_d = inertiaForDisplay(r.IyS, r.IzS, r.IyzS)
-        local iy_origin = IyS_d + r.A * display_zs^2
-        local iz_origin = IzS_d + r.A * display_ys^2
-        local iyz_origin = IyzS_d - r.A * display_ys * display_zs
+        -- Bezug der Traegheitsmomente: Schwerpunkt oder Ursprung des gezeichneten KOS
+        local bezug_kos = (ftm_bezug == "kos")
+        local iy_anz = bezug_kos and (IyS_d + r.A * display_zs^2) or IyS_d
+        local iz_anz = bezug_kos and (IzS_d + r.A * display_ys^2) or IzS_d
+        local iyz_anz = bezug_kos and (IyzS_d - r.A * display_ys * display_zs) or IyzS_d
+        local bezug_kurz = bezug_kos and " (KOS)" or ",S"
         local W_a, W_b = r.Wu, r.Wv
         if rotation == 90 or rotation == 270 then W_a, W_b = r.Wv, r.Wu end
         local lines = {
             string.format("A = %.4g [%s]", display_area(r.A), unit_label(2)),
             string.format("%s_s = %.4g [%s]", a, display_length(display_ys), unit_label(1)),
             string.format("%s_s = %.4g [%s]", b, display_length(display_zs), unit_label(1)),
-            string.format("I_%s = %.4g [%s]", a, display_inertia(iy_origin), unit_label(4)),
-            string.format("I_%s = %.4g [%s]", b, display_inertia(iz_origin), unit_label(4)),
-            string.format("I_%s%s = %.4g [%s]", a, b, display_inertia(iyz_origin), unit_label(4)),
+            string.format("I_%s%s = %.4g [%s]", a, bezug_kurz, display_inertia(iy_anz), unit_label(4)),
+            string.format("I_%s%s = %.4g [%s]", b, bezug_kurz, display_inertia(iz_anz), unit_label(4)),
+            string.format("I_%s%s%s = %.4g [%s]", a, b, bezug_kurz, display_inertia(iyz_anz), unit_label(4)),
             string.format("i_%s = %.4g [%s]", a, display_length(math.sqrt(math.abs(IyS_d / r.A))), unit_label(1)),
             string.format("i_%s = %.4g [%s]", b, display_length(math.sqrt(math.abs(IzS_d / r.A))), unit_label(1)),
             string.format("W_%s = %.4g [%s]", a, display_volume(W_a), unit_label(3)),
@@ -2080,6 +2147,13 @@ local function drawSpreadsheet(gc, w, h)
             if r.It_closed > 1e-9 then
                 table.insert(lines, string.format("I_T(geschlossen) = %.4g [%s]", display_inertia(r.It_closed), unit_label(4)))
                 table.insert(lines, string.format("A_m = %.4g [%s]", display_area(r.Am), unit_label(2)))
+                -- Zellsymmetrie: davon haengt ab, ob der Schubfluss q0 bestimmbar ist
+                local u_ist_a = (rotation == 0 or rotation == 180)
+                local namen = {}
+                if r.sym_v then namen[#namen + 1] = u_ist_a and b or a end
+                if r.sym_h then namen[#namen + 1] = u_ist_a and a or b end
+                table.insert(lines, #namen > 0 and ("Zellsymmetrie: " .. table.concat(namen, ", ") .. "-Achse")
+                    or "Zellsymmetrie: keine erkannt (q0 offen)")
             end
         end
         if shear_results then
@@ -2460,7 +2534,7 @@ local function drawShearSelector(gc, w, h)
     }
     local row_height = 18
     local width, height = 260, 34 + #items * row_height
-    local left, top = (w - width) / 2, (h - height) / 2
+    local left, top = 8, (h - height) / 2   -- Auswahlmenue links
     gc:setColorRGB(245, 250, 255)
     gc:fillRect(left, top, width, height)
     gc:setColorRGB(30, 80, 150)
@@ -2995,7 +3069,9 @@ local function buildMenuItems()
         local format_name = zahlenFormat == 1 and "Wurzel/Bruch" or zahlenFormat == 2 and "Bruch" or "Dezimal"
         return {"1. Raster aendern (Aktuell: "..string.format("%.4g %s", display_length(raster), length_unit)..")", "2. Standarddicke t (Aktuell: "..string.format("%.4g %s", display_length(default_t), length_unit)..")", "3. KOS Ebene ("..a..b..")", "4. KOS drehen", "5. KOS Groesse (Aktuell: "..kos_size..")", "6. Zahlenformat ("..format_name..")", "7. Kraft-Einheit ("..force_unit..")", "8. Laengen-Einheit ("..length_unit..")", "9. Moment-Einheit ("..moment_unit..")", "10. ξ Profilbeiwert (Aktuell: "..string.format("%.4g", torsion_xi)..")"}
     elseif menuPage == 9 then
-        return {"1. KOS in Schwerpunkt verschieben", "2. < Zurueck"}
+        return {"1. KOS in Schwerpunkt verschieben",
+                "2. FTM-Bezug (" .. (ftm_bezug == "kos" and "KOS-Ursprung" or "Schwerpunkt") .. ")",
+                "3. < Zurueck"}
     elseif menuPage == 5 then
         return {"1. Querschnittswerte", "2. Einzelwerte-Tabelle", "3. σx-Berechnung", "4. Kernflaeche", "5. Schubspannung", "6. Schubmittelpunkt", "7. Schliessen"}
     elseif menuPage == 8 then
@@ -3044,7 +3120,7 @@ end
 
 local function drawMenu(gc, w, h)
     if not menuOpen then return end
-    local width, left = 220, w - 220
+    local width, left = 220, 5   -- Menues stehen links
     gc:setColorRGB(248, 248, 248); gc:fillRect(left, 5, width, h - 10)
     gc:setColorRGB(0, 0, 0); gc:drawRect(left, 5, width, h - 10)
     gc:setFont("sansserif", "b", 9)
@@ -3080,6 +3156,9 @@ local function drawTable(gc, w, h)
     if not showTable then return end
     
     local a_lbl, b_lbl = axes()
+    -- Steiner-Anteile und Gesamtwerte wahlweise auf den Schwerpunkt oder auf den KOS-Ursprung
+    local bezug_kos = (ftm_bezug == "kos")
+    local bezug_kurz = bezug_kos and "KOS" or "S"
     local rows = {
         "Flaecheninhalt A [" .. unit_label(2) .. "]",
         a_lbl .. " [" .. unit_label(1) .. "]",
@@ -3090,12 +3169,12 @@ local function drawTable(gc, w, h)
         "I_" .. a_lbl .. " (Gedreht) [" .. unit_label(4) .. "]",
         "I_" .. b_lbl .. " (Gedreht) [" .. unit_label(4) .. "]",
         "I_" .. a_lbl .. b_lbl .. " (Gedreht) [" .. unit_label(4) .. "]",
-        b_lbl .. "^2 * A (Steiner) [" .. unit_label(4) .. "]",
-        a_lbl .. "^2 * A (Steiner) [" .. unit_label(4) .. "]",
-        a_lbl .. "*" .. b_lbl .. "*A (Steiner) [" .. unit_label(4) .. "]",
-        "I_" .. a_lbl .. " (Global) [" .. unit_label(4) .. "]",
-        "I_" .. b_lbl .. " (Global) [" .. unit_label(4) .. "]",
-        "I_" .. a_lbl .. b_lbl .. " (Global) [" .. unit_label(4) .. "]"
+        b_lbl .. "^2 * A (Steiner zu " .. bezug_kurz .. ") [" .. unit_label(4) .. "]",
+        a_lbl .. "^2 * A (Steiner zu " .. bezug_kurz .. ") [" .. unit_label(4) .. "]",
+        a_lbl .. "*" .. b_lbl .. "*A (Steiner zu " .. bezug_kurz .. ") [" .. unit_label(4) .. "]",
+        "I_" .. a_lbl .. " (" .. bezug_kurz .. ") [" .. unit_label(4) .. "]",
+        "I_" .. b_lbl .. " (" .. bezug_kurz .. ") [" .. unit_label(4) .. "]",
+        "I_" .. a_lbl .. b_lbl .. " (" .. bezug_kurz .. ") [" .. unit_label(4) .. "]"
     }
     
     local all_elems = {}
@@ -3118,7 +3197,8 @@ local function drawTable(gc, w, h)
     
     gc:setColorRGB(0, 0, 0)
     gc:setFont("sansserif", "b", 9)
-    gc:drawString("Tabellarische uebersicht Einzelelemente", 10, 5)
+    gc:drawString("Tabellarische uebersicht Einzelelemente (Bezug: "
+        .. (bezug_kos and "KOS-Ursprung" or "Schwerpunkt") .. ")", 10, 5)
     
     gc:clipRect("set", 10, 25, w - 20, h - 35)
     
@@ -3158,7 +3238,8 @@ local function drawTable(gc, w, h)
         local Iy, Iz, Iyz = inertiaForDisplay(elem.Iy or 0, elem.Iz or 0, elem.Iyz or 0)
         local centroid_y, centroid_z = 0, 0
         if system_results then centroid_y, centroid_z = coordinatesForDisplay(system_results.ys, system_results.zs) end
-        local delta_y, delta_z = y - centroid_y, z - centroid_z
+        local delta_y, delta_z = y, z
+        if not bezug_kos then delta_y, delta_z = y - centroid_y, z - centroid_z end
         
         local vals = {
             display_area(A), display_length(y), display_length(z),
@@ -3776,7 +3857,6 @@ function on.paint(gc)
     end
 
     drawShearProfile(gc)
-    drawShearSelector(gc, w, h)
 
     if show_shear_center and system_results and #duenn_elemente > 0 then
         local center = berechneSchubmittelpunkt()
@@ -3850,6 +3930,7 @@ function on.paint(gc)
     end
     if not sigma_results then drawSpreadsheet(gc, w, h) end
     drawOverlapPrompt(gc, w, h)
+    drawShearSelector(gc, w, h)   -- zuletzt, damit Kraefte und Achsen nicht darueber liegen
     drawMenu(gc, w, h)
     if qsMeldung then
         -- Meldungsbox: rot bei Fehlergruenden, gelb bei Hinweisen; Text auf Boxbreite umbrechen
@@ -3873,6 +3954,15 @@ function on.paint(gc)
             if y + 12 <= boxY + boxH then gc:drawString(z, boxX + 8, y) end
         end
         gc:drawString("[Esc]", boxX + boxW - 34, boxY + 6)
+    end
+
+    if qsLoeschFrage then
+        local boxW, boxH = math.min(w - 20, 260), 44
+        local boxX, boxY = math.floor((w - boxW) / 2), math.floor((h - boxH) / 2)
+        gc:setColorRGB(255, 165, 0); gc:fillRect(boxX, boxY, boxW, boxH)
+        gc:setColorRGB(0, 0, 0); gc:setPen("thin", "smooth"); gc:drawRect(boxX, boxY, boxW, boxH)
+        gc:setFont("sansserif", "b", 10); gc:drawString("Wirklich alles loeschen?", boxX + 8, boxY + 6)
+        gc:setFont("sansserif", "r", 9); gc:drawString("[Enter] loeschen    [Esc] abbrechen", boxX + 8, boxY + 24)
     end
     
     if #massiv_elemente == 0 and #duenn_elemente == 0 and mode == "idle" and not menuOpen then
@@ -4065,7 +4155,7 @@ function on.charIn(c)
 
     if menuOpen and menuPage ~= 3 then
         local menu_number = tonumber(c)
-        local menu_count = menuPage == 1 and 9 or menuPage == 2 and 5 or menuPage == 5 and 7 or menuPage == 6 and 4 or menuPage == 7 and (#kraefte > 0 and 4 or 3) or menuPage == 8 and 2 or menuPage == 9 and 2 or menuPage == 4 and 10 or 6
+        local menu_count = menuPage == 1 and 9 or menuPage == 2 and 5 or menuPage == 5 and 7 or menuPage == 6 and 4 or menuPage == 7 and (#kraefte > 0 and 4 or 3) or menuPage == 8 and 2 or menuPage == 9 and 3 or menuPage == 4 and 10 or 6
         if menu_number and menu_number >= 1 and menu_number <= menu_count then
             menuRow = menu_number
             on.enterKey()
@@ -4170,7 +4260,7 @@ function on.arrowKey(k)
         elseif menuPage == 6 then n = 4
         elseif menuPage == 7 then n = #kraefte > 0 and 4 or 3
         elseif menuPage == 8 then n = 2
-        elseif menuPage == 9 then n = 2
+        elseif menuPage == 9 then n = 3
         elseif menuPage == 4 then n = 10
         elseif menuPage == 3 then
             local elem = (selected_type == "massiv") and massiv_elemente[selected_idx] or (selected_type == "duenn" and duenn_elemente[selected_idx] or kraefte[selected_idx])
@@ -4332,7 +4422,10 @@ local function enterMenuAction()
         if menuRow == 1 then
             verschiebeKOSZumSchwerpunkt()
             menuOpen = false
-        elseif menuRow == 2 then menuPage, menuRow = 4, 1 end
+        elseif menuRow == 2 then
+            ftm_bezug = (ftm_bezug == "kos") and "schwerpunkt" or "kos"
+            status = "Traegheitsmomente bezogen auf " .. (ftm_bezug == "kos" and "den KOS-Ursprung" or "den Schwerpunkt")
+        elseif menuRow == 3 then menuPage, menuRow = 4, 1 end
     elseif menuPage == 3 then
         local elem = selected_type == "massiv" and massiv_elemente[selected_idx] or selected_type == "duenn" and duenn_elemente[selected_idx] or kraefte[selected_idx]
         if not elem then
@@ -4358,6 +4451,7 @@ local function enterMenuAction()
 end
 
 function on.enterKey()
+    if qsLoeschFrage then loescheAllesQS(); return end
     if mode == "duenn_linie" and not menuOpen then finish_thin_line(); return end
     if sigma_input_step > 0 then enterSigmaInput(); return end
     if shear_input_step > 0 then enterShearInput(); return end
@@ -4382,6 +4476,7 @@ function on.contextMenu()
 end
 
 function on.escapeKey()
+    if qsLoeschFrage then qsLoeschFrage = false; platform.window:invalidate(); return end
     if qsMeldung then
         qsMeldung = nil
         platform.window:invalidate()
