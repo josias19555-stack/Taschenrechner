@@ -20,18 +20,15 @@ local solver_prompts = {
     {"Normalspg. (x)", "σ_x", "Merksatz: Druck \"-\""},
     {"Normalspg. (y)", "σ_y", "Merksatz: Druck \"-\""},
     {"Schubspannung", "τ_xy", "Merksatz: gegen Uhrz. \"+\""},
-    {"Drehwinkel 1", "α_1", "Merksatz: gegen Uhrz. \"+\""},
-    {"Gedrehtes σ_ξ 1", "σ_ξ1", "Merksatz: Druck \"-\""},
-    {"Gedrehtes τ_ξη 1", "τ_ξ1η1", "Merksatz: gegen Uhrz. \"+\""},
-    {"Drehwinkel 2", "α_2", "Merksatz: gegen Uhrz. \"+\""},
-    {"Gedrehtes σ_ξ 2", "σ_ξ2", "Merksatz: Druck \"-\""},
-    {"Gedrehtes τ_ξη 2", "τ_ξ2η2", "Merksatz: gegen Uhrz. \"+\""},
+    {"Drehwinkel in Grad", "α", "Merksatz: gegen Uhrz. \"+\""},
+    {"Gedrehtes σ", "σ_ξ", "Merksatz: Druck \"-\""},
+    {"Gedrehtes τ", "τ_ξη", "Merksatz: gegen Uhrz. \"+\""},
     {"Hauptspannung 1", "σ_1", "Meist die größere Spannung"},
     {"Hauptspannung 2", "σ_2", "Meist die kleinere Spannung"},
     {"Max Schubspg.", "τ_max", "Radius des Kreises"},
     {"Winkel zu τ_max", "α_tmax", "Merksatz: gegen Uhrz. \"+\""}
 }
-local solver_keys = {"sx", "sy", "txy", "a1", "s_xi1", "t_xiet1", "a2", "s_xi2", "t_xiet2", "s1", "s2", "tmax", "a_tmax"}
+local solver_keys = {"sx", "sy", "txy", "a", "s_xi", "t_xiet", "s1", "s2", "tmax", "a_tmax"}
 
 local show_table = false
 local W = platform.window:width() or 318
@@ -125,7 +122,7 @@ function on.paint(gc)
     -- Modus 4
     elseif state == 40 then
         local p = solver_prompts[solver_idx]
-        drawInputBox(gc, solver_idx.."/"..#solver_prompts..": "..p[1], p[2], p[3])
+        drawInputBox(gc, solver_idx.."/10: "..p[1], p[2], p[3])
         
     elseif state == 5 then
         if show_table then drawTable(gc) else drawGraph(gc) end
@@ -541,7 +538,7 @@ function on.enterKey()
             sv[key] = val
             sv_given[key] = true
         end
-        if solver_idx < #solver_prompts then
+        if solver_idx < 10 then
             solver_idx = solver_idx + 1; inputStr = ""
         else
             solveEquations()
@@ -553,10 +550,10 @@ function on.enterKey()
             sx = sv.sx or 0
             sy = sv.sy or 0
             txy = sv.txy or 0
-            alpha = sv.a1 or 0
-            s_xi = sv.s_xi1 or 0
-            s_eta = sv.s_eta1 or 0
-            t_xiet = sv.t_xiet1 or 0
+            alpha = sv.a or 0
+            s_xi = sv.s_xi or 0
+            s_eta = sv.s_eta or 0
+            t_xiet = sv.t_xiet or 0
             alpha_tmax = sv.a_tmax or 0
             phi = sv.phi or 0
             
