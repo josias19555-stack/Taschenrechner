@@ -16,23 +16,17 @@ local sv = {}
 local sv_given = {}
 local solver_idx = 1
 local solver_prompts = {
-    {"Normalspg. (x)", "σ_x", "Merksatz: Druck \"-\""},
-    {"Normalspg. (y)", "σ_y", "Merksatz: Druck \"-\""},
-    {"Schubspannung", "τ_xy", "Merksatz: gegen Uhrz. \"+\""},
-    {"Drehwinkel 1", "α_1", "Merksatz: gegen Uhrz. \"+\""},
-    {"Gedrehtes σ_ξ1", "σ_ξ1", "Merksatz: Druck \"-\""},
-    {"Gedrehtes σ_η1", "σ_η1", "Merksatz: Druck \"-\""},
-    {"Gedrehte τ_ξ1η1", "τ_ξ1η1", "Merksatz: gegen Uhrz. \"+\""},
-    {"Drehwinkel 2", "α_2", "Merksatz: gegen Uhrz. \"+\""},
-    {"Gedrehtes σ_ξ2", "σ_ξ2", "Merksatz: Druck \"-\""},
-    {"Gedrehtes σ_η2", "σ_η2", "Merksatz: Druck \"-\""},
-    {"Gedrehte τ_ξ2η2", "τ_ξ2η2", "Merksatz: gegen Uhrz. \"+\""},
-    {"Hauptspannung 1", "σ_1", "Meist die größere Spannung"},
-    {"Hauptspannung 2", "σ_2", "Meist die kleinere Spannung"},
-    {"Max Schubspg.", "τ_max", "Radius des Kreises"},
-    {"Winkel zu τ_max", "α_tmax", "Merksatz: gegen Uhrz. \"+\""}
+    {"Messung 1: Winkel", "α_1", "gegen Uhrzeigersinn positiv"},
+    {"Messung 1: Art", "1=Normal, 2=Schub", "1 Normalspannung, 2 Schubspannung"},
+    {"Messung 1: Wert", "σ_1/τ_1", "mit Vorzeichen eingeben"},
+    {"Messung 2: Winkel", "α_2", "gegen Uhrzeigersinn positiv"},
+    {"Messung 2: Art", "1=Normal, 2=Schub", "1 Normalspannung, 2 Schubspannung"},
+    {"Messung 2: Wert", "σ_2/τ_2", "mit Vorzeichen eingeben"},
+    {"Messung 3: Winkel", "α_3", "gegen Uhrzeigersinn positiv"},
+    {"Messung 3: Art", "1=Normal, 2=Schub", "1 Normalspannung, 2 Schubspannung"},
+    {"Messung 3: Wert", "σ_3/τ_3", "mit Vorzeichen eingeben"}
 }
-local solver_keys = {"sx", "sy", "txy", "a1", "s_xi1", "s_eta1", "t_xiet1", "a2", "s_xi2", "s_eta2", "t_xiet2", "s1", "s2", "tmax", "a_tmax"}
+local solver_keys = {"a1", "kind1", "v1", "a2", "kind2", "v2", "a3", "kind3", "v3"}
 
 local show_table = false
 local solver_ok = true
@@ -127,7 +121,7 @@ function on.paint(gc)
     -- Modus 4
     elseif state == 40 then
         local p = solver_prompts[solver_idx]
-        drawInputBox(gc, solver_idx.."/10: "..p[1], p[2], p[3])
+        drawInputBox(gc, solver_idx.."/"..#solver_prompts..": "..p[1], p[2], p[3])
         
     elseif state == 5 then
         if show_table then drawTable(gc) else drawGraph(gc) end
@@ -617,7 +611,7 @@ function on.enterKey()
             sv[key] = val
             sv_given[key] = true
         end
-        if solver_idx < 10 then
+        if solver_idx < #solver_prompts then
             solver_idx = solver_idx + 1; inputStr = ""
         else
             solver_ok = solveTensorLGS()
