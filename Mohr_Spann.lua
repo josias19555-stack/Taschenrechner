@@ -30,6 +30,7 @@ local solver_keys = {"a1", "kind1", "v1", "a2", "kind2", "v2", "a3", "kind3", "v
 
 local show_table = false
 local solver_ok = true
+local table_scroll = 0
 local W = platform.window:width() or 318
 local H = platform.window:height() or 212
 
@@ -360,12 +361,19 @@ function drawTable(gc)
     end
     
     local y_start = 30
-    local row_h = mode == 4 and 12 or 18
+    local row_h = mode == 4 and 14 or 18
+    local visible_rows = math.floor((H - y_start - 12) / row_h)
+    local max_scroll = math.max(0, #data - visible_rows)
+    if table_scroll > max_scroll then table_scroll = max_scroll end
+    if table_scroll < 0 then table_scroll = 0 end
+    local first_row = table_scroll + 1
+    local last_row = math.min(#data, table_scroll + visible_rows)
     local col1, col2, col3, col4 = 5, 105, 165, 255
     if mode == 4 then col1 = 2; col2 = 85; col3 = 155; col4 = 240 end
     
-    for i, row in ipairs(data) do
-        local y = y_start + (i-1) * row_h
+    for i = first_row, last_row do
+        local row = data[i]
+        local y = y_start + (i-first_row) * row_h
         if i % 2 == 0 then
             gc:setColorRGB(240, 240, 240); gc:fillRect(0, y, W, row_h); gc:setColorRGB(0, 0, 0)
         end
@@ -375,6 +383,11 @@ function drawTable(gc)
         if mode == 4 and row[4]:match("%(%*%)") then gc:setColorRGB(0, 100, 0) else gc:setColorRGB(0,0,0) end
         gc:drawString(row[4], col4, y + 2)
         gc:setColorRGB(0,0,0)
+    end
+    if #data > visible_rows then
+        gc:setFont("sansserif", "i", 8)
+        gc:setColorRGB(80, 80, 80)
+        gc:drawString("Zeilen "..first_row.."-"..last_row.."/"..#data.." [hoch/runter]", 5, H - 9)
     end
 end
 
@@ -628,8 +641,24 @@ function on.charIn(char)
         end
     end
     if state == 5 and (char == "t" or char == "T") then
-        show_table = not show_table; platform.window:invalidate()
+        show_table = not show_table; table_scroll = 0; platform.window:invalidate()
     end
+end
+
+function on.arrowKey(direction)
+    if state ~= 5 or not show_table then return end
+    if direction == "up" then
+        table_scroll = table_scroll - 1
+    elseif direction == "down" then
+        table_scroll = table_scroll + 1
+    elseif direction == "pageup" then
+        table_scroll = table_scroll - 5
+    elseif direction == "pagedown" then
+        table_scroll = table_scroll + 5
+    else
+        return
+    end
+    platform.window:invalidate()
 end
 
 function on.backspaceKey()
@@ -671,6 +700,7 @@ function on.enterKey()
             
             state = 5
             show_table = true
+            table_scroll = 0
         end
         platform.window:invalidate()
         return
@@ -698,8 +728,9 @@ function on.escapeKey()
     if state == 5 then
         if mode == 4 then
             solver_idx = #solver_prompts; state = 40; inputStr = ""
+            table_scroll = 0
         else
-            if show_table then show_table = false else
+            if show_table then show_table = false; table_scroll = 0 else
                 if mode == 1 then state = 14; inputStr = tostring(alpha)
                 elseif mode == 2 then state = 24; inputStr = tostring(tb)
                 elseif mode == 3 then state = 33; inputStr = tostring(alpha_tmax)
@@ -722,5 +753,5 @@ function on.escapeKey()
 end
 
 function on.clearKey()
-    state = 0; inputStr = ""; show_table = false; solver_ok = true; platform.window:invalidate()
+    state = 0; inputStr = ""; show_table = false; solver_ok = true; table_scroll = 0; platform.window:invalidate()
 end
