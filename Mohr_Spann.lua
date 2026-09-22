@@ -21,17 +21,19 @@ local solver_prompts = {
     {"Normalspg. (y)", "σ_y", "Merksatz: Druck \"-\""},
     {"Schubspannung", "τ_xy", "Merksatz: gegen Uhrz. \"+\""},
     {"Drehwinkel 1", "α_1", "Merksatz: gegen Uhrz. \"+\""},
-    {"Gedrehtes σ_ξ 1", "σ_ξ1", "Merksatz: Druck \"-\""},
-    {"Gedrehtes τ_ξη 1", "τ_ξ1η1", "Merksatz: gegen Uhrz. \"+\""},
+    {"Gedrehtes σ_ξ1", "σ_ξ1", "Merksatz: Druck \"-\""},
+    {"Gedrehtes σ_η1", "σ_η1", "Merksatz: Druck \"-\""},
+    {"Gedrehte τ_ξ1η1", "τ_ξ1η1", "Merksatz: gegen Uhrz. \"+\""},
     {"Drehwinkel 2", "α_2", "Merksatz: gegen Uhrz. \"+\""},
-    {"Gedrehtes σ_ξ 2", "σ_ξ2", "Merksatz: Druck \"-\""},
-    {"Gedrehtes τ_ξη 2", "τ_ξ2η2", "Merksatz: gegen Uhrz. \"+\""},
+    {"Gedrehtes σ_ξ2", "σ_ξ2", "Merksatz: Druck \"-\""},
+    {"Gedrehtes σ_η2", "σ_η2", "Merksatz: Druck \"-\""},
+    {"Gedrehte τ_ξ2η2", "τ_ξ2η2", "Merksatz: gegen Uhrz. \"+\""},
     {"Hauptspannung 1", "σ_1", "Meist die größere Spannung"},
     {"Hauptspannung 2", "σ_2", "Meist die kleinere Spannung"},
     {"Max Schubspg.", "τ_max", "Radius des Kreises"},
     {"Winkel zu τ_max", "α_tmax", "Merksatz: gegen Uhrz. \"+\""}
 }
-local solver_keys = {"sx", "sy", "txy", "a1", "s_xi1", "t_xiet1", "a2", "s_xi2", "t_xiet2", "s1", "s2", "tmax", "a_tmax"}
+local solver_keys = {"sx", "sy", "txy", "a1", "s_xi1", "s_eta1", "t_xiet1", "a2", "s_xi2", "s_eta2", "t_xiet2", "s1", "s2", "tmax", "a_tmax"}
 
 local show_table = false
 local W = platform.window:width() or 318
@@ -161,6 +163,12 @@ function drawGraph(gc)
         max_s = math.max(sigm + r, 0, sx, sy, s_xi, s_eta)
         min_t = math.min(-r, 0, -txy, -t_xiet)
         max_t = math.max(r, 0, txy, t_xiet)
+        if mode == 4 then
+            min_s = math.min(min_s, sv.s_xi2 or min_s, sv.s_eta2 or min_s)
+            max_s = math.max(max_s, sv.s_xi2 or max_s, sv.s_eta2 or max_s)
+            min_t = math.min(min_t, -(sv.t_xiet2 or 0))
+            max_t = math.max(max_t, sv.t_xiet2 or 0)
+        end
     elseif mode == 2 then
         min_s = math.min(sigm - r, 0, sa, sb, 2*sigm - sa, 2*sigm - sb)
         max_s = math.max(sigm + r, 0, sa, sb, 2*sigm - sa, 2*sigm - sb)
@@ -226,12 +234,19 @@ function drawGraph(gc)
         drawLabel(gc, "σ_x", px1 + 4, py1 - 8); drawLabel(gc, "σ_y", px2 + 4, py2 - 8)
         
         -- Grüne Graphen für den Winkel Alpha (Modus 1 & 4)
-        if alpha ~= 0 or (mode == 4 and sv.a and sv.s_xi) then
+        if alpha ~= 0 or (mode == 4 and sv.a1 and sv.s_xi1) then
             local px3 = ox + s_xi * scale; local py3 = oy - t_xiet * scale
             local px4 = ox + s_eta * scale; local py4 = oy + t_xiet * scale
             gc:setColorRGB(0, 150, 0); gc:drawLine(px3, py3, px4, py4)
             gc:fillArc(px3 - 2, py3 - 2, 4, 4, 0, 360); gc:fillArc(px4 - 2, py4 - 2, 4, 4, 0, 360)
             drawLabel(gc, "σ_ξ", px3 + 4, py3 - 8); drawLabel(gc, "σ_η", px4 + 4, py4 - 8)
+        end
+        if mode == 4 and sv.a2 and sv.s_xi2 and sv.s_eta2 and sv.t_xiet2 then
+            local px5 = ox + sv.s_xi2 * scale; local py5 = oy - sv.t_xiet2 * scale
+            local px6 = ox + sv.s_eta2 * scale; local py6 = oy + sv.t_xiet2 * scale
+            gc:setColorRGB(220, 120, 0); gc:drawLine(px5, py5, px6, py6)
+            gc:fillArc(px5 - 2, py5 - 2, 4, 4, 0, 360); gc:fillArc(px6 - 2, py6 - 2, 4, 4, 0, 360)
+            drawLabel(gc, "σ_ξ2", px5 + 4, py5 - 8); drawLabel(gc, "σ_η2", px6 + 4, py6 - 8)
         end
         
     elseif mode == 2 or mode == 3 then
@@ -297,10 +312,12 @@ function drawTable(gc)
         end
         -- Erweiterte Solver-Tabelle für den vollen Überblick
         data = {
-            {"σ_x", fmt(sv.sx, "sx"), "Winkel α", fmt(sv.a, "a")},
-            {"σ_y", fmt(sv.sy, "sy"), "Gedr. σ_ξ", fmt(sv.s_xi, "s_xi")},
-            {"τ_xy", fmt(sv.txy, "txy"), "Gedr. σ_η", fmt(sv.s_eta, "s_eta")},
-            {"", "", "Gedr. τ_ξη", fmt(sv.t_xiet, "t_xiet")},
+            {"σ_x", fmt(sv.sx, "sx"), "α_1", fmt(sv.a1, "a1")},
+            {"σ_y", fmt(sv.sy, "sy"), "σ_ξ1", fmt(sv.s_xi1, "s_xi1")},
+            {"τ_xy", fmt(sv.txy, "txy"), "σ_η1", fmt(sv.s_eta1, "s_eta1")},
+            {"", "", "τ_ξ1η1", fmt(sv.t_xiet1, "t_xiet1")},
+            {"α_2", fmt(sv.a2, "a2"), "σ_ξ2", fmt(sv.s_xi2, "s_xi2")},
+            {"σ_η2", fmt(sv.s_eta2, "s_eta2"), "τ_ξ2η2", fmt(sv.t_xiet2, "t_xiet2")},
             {"Mitte σ_m", fmt(sv.sm, "sm"), "Winkel σ_1", fmt(sv.phi, "phi")},
             {"Rad. τ_max", fmt(sv.R, "R"), "Winkel α_tmax", fmt(sv.a_tmax, "a_tmax")},
             {"Haupt. σ_1", fmt(sv.s1, "s1"), "(*) = Eingabe", ""},
@@ -338,6 +355,36 @@ function solveEquations()
                 sv[k] = val; changed = true
             end
         end
+
+        local function normAngle(value)
+            while value <= -90 do value = value + 180 end
+            while value > 90 do value = value - 180 end
+            return value
+        end
+
+        local function solveRotated(angle_key, xi_key, eta_key, tau_key)
+            local angle, xi, eta, tau = sv[angle_key], sv[xi_key], sv[eta_key], sv[tau_key]
+            if angle and sv.sm and sv.R and sv.phi then
+                local rad = math.rad(2 * (sv.phi - angle))
+                set(xi_key, sv.sm + sv.R * math.cos(rad))
+                set(eta_key, sv.sm - sv.R * math.cos(rad))
+                set(tau_key, sv.R * math.sin(rad))
+            end
+            if xi and eta then
+                set("sm", (xi + eta) / 2)
+            end
+            if xi and eta and tau then
+                set("R", math.sqrt(((xi - eta) / 2)^2 + tau^2))
+                if angle then
+                    local principal = angle + 0.5 * math.deg(math.atan2(tau, (xi - eta) / 2))
+                    set("phi", normAngle(principal))
+                end
+            end
+        end
+
+        -- Beide gedrehten Spannungsebenen beschreiben denselben Mohrschen Kreis.
+        solveRotated("a1", "s_xi1", "s_eta1", "t_xiet1")
+        solveRotated("a2", "s_xi2", "s_eta2", "t_xiet2")
         
         -- 1. Radien & max Schubspannung
         if sv.tmax then set("R", math.abs(sv.tmax)) end
@@ -442,33 +489,6 @@ function solveEquations()
             end
         end
         
-        -- 11. Beziehungen bei gedrehtem Koordinatensystem (Winkel a)
-        if sv.a then
-            if sv.sm and sv.R and sv.phi then
-                local rad = math.rad(2*(sv.phi - sv.a))
-                set("s_xi", sv.sm + sv.R * math.cos(rad))
-                set("s_eta", sv.sm - sv.R * math.cos(rad))
-                set("t_xiet", sv.R * math.sin(rad))
-            end
-            
-            if sv.s_xi and sv.s_eta and sv.t_xiet then
-                local phi_xi = 0.5 * math.deg(math.atan2(2 * sv.t_xiet, sv.s_xi - sv.s_eta))
-                local p = phi_xi + sv.a
-                while p <= -90 do p = p + 180 end
-                while p > 90 do p = p - 180 end
-                set("phi", p)
-            end
-            
-            -- sm aus sx, txy, a, s_xi finden
-            if sv.sx and sv.txy and sv.s_xi then
-                local rad2 = math.rad(2 * sv.a)
-                local denom = 1 - math.cos(rad2)
-                if math.abs(denom) > 1e-7 then
-                    set("sm", (sv.s_xi - sv.sx * math.cos(rad2) - sv.txy * math.sin(rad2)) / denom)
-                end
-            end
-        end
-
         iters = iters + 1
     end
 end
