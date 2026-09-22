@@ -63,7 +63,8 @@ function drawInputBox(gc, title, varName, hint)
     gc:setFont("sansserif", "b", 13)
     gc:setColorRGB(0, 50, 150)
     local displayStr = varName .. " = " .. inputStr .. "_"
-    if (state == 14 or state == 33 or mode == 4) and inputStr == "" then
+    local solver_type_input = mode == 4 and (solver_idx == 2 or solver_idx == 5 or solver_idx == 8)
+    if (state == 14 or state == 33 or (mode == 4 and not solver_type_input)) and inputStr == "" then
         displayStr = varName .. " = _ (Leer = ?)"
     end
     gc:drawString(displayStr, boxX + 10, boxY + 45)
@@ -137,6 +138,14 @@ function getNiceStep(span)
     local nice = 1
     if norm > 5 then nice = 10 elseif norm > 2 then nice = 5 elseif norm > 1 then nice = 2 end
     return nice * factor
+end
+
+function tensorMeasurement(angle_value)
+    local rad = math.rad(angle_value)
+    local c, s = math.cos(rad), math.sin(rad)
+    local normal = sx*c*c + sy*s*s + 2*txy*c*s
+    local shear = (sy - sx)*c*s + txy*(c*c - s*s)
+    return normal, shear
 end
 
 function drawGraph(gc)
@@ -219,6 +228,21 @@ function drawGraph(gc)
     gc:fillArc(ox + sig2*scale - 2, cy - 2, 4, 4, 0, 360)
     drawLabel(gc, "σ_1", ox + sig1*scale + 2, cy - 15)
     drawLabel(gc, "σ_2", ox + sig2*scale - 18, cy - 15)
+
+    if mode == 4 and solver_ok then
+        local colors = {{180, 0, 180}, {0, 140, 140}, {220, 100, 0}}
+        for i = 1, 3 do
+            local angle = sv["a"..i]
+            local normal, shear = tensorMeasurement(angle)
+            local opposite_normal, opposite_shear = tensorMeasurement(angle + 90)
+            local color = colors[i]
+            gc:setColorRGB(color[1], color[2], color[3])
+            gc:fillArc(ox + normal*scale - 3, oy - shear*scale - 3, 6, 6, 0, 360)
+            gc:fillArc(ox + opposite_normal*scale - 3, oy - opposite_shear*scale - 3, 6, 6, 0, 360)
+            drawLabel(gc, "M"..i, ox + normal*scale + 4, oy - shear*scale - 8)
+            drawLabel(gc, "M"..i.."'", ox + opposite_normal*scale + 4, oy - opposite_shear*scale - 8)
+        end
+    end
     
     if mode == 1 or (mode == 4 and sv.sx and sv.sy) then
         local px1 = ox + sx * scale; local py1 = oy - txy * scale
@@ -318,10 +342,25 @@ function drawTable(gc)
             {"Messung 3", fmt(sv.v3, "v3"), "Winkel α_3", fmt(sv.a3, "a3")},
             {"Art 1/2/3", fmt(sv.kind1, "kind1"), "", "1 Normal / 2 Schub"}
         }
+        if solver_ok then
+            for i = 1, 3 do
+                local angle = sv["a"..i]
+                local normal, shear = tensorMeasurement(angle)
+                local opposite_normal, opposite_shear = tensorMeasurement(angle + 90)
+                data[#data + 1] = {
+                    "M"..i..": σ", string.format("%.2f", normal),
+                    "M"..i..": τ", string.format("%.2f", shear)
+                }
+                data[#data + 1] = {
+                    "M"..i.."' (+90°): σ", string.format("%.2f", opposite_normal),
+                    "M"..i.."' (+90°): τ", string.format("%.2f", opposite_shear)
+                }
+            end
+        end
     end
     
     local y_start = 30
-    local row_h = 18
+    local row_h = mode == 4 and 12 or 18
     local col1, col2, col3, col4 = 5, 105, 165, 255
     if mode == 4 then col1 = 2; col2 = 85; col3 = 155; col4 = 240 end
     
