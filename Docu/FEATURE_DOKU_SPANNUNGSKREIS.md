@@ -25,6 +25,10 @@ sind die drei Größen:
   ohne CAS ein Lua-Ausdruck.
 - Gibt es für einen berechneten Winkel zwei Lösungen, steht die zweite klein hinter dem Wert
   (`|117.0`).
+- Alle Beschriftungen passen sich der Bildschirmbreite an: Hinweis-, Status- und Ergebniszeilen
+  werden bei Bedarf gekürzt, die Zeilenbeschriftung links notfalls kleiner gesetzt. Nichts läuft
+  über den Rand, und das markierte Eingabefeld liegt genau auf der Zeile, die links beschriftet
+  ist.
 
 Unter der Tabelle stehen $\sigma_1$, $\sigma_2$, $\sigma_m$, $R = \tau_{max}$, die Hauptrichtung
 $\alpha_1$ (und der Winkel für $\tau_{max}$) sowie $\sigma_x$, $\sigma_y$, $\tau_{xy}$; der Block

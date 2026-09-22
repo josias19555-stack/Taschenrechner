@@ -14,11 +14,35 @@ on = {}
 platform = { window = { width = function() return 318 end, height = function() return 212 end,
     invalidate = function() end } }
 
-local texte = {}
+-- Zeichenstub: merkt sich Texte (mit Breite zur eingestellten Schrift) und Rechtecke.
+-- Die Breite je Zeichen ist bewusst etwas grosszuegiger als auf dem Rechner, damit ein
+-- Layout, das hier passt, auch dort nicht ueber den Rand laeuft.
+local texte, rechtecke = {}, {}
+local schrift = { stil = 'r', groesse = 10 }
+local function utf8len(s)
+    local n = 0
+    for _ in tostring(s):gmatch('[^\128-\191]') do n = n + 1 end
+    return n
+end
+local function breite(t)
+    local f = (schrift.stil == 'b') and 0.70 or 0.66
+    return utf8len(t) * schrift.groesse * f
+end
 local gc = setmetatable({}, { __index = function(_, k)
-    if k == 'drawString' then return function(_, t, x, y) texte[#texte + 1] = { t = tostring(t), x = x, y = y } end end
-    if k == 'getStringWidth' then return function(_, t) return #tostring(t) * 6 end end
-    if k == 'getStringHeight' then return function() return 12 end end
+    if k == 'drawString' then
+        return function(_, t, x, y)
+            texte[#texte + 1] = { t = tostring(t), x = x, y = y, w = breite(t),
+                h = schrift.groesse + 3, g = schrift.groesse }
+        end
+    end
+    if k == 'setFont' then return function(_, _, stil, groesse)
+        schrift.stil, schrift.groesse = stil or 'r', groesse or 10
+    end end
+    if k == 'fillRect' then return function(_, x, y, w, h)
+        rechtecke[#rechtecke + 1] = { x = x, y = y, w = w, h = h }
+    end end
+    if k == 'getStringWidth' then return function(_, t) return breite(t) end end
+    if k == 'getStringHeight' then return function() return schrift.groesse + 3 end end
     return function() end
 end })
 
@@ -98,7 +122,7 @@ local function tippeZelle(s)
 end
 
 local function male(m)
-    S.setModus(m); texte = {}
+    S.setModus(m); texte = {}; rechtecke = {}
     local ok, err = pcall(on.paint, gc)
     pruef(ok, 'on.paint (' .. m .. ')' .. (ok and '' or (': ' .. tostring(err))))
     local alle = {}
@@ -305,6 +329,88 @@ fall('12 Neu anfangen', function()
     on.deleteKey(); on.enterKey()
     wahr('Enter loescht alles', #S.schnitte() == 1 and S.loesung() == nil, #S.schnitte())
     wahr('zurueck in der Tabelle', S.modus() == 'tabelle', S.modus())
+end)
+
+fall('13 Layout der Tabelle', function()
+    abschnitt('nichts laeuft ueber den Rand, Spalten und Zeilen stehen sauber')
+    local W, H = 318, 212
+
+    local function male_tab()
+        S.setModus('tabelle'); texte = {}; rechtecke = {}
+        local ok, err = pcall(on.paint, gc)
+        pruef(ok, 'on.paint (Layout)' .. (ok and '' or (': ' .. tostring(err))))
+    end
+    local function finde(muster)
+        for _, e in ipairs(texte) do if e.t:find(muster, 1, true) then return e end end
+    end
+    local function genau(t)
+        for _, e in ipairs(texte) do if e.t == t then return e end end
+    end
+    local function randpruefung(wann)
+        local schlimmster, ueber = nil, 0
+        for _, e in ipairs(texte) do
+            local rand = e.x + e.w - W
+            if rand > ueber then ueber, schlimmster = rand, e end
+        end
+        wahr('kein Text ueber den rechten Rand (' .. wann .. ')', ueber <= 0,
+            schlimmster and (schlimmster.t .. ' +' .. string.format('%.0f', ueber) .. 'px') or 'ok')
+        local tief = nil
+        for _, e in ipairs(texte) do
+            if e.y + e.h > H and (not tief or e.y > tief.y) then tief = e end
+        end
+        wahr('kein Text unter den unteren Rand (' .. wann .. ')', tief == nil,
+            tief and (tief.t .. ' y=' .. tief.y) or 'ok')
+    end
+
+    -- leere Tabelle wie direkt nach dem Start
+    S.neu()
+    male_tab()
+    randpruefung('leer')
+    local kopf_s = genau('Schnitt')
+    local kopf_1 = genau('neu')
+    wahr('Zeilenbeschriftung ueberlappt die Spalte nicht',
+        kopf_s and kopf_1 and (kopf_s.x + kopf_s.w <= kopf_1.x - 2),
+        kopf_s and kopf_1 and string.format('Ende %.0f, Spalte bei %.0f', kopf_s.x + kopf_s.w, kopf_1.x))
+
+    -- Eingabefeld liegt auf der Zeile, die links beschriftet ist
+    local zeile_a = finde('α [°]')
+    local feld = rechtecke[#rechtecke]
+    wahr('Eingabefeld auf Hoehe der Beschriftung',
+        zeile_a and feld and math.abs(feld.y - zeile_a.y) <= 1 and math.abs(feld.h - zeile_a.h) <= 2,
+        zeile_a and feld and string.format('Feld y=%.0f h=%.0f, Text y=%.0f h=%.0f',
+            feld.y, feld.h, zeile_a.y, zeile_a.h))
+
+    -- gerechneter Zustand: Status, Ergebnisse und Fusszeile
+    setze({ { 0, 20, 10 }, { 90, -5, nil }, { 30, nil, nil }, { 123.456, nil, nil } })
+    S.rechne()
+    male_tab()
+    randpruefung('gerechnet')
+    local status = finde('eindeutig bestimmt')
+    local block = genau('Spannungszustand')
+    wahr('Ergebnisblock steht deutlich unter der Statuszeile',
+        status and block and (block.y - status.y >= 20),
+        status and block and (block.y - status.y))
+    local letzte = finde('σx = ')
+    wahr('letzte Ergebniszeile nutzt den Platz unten', letzte and letzte.y > 150,
+        letzte and letzte.y)
+
+    -- Sonderfaelle der Statuszeile
+    setze({ { 0, 20, nil } }); S.rechne(); male_tab()
+    randpruefung('unbestimmt')
+    wahr('Hinweis auf fehlende Angaben', finde('nötig') ~= nil)
+    setze({ { 0, 20, nil }, { 0, 25, nil }, { 90, 0, nil }, { 45, 0, nil } })
+    S.rechne(); male_tab()
+    randpruefung('widerspruch')
+    wahr('Widerspruch wird gemeldet', finde('widersprech') ~= nil)
+
+    -- auch die Zeichnungen bleiben im Bild
+    setze({ { 0, 20, 10 }, { 90, -5, nil }, { 30, nil, nil } }); S.rechne()
+    for _, m in ipairs({ 'scheibe', 'kreis' }) do
+        S.setModus(m); texte = {}; rechtecke = {}
+        pcall(on.paint, gc)
+        randpruefung(m)
+    end
+    S.setModus('tabelle')
 end)
 
 write(string.format('\nErgebnis Spannungskreis: %d Pruefungen, %d Fehler\n', M.total, M.fails))

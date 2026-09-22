@@ -237,7 +237,7 @@ end
 
 -- ===================== Tabelle (Eingabe und Ergebnis) =====================
 
-local SP_BREIT, SP_X0 = 50, 40
+local SP_BREIT, SP_X0 = 50, 52
 
 local function sichtbareSpalten()
     return math.max(1, math.floor((W - SP_X0 - 4) / SP_BREIT))
@@ -250,27 +250,67 @@ local function haltePosition()
     if scroll < 0 then scroll = 0 end
 end
 
+-- erste Variante, die in die Breite passt (sonst die kuerzeste)
+local function passend(gc, kandidaten, breite)
+    for _, s in ipairs(kandidaten) do
+        if gc:getStringWidth(s) <= breite then return s end
+    end
+    return kandidaten[#kandidaten]
+end
+
+-- groesste gueltige Schriftgroesse, mit der der Text in die Breite passt
+local SCHRIFTGROESSEN = { 6, 7, 8, 9, 10, 11, 12 }
+
+local function passendeSchrift(gc, s, breite, stil, groesse)
+    local gewaehlt = SCHRIFTGROESSEN[1]
+    for _, g in ipairs(SCHRIFTGROESSEN) do
+        if g <= groesse then
+            gc:setFont("sansserif", stil, g)
+            if gc:getStringWidth(s) <= breite then gewaehlt = g end
+        end
+    end
+    gc:setFont("sansserif", stil, gewaehlt)
+    return gewaehlt
+end
+
+-- Hoehe einer Textzeile; drawString setzt y auf die Oberkante
+local function texthoehe(gc)
+    local ok, h = pcall(function() return gc:getStringHeight("Ag") end)
+    if ok and type(h) == "number" and h > 4 then return h end
+    return 13
+end
+
 local function zeichneTabelle(gc)
     kopf(gc, "Spannungszustand über Schnitte", "[b] rechnen")
     gc:setColorRGB(60, 60, 60); gc:setFont("sansserif", "r", 7)
-    gc:drawString("α: Winkel der Schnittnormalen zur x-Achse, mathematisch positiv (gegen den Uhrzeigersinn)", 4, 19)
+    gc:drawString(passend(gc, {
+        "α: Winkel der Schnittnormalen zur x-Achse, mathematisch positiv (gegen den Uhrzeigersinn)",
+        "α: Winkel der Schnittnormalen zur x-Achse, math. positiv (gegen den Uhrzeigersinn)",
+        "α: Winkel der Schnittnormalen zur x-Achse, math. positiv (gegen UZS)",
+        "α: Winkel der Schnittnormalen zur x-Achse, math. positiv",
+        "α: Schnittnormale zur x-Achse, math. positiv",
+    }, W - 8), 4, 20)
 
     haltePosition()
-    local y0, zh = 32, 14
+    local y0, zh = 33, 16
+    gc:setFont("sansserif", "r", 9)
+    local th = texthoehe(gc)
     local sicht = sichtbareSpalten()
     -- Kopfzeile
-    gc:setFont("sansserif", "b", 9); gc:setColorRGB(0, 0, 0)
+    gc:setColorRGB(0, 0, 0)
+    passendeSchrift(gc, "Schnitt", SP_X0 - 8, "b", 9)
     gc:drawString("Schnitt", 4, y0)
+    gc:setFont("sansserif", "b", 9)
     for i = scroll + 1, math.min(#schnitte + 1, scroll + sicht) do
         local x = SP_X0 + (i - scroll - 1) * SP_BREIT
         if i <= #schnitte then gc:drawString("S" .. i, x, y0)
         else gc:setColorRGB(150, 150, 150); gc:drawString("neu", x, y0); gc:setColorRGB(0, 0, 0) end
     end
     -- Zeilen
-    gc:setFont("sansserif", "r", 9)
     for z = 1, 3 do
         local y = y0 + z * zh
-        gc:setColorRGB(0, 0, 0); gc:setFont("sansserif", "b", 9)
+        gc:setColorRGB(0, 0, 0)
+        passendeSchrift(gc, ZEILENNAME[z], SP_X0 - 8, "b", 9)
         gc:drawString(ZEILENNAME[z], 4, y)
         gc:setFont("sansserif", "r", 9)
         for i = scroll + 1, math.min(#schnitte + 1, scroll + sicht) do
@@ -278,7 +318,7 @@ local function zeichneTabelle(gc)
             local sch = schnitte[i]
             local aktiv = (i == spalte and z == zeile)
             if aktiv then
-                gc:setColorRGB(200, 220, 255); gc:fillRect(x - 3, y - 1, SP_BREIT - 4, zh - 1)
+                gc:setColorRGB(200, 220, 255); gc:fillRect(x - 4, y, SP_BREIT - 4, th)
             end
             if aktiv and editiere then
                 gc:setColorRGB(0, 0, 0); gc:drawString(text .. "_", x, y)
@@ -290,55 +330,94 @@ local function zeichneTabelle(gc)
                 gc:drawString(s, x, y)
                 if z == 1 and sch.a2 then
                     gc:setColorRGB(180, 100, 0); gc:setFont("sansserif", "r", 6)
-                    gc:drawString("|" .. fmt(sch.a2, 1), x + 26, y + 2)
+                    gc:drawString("|" .. fmt(sch.a2, 1), x + 26, y + 3)
                     gc:setFont("sansserif", "r", 9)
                 end
             end
         end
     end
+    local trenn = y0 + 3 * zh + th + 2
     gc:setColorRGB(170, 170, 170)
-    gc:drawLine(0, y0 + 3 * zh + 12, W, y0 + 3 * zh + 12)
+    gc:drawLine(0, trenn, W, trenn)
 
     -- Legende und Status
-    local y = y0 + 3 * zh + 14
+    local y = trenn + 3
     gc:setFont("sansserif", "r", 7)
-    setFarbe(gc, FARBE_EIN); gc:drawString("schwarz: eingegeben", 4, y)
-    setFarbe(gc, FARBE_BER); gc:drawString("grün: berechnet", 100, y)
-    gc:setColorRGB(120, 120, 120); gc:drawString("Pfeile: Zelle   Enter: ändern", 180, y)
-
-    y = y + 12
-    gc:setFont("sansserif", "b", 9)
-    if widerspruch then
-        gc:setColorRGB(200, 0, 0); gc:drawString("Eingaben widersprechen sich — [s] und [k] gesperrt", 4, y)
-    elseif loesung then
-        setFarbe(gc, FARBE_BER); gc:drawString("eindeutig bestimmt — [s] Scheibe   [k] Kreis", 4, y)
-    else
-        gc:setColorRGB(180, 100, 0)
-        gc:drawString("noch " .. (3 - rang) .. " unabhängige Angabe(n) nötig — [s] und [k] gesperrt", 4, y)
+    local x = 4
+    setFarbe(gc, FARBE_EIN); gc:drawString("schwarz: eingegeben", x, y)
+    x = x + gc:getStringWidth("schwarz: eingegeben") + 10
+    setFarbe(gc, FARBE_BER); gc:drawString("grün: berechnet", x, y)
+    x = x + gc:getStringWidth("grün: berechnet") + 10
+    local hilfe = "Pfeile: Zelle   Enter: ändern"
+    if x + gc:getStringWidth(hilfe) > W - 4 then hilfe = "Enter: ändern" end
+    if x + gc:getStringWidth(hilfe) <= W - 4 then
+        gc:setColorRGB(120, 120, 120); gc:drawString(hilfe, x, y)
     end
 
-    -- Ergebnisse, weiter unten mit mehr Luft
-    y = y + 20
+    y = y + 14
+    gc:setFont("sansserif", "b", 9)
+    if widerspruch then
+        gc:setColorRGB(200, 0, 0)
+        gc:drawString(passend(gc, {
+            "Eingaben widersprechen sich — [s] und [k] gesperrt",
+            "Eingaben widersprechen sich — [s]/[k] gesperrt",
+            "Eingaben widersprechen sich",
+        }, W - 8), 4, y)
+    elseif loesung then
+        setFarbe(gc, FARBE_BER)
+        gc:drawString(passend(gc, {
+            "eindeutig bestimmt — [s] Scheibe   [k] Kreis",
+            "eindeutig bestimmt — [s] Scheibe  [k] Kreis",
+            "eindeutig bestimmt — [s] / [k]",
+        }, W - 8), 4, y)
+    else
+        local n = 3 - rang
+        gc:setColorRGB(180, 100, 0)
+        gc:drawString(passend(gc, {
+            "noch " .. n .. " unabhängige Angabe(n) nötig — [s] und [k] gesperrt",
+            "noch " .. n .. " unabhängige Angabe(n) nötig — [s]/[k] gesperrt",
+            "noch " .. n .. " Angabe(n) nötig — [s]/[k] gesperrt",
+            "noch " .. n .. " Angabe(n) nötig",
+        }, W - 8), 4, y)
+    end
+
+    -- Fusszeilen zuerst festlegen, damit die Ergebnisse den Rest bekommen
+    local hinweis = nil
+    for _, sch in ipairs(schnitte) do
+        if sch.hinweis then hinweis = sch.hinweis break end
+    end
+    local unten = H - 6
+    if hinweis or meldung then unten = unten - 12 end
+    if hinweis and meldung then unten = unten - 10 end
+
+    -- Ergebnisse: mit Luft zur Statuszeile, danach gleichmaessig bis unten verteilt
+    y = y + 24
     if loesung then
         local L = loesung
         gc:setColorRGB(0, 0, 0); gc:setFont("sansserif", "b", 10)
         gc:drawString("Spannungszustand", 4, y)
         gc:setFont("sansserif", "r", 10)
         local zeilen = {
-            "σ₁ = " .. fmt(L.sig1) .. "      σ₂ = " .. fmt(L.sig2),
-            "σm = " .. fmt(L.sig_m) .. "      R = τmax = " .. fmt(L.r),
-            "Hauptrichtung α₁ = " .. fmt(L.a1) .. "°      τmax bei " .. fmt(L.a1 + 45) .. "°",
-            "σx = " .. fmt(L.sx) .. "      σy = " .. fmt(L.sy) .. "      τxy = " .. fmt(L.txy),
+            { "σ₁ = " .. fmt(L.sig1) .. "      σ₂ = " .. fmt(L.sig2),
+              "σ₁ = " .. fmt(L.sig1) .. "   σ₂ = " .. fmt(L.sig2) },
+            { "σm = " .. fmt(L.sig_m) .. "      R = τmax = " .. fmt(L.r),
+              "σm = " .. fmt(L.sig_m) .. "   R = τmax = " .. fmt(L.r) },
+            { "Hauptrichtung α₁ = " .. fmt(L.a1) .. "°      τmax bei " .. fmt(L.a1 + 45) .. "°",
+              "α₁ = " .. fmt(L.a1) .. "°   τmax bei " .. fmt(L.a1 + 45) .. "°" },
+            { "σx = " .. fmt(L.sx) .. "      σy = " .. fmt(L.sy) .. "      τxy = " .. fmt(L.txy),
+              "σx = " .. fmt(L.sx) .. "   σy = " .. fmt(L.sy) .. "   τxy = " .. fmt(L.txy) },
         }
-        local dy = math.max(14, math.min(18, (H - 14 - (y + 16)) / #zeilen))
-        for i, z in ipairs(zeilen) do gc:drawString(z, 6, y + 4 + i * dy) end
-    end
-    for _, sch in ipairs(schnitte) do
-        if sch.hinweis then
-            gc:setColorRGB(180, 100, 0); gc:setFont("sansserif", "r", 7)
-            gc:drawString(sch.hinweis, 4, H - 22)
-            break
+        local dy = math.max(13, math.min(18, (unten - (y + th)) / #zeilen))
+        for i, z in ipairs(zeilen) do
+            gc:setFont("sansserif", "r", 10)
+            local s = passend(gc, z, W - 12)
+            passendeSchrift(gc, s, W - 12, "r", 10)
+            gc:drawString(s, 6, y + 2 + i * dy)
         end
+    end
+    if hinweis then
+        gc:setColorRGB(180, 100, 0); gc:setFont("sansserif", "r", 7)
+        gc:drawString(hinweis, 4, meldung and (H - 22) or (H - 12))
     end
     if meldung then
         gc:setColorRGB(200, 0, 0); gc:setFont("sansserif", "r", 8)
