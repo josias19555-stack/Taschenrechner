@@ -1,6 +1,5 @@
 -- Perfektionierter Mohrscher Spannungskreis für TI-Nspire
--- Inkl. 4 Modi: Standard, 2-Punkte, 1-Punkt + Winkel, FORMEL-SOLVER
--- Solver verarbeitet und zeichnet nun ALLES (inkl. phi, s_eta, Graphen!)
+-- Inkl. 4 Modi: Standard, 2-Punkte, 1-Punkt + Winkel, LGS-SOLVER
 
 local state = 0
 local mode = 1
@@ -17,25 +16,20 @@ local sv = {}
 local sv_given = {}
 local solver_idx = 1
 local solver_prompts = {
-    {"Normalspg. (x)", "σ_x", "Merksatz: Druck \"-\""},
-    {"Normalspg. (y)", "σ_y", "Merksatz: Druck \"-\""},
-    {"Schubspannung", "τ_xy", "Merksatz: gegen Uhrz. \"+\""},
-    {"Drehwinkel 1", "α_1", "Merksatz: gegen Uhrz. \"+\""},
-    {"Gedrehtes σ_ξ1", "σ_ξ1", "Merksatz: Druck \"-\""},
-    {"Gedrehtes σ_η1", "σ_η1", "Merksatz: Druck \"-\""},
-    {"Gedrehte τ_ξ1η1", "τ_ξ1η1", "Merksatz: gegen Uhrz. \"+\""},
-    {"Drehwinkel 2", "α_2", "Merksatz: gegen Uhrz. \"+\""},
-    {"Gedrehtes σ_ξ2", "σ_ξ2", "Merksatz: Druck \"-\""},
-    {"Gedrehtes σ_η2", "σ_η2", "Merksatz: Druck \"-\""},
-    {"Gedrehte τ_ξ2η2", "τ_ξ2η2", "Merksatz: gegen Uhrz. \"+\""},
-    {"Hauptspannung 1", "σ_1", "Meist die größere Spannung"},
-    {"Hauptspannung 2", "σ_2", "Meist die kleinere Spannung"},
-    {"Max Schubspg.", "τ_max", "Radius des Kreises"},
-    {"Winkel zu τ_max", "α_tmax", "Merksatz: gegen Uhrz. \"+\""}
+    {"Messung 1: Winkel", "α_1", "gegen Uhrzeigersinn positiv"},
+    {"Messung 1: Art", "1=Normal, 2=Schub", "Spannungstyp"},
+    {"Messung 1: Wert", "σ_1/τ_1", "Druck bzw. Schub mit Vorzeichen"},
+    {"Messung 2: Winkel", "α_2", "gegen Uhrzeigersinn positiv"},
+    {"Messung 2: Art", "1=Normal, 2=Schub", "Spannungstyp"},
+    {"Messung 2: Wert", "σ_2/τ_2", "Druck bzw. Schub mit Vorzeichen"},
+    {"Messung 3: Winkel", "α_3", "gegen Uhrzeigersinn positiv"},
+    {"Messung 3: Art", "1=Normal, 2=Schub", "Spannungstyp"},
+    {"Messung 3: Wert", "σ_3/τ_3", "Druck bzw. Schub mit Vorzeichen"}
 }
-local solver_keys = {"sx", "sy", "txy", "a1", "s_xi1", "s_eta1", "t_xiet1", "a2", "s_xi2", "s_eta2", "t_xiet2", "s1", "s2", "tmax", "a_tmax"}
+local solver_keys = {"a1", "kind1", "v1", "a2", "kind2", "v2", "a3", "kind3", "v3"}
 
 local show_table = false
+local solver_ok = true
 local W = platform.window:width() or 318
 local H = platform.window:height() or 212
 
@@ -103,7 +97,7 @@ function on.paint(gc)
         gc:setColorRGB(0, 150, 0)
         gc:drawString("[ 3 ] Punkt + Winkel zu τ_max", 25, 110)
         gc:setColorRGB(100, 0, 150)
-        gc:drawString("[ 4 ] Solver (Finde Unbekannte!)", 25, 135)
+        gc:drawString("[ 4 ] Solver (3 Messungen per LGS)", 25, 135)
         
         gc:setColorRGB(100, 100, 100)
         gc:setFont("sansserif", "i", 9)
@@ -267,7 +261,11 @@ function drawTable(gc)
     gc:setFont("sansserif", "b", 11)
     
     if mode == 4 then
-        gc:drawString("Solver Ergebnisse ([Esc] Zurueck)", 5, 5)
+        if solver_ok then
+            gc:drawString("LGS-Ergebnisse ([Esc] Zurueck)", 5, 5)
+        else
+            gc:drawString("LGS nicht eindeutig ([Esc] Zurueck)", 5, 5)
+        end
     else
         gc:drawString("Ergebnistabelle (Schliessen mit 'T')", 5, 5)
     end
@@ -310,18 +308,15 @@ function drawTable(gc)
             local s = string.format("%.2f", val)
             if sv_given[k] then return s .. " (*)" else return s end
         end
-        -- Erweiterte Solver-Tabelle für den vollen Überblick
         data = {
-            {"σ_x", fmt(sv.sx, "sx"), "α_1", fmt(sv.a1, "a1")},
-            {"σ_y", fmt(sv.sy, "sy"), "σ_ξ1", fmt(sv.s_xi1, "s_xi1")},
-            {"τ_xy", fmt(sv.txy, "txy"), "σ_η1", fmt(sv.s_eta1, "s_eta1")},
-            {"", "", "τ_ξ1η1", fmt(sv.t_xiet1, "t_xiet1")},
-            {"α_2", fmt(sv.a2, "a2"), "σ_ξ2", fmt(sv.s_xi2, "s_xi2")},
-            {"σ_η2", fmt(sv.s_eta2, "s_eta2"), "τ_ξ2η2", fmt(sv.t_xiet2, "t_xiet2")},
-            {"Mitte σ_m", fmt(sv.sm, "sm"), "Winkel σ_1", fmt(sv.phi, "phi")},
-            {"Rad. τ_max", fmt(sv.R, "R"), "Winkel α_tmax", fmt(sv.a_tmax, "a_tmax")},
-            {"Haupt. σ_1", fmt(sv.s1, "s1"), "(*) = Eingabe", ""},
-            {"Haupt. σ_2", fmt(sv.s2, "s2"), "", ""}
+            {"σ_x", fmt(sv.sx, "sx"), "σ_y", fmt(sv.sy, "sy")},
+            {"τ_xy", fmt(sv.txy, "txy"), "Mitte σ_m", fmt(sv.sm, "sm")},
+            {"Radius R", fmt(sv.R, "R"), "Winkel σ_1", fmt(sv.phi, "phi")},
+            {"Hauptspg. σ_1", fmt(sv.s1, "s1"), "Hauptspg. σ_2", fmt(sv.s2, "s2")},
+            {"Messung 1", fmt(sv.v1, "v1"), "Winkel α_1", fmt(sv.a1, "a1")},
+            {"Messung 2", fmt(sv.v2, "v2"), "Winkel α_2", fmt(sv.a2, "a2")},
+            {"Messung 3", fmt(sv.v3, "v3"), "Winkel α_3", fmt(sv.a3, "a3")},
+            {"Art 1/2/3", fmt(sv.kind1, "kind1"), "", "1 Normal / 2 Schub"}
         }
     end
     
@@ -344,7 +339,62 @@ function drawTable(gc)
     end
 end
 
--- ================= INFERENCE ENGINE (SOLVER) =================
+-- ================= TENSOR-LGS-SOLVER =================
+function solveTensorLGS()
+    local matrix = {}
+    local rhs = {}
+    for i = 1, 3 do
+        local angle_value = sv["a"..i]
+        local value = sv["v"..i]
+        if angle_value == nil or value == nil then return false end
+        local angle = math.rad(angle_value)
+        local c, s = math.cos(angle), math.sin(angle)
+        local kind = sv["kind"..i]
+        if kind == 1 then
+            -- sigma_n = n^T * sigma * n, n = (cos(alpha), sin(alpha))
+            matrix[i] = {c*c, s*s, 2*c*s}
+        elseif kind == 2 then
+            -- tau_nt = n^T * sigma * t, t = (-sin(alpha), cos(alpha))
+            matrix[i] = {-c*s, c*s, c*c - s*s}
+        else
+            return false
+        end
+        rhs[i] = value
+    end
+
+    -- Gauß-Elimination mit Pivotisierung für das 3x3-LGS.
+    for col = 1, 3 do
+        local pivot = col
+        for row = col + 1, 3 do
+            if math.abs(matrix[row][col]) > math.abs(matrix[pivot][col]) then pivot = row end
+        end
+        if math.abs(matrix[pivot][col]) < 1e-10 then return false end
+        matrix[col], matrix[pivot] = matrix[pivot], matrix[col]
+        rhs[col], rhs[pivot] = rhs[pivot], rhs[col]
+        for row = col + 1, 3 do
+            local factor = matrix[row][col] / matrix[col][col]
+            for j = col, 3 do matrix[row][j] = matrix[row][j] - factor * matrix[col][j] end
+            rhs[row] = rhs[row] - factor * rhs[col]
+        end
+    end
+
+    local result = {}
+    for row = 3, 1, -1 do
+        local value = rhs[row]
+        for j = row + 1, 3 do value = value - matrix[row][j] * result[j] end
+        result[row] = value / matrix[row][row]
+    end
+    sv.sx, sv.sy, sv.txy = result[1], result[2], result[3]
+    sv.sm = (sv.sx + sv.sy) / 2
+    sv.R = math.sqrt(((sv.sx - sv.sy) / 2)^2 + sv.txy^2)
+    sv.s1, sv.s2 = sv.sm + sv.R, sv.sm - sv.R
+    sv.phi = 0.5 * math.deg(math.atan2(2 * sv.txy, sv.sx - sv.sy))
+    sv.a_tmax = sv.phi - 45
+    return true
+end
+-- ==============================================================
+
+-- ================= INFERENCE ENGINE (LEGACY) =================
 function solveEquations()
     local changed = true
     local iters = 0
@@ -527,7 +577,7 @@ function on.charIn(char)
         elseif char == "3" then mode = 3; state = 31; inputStr = ""; platform.window:invalidate()
         elseif char == "4" then 
             mode = 4; state = 40; inputStr = ""; solver_idx = 1
-            sv = {}; sv_given = {}
+            sv = {}; sv_given = {}; solver_ok = true
             platform.window:invalidate()
         end
         return
@@ -564,8 +614,8 @@ function on.enterKey()
         if solver_idx < #solver_prompts then
             solver_idx = solver_idx + 1; inputStr = ""
         else
-            solveEquations()
-            -- Lade alle berechneten Solver-Daten für die Grafik & den Modus 1 Standard
+            solver_ok = solveTensorLGS()
+            -- Lade die Tensor-LGS-Ergebnisse für Tabelle und Grafik.
             sigm = sv.sm or 0
             r = sv.R or 0
             sig1 = sv.s1 or (sigm + r)
@@ -573,10 +623,10 @@ function on.enterKey()
             sx = sv.sx or 0
             sy = sv.sy or 0
             txy = sv.txy or 0
-            alpha = sv.a1 or 0
-            s_xi = sv.s_xi1 or 0
-            s_eta = sv.s_eta1 or 0
-            t_xiet = sv.t_xiet1 or 0
+            alpha = 0
+            s_xi = 0
+            s_eta = 0
+            t_xiet = 0
             alpha_tmax = sv.a_tmax or 0
             phi = sv.phi or 0
             
@@ -608,7 +658,7 @@ end
 function on.escapeKey()
     if state == 5 then
         if mode == 4 then
-            solver_idx = 10; state = 40; inputStr = ""
+            solver_idx = #solver_prompts; state = 40; inputStr = ""
         else
             if show_table then show_table = false else
                 if mode == 1 then state = 14; inputStr = tostring(alpha)
@@ -633,5 +683,5 @@ function on.escapeKey()
 end
 
 function on.clearKey()
-    state = 0; inputStr = ""; show_table = false; platform.window:invalidate()
+    state = 0; inputStr = ""; show_table = false; solver_ok = true; platform.window:invalidate()
 end
