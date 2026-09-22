@@ -335,13 +335,13 @@ function drawTable(gc)
         end
         data = {
             {"σ_x", fmt(sv.sx, "sx"), "σ_y", fmt(sv.sy, "sy")},
-            {"τ_xy", fmt(sv.txy, "txy"), "Mitte σ_m", fmt(sv.sm, "sm")},
-            {"Radius R", fmt(sv.R, "R"), "Winkel σ_1", fmt(sv.phi, "phi")},
-            {"Hauptspg. σ_1", fmt(sv.s1, "s1"), "Hauptspg. σ_2", fmt(sv.s2, "s2")},
-            {"Messung 1", fmt(sv.v1, "v1"), "Winkel α_1", fmt(sv.a1, "a1")},
-            {"Messung 2", fmt(sv.v2, "v2"), "Winkel α_2", fmt(sv.a2, "a2")},
-            {"Messung 3", fmt(sv.v3, "v3"), "Winkel α_3", fmt(sv.a3, "a3")},
-            {"Art 1/2/3", fmt(sv.kind1, "kind1"), "", "1 Normal / 2 Schub"}
+            {"τ_xy", fmt(sv.txy, "txy"), "σ_m", fmt(sv.sm, "sm")},
+            {"R", fmt(sv.R, "R"), "φ", fmt(sv.phi, "phi")},
+            {"σ_1", fmt(sv.s1, "s1"), "σ_2", fmt(sv.s2, "s2")},
+            {"M1 Wert", fmt(sv.v1, "v1"), "M1 α", fmt(sv.a1, "a1")},
+            {"M2 Wert", fmt(sv.v2, "v2"), "M2 α", fmt(sv.a2, "a2")},
+            {"M3 Wert", fmt(sv.v3, "v3"), "M3 α", fmt(sv.a3, "a3")},
+            {"Art 1/2/3", fmt(sv.kind1, "kind1"), "", "1=N  2=S"}
         }
         if solver_ok then
             for i = 1, 3 do
@@ -353,15 +353,15 @@ function drawTable(gc)
                     "M"..i..": τ", string.format("%.2f", shear)
                 }
                 data[#data + 1] = {
-                    "M"..i.."' (+90°): σ", string.format("%.2f", opposite_normal),
-                    "M"..i.."' (+90°): τ", string.format("%.2f", opposite_shear)
+                    "M"..i.."' +90 σ", string.format("%.2f", opposite_normal),
+                    "M"..i.."' +90 τ", string.format("%.2f", opposite_shear)
                 }
             end
         end
     end
     
     local y_start = 30
-    local row_h = mode == 4 and 14 or 18
+    local row_h = 18
     local visible_rows = math.floor((H - y_start - 12) / row_h)
     local max_scroll = math.max(0, #data - visible_rows)
     if table_scroll > max_scroll then table_scroll = max_scroll end
@@ -369,7 +369,7 @@ function drawTable(gc)
     local first_row = table_scroll + 1
     local last_row = math.min(#data, table_scroll + visible_rows)
     local col1, col2, col3, col4 = 5, 105, 165, 255
-    if mode == 4 then col1 = 2; col2 = 85; col3 = 155; col4 = 240 end
+    if mode == 4 then col1 = 2; col2 = 72; col3 = 158; col4 = 228 end
     
     for i = first_row, last_row do
         local row = data[i]
@@ -377,11 +377,11 @@ function drawTable(gc)
         if i % 2 == 0 then
             gc:setColorRGB(240, 240, 240); gc:fillRect(0, y, W, row_h); gc:setColorRGB(0, 0, 0)
         end
-        gc:setFont("sansserif", "b", 9); gc:drawString(row[1], col1, y + 2); gc:drawString(row[3], col3, y + 2)
+        gc:setFont("sansserif", "b", 8); gc:drawString(row[1], col1, y + 3); gc:drawString(row[3], col3, y + 3)
         if mode == 4 and row[2]:match("%(%*%)") then gc:setColorRGB(0, 100, 0) else gc:setColorRGB(0,0,0) end
-        gc:setFont("sansserif", "r", 9); gc:drawString(row[2], col2, y + 2)
+        gc:setFont("sansserif", "r", 8); gc:drawString(row[2], col2, y + 3)
         if mode == 4 and row[4]:match("%(%*%)") then gc:setColorRGB(0, 100, 0) else gc:setColorRGB(0,0,0) end
-        gc:drawString(row[4], col4, y + 2)
+        gc:drawString(row[4], col4, y + 3)
         gc:setColorRGB(0,0,0)
     end
     if #data > visible_rows then
