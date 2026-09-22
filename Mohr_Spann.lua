@@ -15,18 +15,31 @@ local sigm, r, sig1, sig2, phi = 0, 0, 0, 0, 0
 local sv = {}
 local sv_given = {}
 local solver_idx = 1
-local solver_prompts = {
+local solver_variant = 0
+local stress_prompts = {
     {"Messung 1: Winkel", "α_1", "gegen Uhrzeigersinn positiv"},
-    {"Messung 1: Art", "1=Normal, 2=Schub", "1 Normalspannung, 2 Schubspannung"},
+    {"Messung 1: Art", "1=Normal, 2=Schub", "Spannungstyp"},
     {"Messung 1: Wert", "σ_1/τ_1", "mit Vorzeichen eingeben"},
     {"Messung 2: Winkel", "α_2", "gegen Uhrzeigersinn positiv"},
-    {"Messung 2: Art", "1=Normal, 2=Schub", "1 Normalspannung, 2 Schubspannung"},
+    {"Messung 2: Art", "1=Normal, 2=Schub", "Spannungstyp"},
     {"Messung 2: Wert", "σ_2/τ_2", "mit Vorzeichen eingeben"},
     {"Messung 3: Winkel", "α_3", "gegen Uhrzeigersinn positiv"},
-    {"Messung 3: Art", "1=Normal, 2=Schub", "1 Normalspannung, 2 Schubspannung"},
+    {"Messung 3: Art", "1=Normal, 2=Schub", "Spannungstyp"},
     {"Messung 3: Wert", "σ_3/τ_3", "mit Vorzeichen eingeben"}
 }
-local solver_keys = {"a1", "kind1", "v1", "a2", "kind2", "v2", "a3", "kind3", "v3"}
+local stress_keys = {"a1", "kind1", "v1", "a2", "kind2", "v2", "a3", "kind3", "v3"}
+local solver_prompts = {
+    {"Messung 1: Winkel", "α_1", "optional; Leer = unbekannt"},
+    {"Messung 1: Normalspg.", "σ_n1", "mit Vorzeichen eingeben"},
+    {"Messung 1: Schubspg.", "τ_1", "mit Vorzeichen eingeben"},
+    {"Messung 2: Winkel", "α_2", "optional; Leer = unbekannt"},
+    {"Messung 2: Normalspg.", "σ_n2", "mit Vorzeichen eingeben"},
+    {"Messung 2: Schubspg.", "τ_2", "mit Vorzeichen eingeben"},
+    {"Messung 3: Winkel", "α_3", "optional; Leer = unbekannt"},
+    {"Messung 3: Normalspg.", "σ_n3", "mit Vorzeichen eingeben"},
+    {"Messung 3: Schubspg.", "τ_3", "mit Vorzeichen eingeben"}
+}
+local solver_keys = {"a1", "sn1", "tn1", "a2", "sn2", "tn2", "a3", "sn3", "tn3"}
 
 local show_table = false
 local solver_ok = true
@@ -64,8 +77,8 @@ function drawInputBox(gc, title, varName, hint)
     gc:setFont("sansserif", "b", 13)
     gc:setColorRGB(0, 50, 150)
     local displayStr = varName .. " = " .. inputStr .. "_"
-    local solver_type_input = mode == 4 and (solver_idx == 2 or solver_idx == 5 or solver_idx == 8)
-    if (state == 14 or state == 33 or (mode == 4 and not solver_type_input)) and inputStr == "" then
+    local solver_angle_input = mode == 4 and solver_variant == 2 and (solver_idx == 1 or solver_idx == 4 or solver_idx == 7)
+    if (state == 14 or state == 33 or (mode == 4 and not solver_angle_input)) and inputStr == "" then
         displayStr = varName .. " = _ (Leer = ?)"
     end
     gc:drawString(displayStr, boxX + 10, boxY + 45)
@@ -122,8 +135,13 @@ function on.paint(gc)
     
     -- Modus 4
     elseif state == 40 then
-        local p = solver_prompts[solver_idx]
-        drawInputBox(gc, solver_idx.."/"..#solver_prompts..": "..p[1], p[2], p[3])
+        if solver_variant == 0 then
+            drawInputBox(gc, "Solver-Modus wählen", "1=Spg. 2=Winkel", "Was soll gesucht werden?")
+        else
+            local prompts = solver_variant == 1 and stress_prompts or solver_prompts
+            local p = prompts[solver_idx]
+            drawInputBox(gc, solver_idx.."/"..#prompts..": "..p[1], p[2], p[3])
+        end
         
     elseif state == 5 then
         if show_table then drawTable(gc) else drawGraph(gc) end
@@ -337,12 +355,19 @@ function drawTable(gc)
             {"σ_x", fmt(sv.sx, "sx"), "σ_y", fmt(sv.sy, "sy")},
             {"τ_xy", fmt(sv.txy, "txy"), "σ_m", fmt(sv.sm, "sm")},
             {"R", fmt(sv.R, "R"), "φ", fmt(sv.phi, "phi")},
-            {"σ_1", fmt(sv.s1, "s1"), "σ_2", fmt(sv.s2, "s2")},
-            {"M1 Wert", fmt(sv.v1, "v1"), "M1 α", fmt(sv.a1, "a1")},
-            {"M2 Wert", fmt(sv.v2, "v2"), "M2 α", fmt(sv.a2, "a2")},
-            {"M3 Wert", fmt(sv.v3, "v3"), "M3 α", fmt(sv.a3, "a3")},
-            {"Art 1/2/3", fmt(sv.kind1, "kind1"), "", "1=N  2=S"}
+            {"σ_1", fmt(sv.s1, "s1"), "σ_2", fmt(sv.s2, "s2")}
         }
+        if solver_variant == 1 then
+            for i = 1, 3 do
+                data[#data + 1] = {"M"..i.." Wert", fmt(sv["v"..i], "v"..i), "M"..i.." α", fmt(sv["a"..i], "a"..i)}
+                data[#data + 1] = {"M"..i.." Art", fmt(sv["kind"..i], "kind"..i), "", "1=N  2=S"}
+            end
+        else
+            for i = 1, 3 do
+                data[#data + 1] = {"M"..i.." σ", fmt(sv["sn"..i], "sn"..i), "M"..i.." α", fmt(sv["a"..i], "a"..i)}
+                data[#data + 1] = {"M"..i.." τ", fmt(sv["tn"..i], "tn"..i), "", "Winkel optional"}
+            end
+        end
         if solver_ok then
             for i = 1, 3 do
                 local angle = sv["a"..i]
@@ -392,29 +417,90 @@ function drawTable(gc)
 end
 
 -- ================= TENSOR-LGS-SOLVER =================
-function solveTensorLGS()
-    local matrix = {}
-    local rhs = {}
+function solveAngleLGS()
+    local known = {}
+    local missing = nil
     for i = 1, 3 do
-        local angle_value = sv["a"..i]
-        local value = sv["v"..i]
-        if angle_value == nil or value == nil then return false end
-        local angle = math.rad(angle_value)
+        if sv["a"..i] == nil then
+            if missing ~= nil then return false end
+            missing = i
+        else
+            known[#known + 1] = i
+        end
+        if sv["sn"..i] == nil or sv["tn"..i] == nil then return false end
+    end
+    if missing == nil or #known ~= 2 then return false end
+
+    -- Jede vollständige Messung liefert in ihrem lokalen System:
+    -- [sigma_n, tau_nt] = [sigma_xi, tau_xieta]. Die beiden bekannten
+    -- Winkel ergeben daraus ein lineares System für sx, sy und txy.
+    local matrix, rhs = {}, {}
+    for _, i in ipairs(known) do
+        local angle = math.rad(sv["a"..i])
         local c, s = math.cos(angle), math.sin(angle)
-        local kind = sv["kind"..i]
-        if kind == 1 then
-            -- sigma_n = n^T * sigma * n, n = (cos(alpha), sin(alpha))
+        matrix[#matrix + 1] = {c*c, s*s, 2*c*s}
+        rhs[#rhs + 1] = sv["sn"..i]
+        matrix[#matrix + 1] = {-c*s, c*s, c*c - s*s}
+        rhs[#rhs + 1] = sv["tn"..i]
+    end
+
+    -- Zwei bekannte Messungen bilden vier Gleichungen für drei Tensorwerte.
+    -- Die ersten drei werden gelöst; die vierte dient als Konsistenzprüfung.
+    local reduced = {matrix[1], matrix[2], matrix[3]}
+    local reduced_rhs = {rhs[1], rhs[2], rhs[3]}
+    for col = 1, 3 do
+        local pivot = col
+        for row = col + 1, 3 do
+            if math.abs(reduced[row][col]) > math.abs(reduced[pivot][col]) then pivot = row end
+        end
+        if math.abs(reduced[pivot][col]) < 1e-10 then return false end
+        reduced[col], reduced[pivot] = reduced[pivot], reduced[col]
+        reduced_rhs[col], reduced_rhs[pivot] = reduced_rhs[pivot], reduced_rhs[col]
+        for row = col + 1, 3 do
+            local factor = reduced[row][col] / reduced[col][col]
+            for j = col, 3 do reduced[row][j] = reduced[row][j] - factor * reduced[col][j] end
+            reduced_rhs[row] = reduced_rhs[row] - factor * reduced_rhs[col]
+        end
+    end
+    local result = {}
+    for row = 3, 1, -1 do
+        local value = reduced_rhs[row]
+        for j = row + 1, 3 do value = value - reduced[row][j] * result[j] end
+        result[row] = value / reduced[row][row]
+    end
+    sv.sx, sv.sy, sv.txy = result[1], result[2], result[3]
+    sv.sm = (sv.sx + sv.sy) / 2
+    sv.R = math.sqrt(((sv.sx - sv.sy) / 2)^2 + sv.txy^2)
+    sv.s1, sv.s2 = sv.sm + sv.R, sv.sm - sv.R
+    sv.phi = 0.5 * math.deg(math.atan2(2 * sv.txy, sv.sx - sv.sy))
+    sv.a_tmax = sv.phi - 45
+
+    -- Fehlenden Winkel aus dem vorgegebenen Spannungspaar bestimmen.
+    local normal_offset = sv["sn"..missing] - sv.sm
+    local d = (sv.sx - sv.sy) / 2
+    local radius_squared = d*d + sv.txy*sv.txy
+    if radius_squared < 1e-12 then return false end
+    local cos_2a = (d*normal_offset + sv.txy*sv["tn"..missing]) / radius_squared
+    local sin_2a = (sv.txy*normal_offset - d*sv["tn"..missing]) / radius_squared
+    sv["a"..missing] = 0.5 * math.deg(math.atan2(sin_2a, cos_2a))
+    return true
+end
+
+function solveStressLGS()
+    local matrix, rhs = {}, {}
+    for i = 1, 3 do
+        if sv["a"..i] == nil or sv["v"..i] == nil then return false end
+        local angle = math.rad(sv["a"..i])
+        local c, s = math.cos(angle), math.sin(angle)
+        if sv["kind"..i] == 1 then
             matrix[i] = {c*c, s*s, 2*c*s}
-        elseif kind == 2 then
-            -- tau_nt = n^T * sigma * t, t = (-sin(alpha), cos(alpha))
+        elseif sv["kind"..i] == 2 then
             matrix[i] = {-c*s, c*s, c*c - s*s}
         else
             return false
         end
-        rhs[i] = value
+        rhs[i] = sv["v"..i]
     end
-
-    -- Gauß-Elimination mit Pivotisierung für das 3x3-LGS.
     for col = 1, 3 do
         local pivot = col
         for row = col + 1, 3 do
@@ -429,7 +515,6 @@ function solveTensorLGS()
             rhs[row] = rhs[row] - factor * rhs[col]
         end
     end
-
     local result = {}
     for row = 3, 1, -1 do
         local value = rhs[row]
@@ -443,6 +528,11 @@ function solveTensorLGS()
     sv.phi = 0.5 * math.deg(math.atan2(2 * sv.txy, sv.sx - sv.sy))
     sv.a_tmax = sv.phi - 45
     return true
+end
+
+function solveTensorLGS()
+    if solver_variant == 1 then return solveStressLGS() end
+    return solveAngleLGS()
 end
 -- ==============================================================
 
@@ -628,7 +718,7 @@ function on.charIn(char)
         elseif char == "2" then mode = 2; state = 21; inputStr = ""; platform.window:invalidate()
         elseif char == "3" then mode = 3; state = 31; inputStr = ""; platform.window:invalidate()
         elseif char == "4" then 
-            mode = 4; state = 40; inputStr = ""; solver_idx = 1
+            mode = 4; state = 40; inputStr = ""; solver_idx = 0; solver_variant = 0
             sv = {}; sv_given = {}; solver_ok = true
             platform.window:invalidate()
         end
@@ -674,12 +764,22 @@ function on.enterKey()
     local val = tonumber(inputStr)
     
     if mode == 4 and state == 40 then
+        if solver_variant == 0 then
+            if val == 1 or val == 2 then
+                solver_variant = val
+                solver_idx = 1
+                inputStr = ""
+            end
+            platform.window:invalidate()
+            return
+        end
         local key = solver_keys[solver_idx]
         if val ~= nil then 
             sv[key] = val
             sv_given[key] = true
         end
-        if solver_idx < #solver_prompts then
+        local prompts = solver_variant == 1 and stress_prompts or solver_prompts
+        if solver_idx < #prompts then
             solver_idx = solver_idx + 1; inputStr = ""
         else
             solver_ok = solveTensorLGS()
