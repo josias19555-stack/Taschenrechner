@@ -281,6 +281,23 @@ case('[L] Befunde der Rand-LGS-Verifikation', function()
     write('           randbed = ' .. rbf .. '\n')
 end)
 
+case('[F] Zahlenaufbereitung: Wurzeln statt Zufallsbrueche', function()
+    -- 50*sqrt(2) = 70.7107 wurde frueher als 551614/7801 angezeigt (Kettenbruch innerhalb 1e-9 relativ)
+    local alt = zahlenFormat
+    zahlenFormat = 1
+    check('50*sqrt(2) -> 50*sqrt(2)', smartToFracStr(50 * math.sqrt(2), 1e-5) == '50*sqrt(2)' and 1 or 0, 1)
+    check('12.5*sqrt(2) -> 25*sqrt(2)/2', smartToFracStr(12.5 * math.sqrt(2), 1e-5) == '25*sqrt(2)/2' and 1 or 0, 1)
+    check('sqrt(2) -> sqrt(2)', smartToFracStr(math.sqrt(2), 1e-5) == 'sqrt(2)' and 1 or 0, 1)
+    check('1/3 bleibt Bruch', smartToFracStr(1/3, 1e-5) == '1/3' and 1 or 0, 1)
+    check('13/200 bleibt Bruch', smartToFracStr(13/200, 1e-5) == '13/200' and 1 or 0, 1)
+    zahlenFormat = 2
+    check('nur Brueche: irrational -> Dezimalzahl', smartToFracStr(50 * math.sqrt(2), 1e-5) == '70.7107' and 1 or 0, 1)
+    check('nur Brueche: 4/5 bleibt Bruch', smartToFracStr(0.8, 1e-5) == '4/5' and 1 or 0, 1)
+    zahlenFormat = 3
+    check('Dezimalformat', smartToFracStr(50 * math.sqrt(2), 1e-5) == '70.7107' and 1 or 0, 1)
+    zahlenFormat = alt
+end)
+
 case('[M] Symbolischer Modus: reservierte/inkonsistente Symbole', function()
     solveSymb({ pinned(node(0)), roller(node(4)) }, { bar(1, 2, { q_str = 't', q = 1 }) })
     check('q = t -> Fehler (reserviert)', symbolFehler and symbolFehler:find('reserviert') and 1 or 0, 1)

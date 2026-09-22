@@ -1,37 +1,49 @@
 \babel@toc {ngerman}{}\relax 
-\contentsline {section}{\numberline {1}Überblick}{3}{section.1}%
-\contentsline {part}{I\hspace {1em}Tragwerksskript}{3}{part.1}%
-\contentsline {section}{\numberline {2}Ein erstes System in fünf Schritten}{3}{section.2}%
-\contentsline {section}{\numberline {3}Knoten}{4}{section.3}%
-\contentsline {section}{\numberline {4}Stäbe}{4}{section.4}%
-\contentsline {section}{\numberline {5}Berechnung, Ansichten und Diagramme}{5}{section.5}%
-\contentsline {section}{\numberline {6}Steifigkeiten und starre Stäbe}{6}{section.6}%
-\contentsline {section}{\numberline {7}Temperatur}{7}{section.7}%
-\contentsline {section}{\numberline {8}Symbolischer Modus}{7}{section.8}%
-\contentsline {section}{\numberline {9}Export ins CAS}{8}{section.9}%
-\contentsline {subsection}{\numberline {9.1}Rand-LGS: \texttt {wneu}, \texttt {uneu}, \texttt {wv}, \texttt {uv}, \texttt {randbed}}{8}{subsection.9.1}%
-\contentsline {subsection}{\numberline {9.2}Nach einer gesuchten Größe auflösen}{9}{subsection.9.2}%
-\contentsline {section}{\numberline {10}Kraftgrößenverfahren (KGV)}{9}{section.10}%
-\contentsline {section}{\numberline {11}Prinzip der virtuellen Verschiebungen (PvV)}{10}{section.11}%
-\contentsline {section}{\numberline {12}Meldungen im Tragwerksskript}{10}{section.12}%
-\contentsline {subsection}{\numberline {12.1}Warnungen (rot bzw.\ orange)}{10}{subsection.12.1}%
-\contentsline {subsection}{\numberline {12.2}Hinweise (gelb)}{11}{subsection.12.2}%
-\contentsline {subsection}{\numberline {12.3}Export- und Rand-LGS-Meldungen}{11}{subsection.12.3}%
-\contentsline {section}{\numberline {13}Was das Tragwerksskript nicht kann}{11}{section.13}%
-\contentsline {section}{\numberline {14}Wie gerechnet wird}{12}{section.14}%
-\contentsline {part}{II\hspace {1em}Querschnittsskript}{12}{part.2}%
-\contentsline {section}{\numberline {15}Ein erster Querschnitt}{12}{section.15}%
-\contentsline {section}{\numberline {16}Elemente zeichnen}{13}{section.16}%
-\contentsline {section}{\numberline {17}Koordinatensystem, Einheiten, Optionen}{13}{section.17}%
-\contentsline {section}{\numberline {18}Querschnittswerte}{14}{section.18}%
-\contentsline {section}{\numberline {19}Normalspannung $\sigma _x$}{14}{section.19}%
-\contentsline {section}{\numberline {20}Schubspannung und Schubmittelpunkt}{14}{section.20}%
-\contentsline {section}{\numberline {21}Torsion}{16}{section.21}%
-\contentsline {section}{\numberline {22}Kernfläche}{16}{section.22}%
-\contentsline {section}{\numberline {23}Meldungen im Querschnittsskript}{16}{section.23}%
-\contentsline {section}{\numberline {24}Was das Querschnittsskript nicht kann}{17}{section.24}%
-\contentsline {section}{\numberline {25}Wie gerechnet wird}{17}{section.25}%
-\contentsline {part}{III\hspace {1em}Anhang}{17}{part.3}%
-\contentsline {section}{\numberline {A}Tastenkürzel Tragwerksskript}{17}{appendix.A}%
-\contentsline {section}{\numberline {B}Tastenkürzel Querschnittsskript}{18}{appendix.B}%
-\contentsline {section}{\numberline {C}Häufige Stolpersteine}{18}{appendix.C}%
+\contentsline {section}{\numberline {1}Grundlegendes}{4}{section.1}%
+\contentsline {subsection}{\numberline {1.1}Überblick}{4}{subsection.1.1}%
+\contentsline {subsection}{\numberline {1.2}Grundprinzip der Bedienung}{4}{subsection.1.2}%
+\contentsline {subsubsection}{\numberline {1.2.1}Tragwerk- und Querschnittmodul}{4}{subsubsection.1.2.1}%
+\contentsline {part}{I\hspace {1em}Tragwerksskript}{4}{part.1}%
+\contentsline {section}{\numberline {2}Systemeingabe}{5}{section.2}%
+\contentsline {section}{\numberline {3}Knoten}{5}{section.3}%
+\contentsline {section}{\numberline {4}Stäbe}{6}{section.4}%
+\contentsline {section}{\numberline {5}Berechnung, Ansichten und Diagramme}{7}{section.5}%
+\contentsline {section}{\numberline {6}Steifigkeiten und starre Stäbe}{7}{section.6}%
+\contentsline {section}{\numberline {7}Temperatur}{8}{section.7}%
+\contentsline {section}{\numberline {8}Symbolischer Modus}{8}{section.8}%
+\contentsline {section}{\numberline {9}Export ins CAS}{9}{section.9}%
+\contentsline {subsection}{\numberline {9.1}LGS-Matrix: das Gleichgewicht zum Nachrechnen}{10}{subsection.9.1}%
+\contentsline {subsection}{\numberline {9.2}Rand-LGS: \texttt {wneu}, \texttt {uneu}, \texttt {wv}, \texttt {uv}, \texttt {randbed}}{10}{subsection.9.2}%
+\contentsline {subsection}{\numberline {9.3}Nach einer gesuchten Größe auflösen}{11}{subsection.9.3}%
+\contentsline {section}{\numberline {10}Kraftgrößenverfahren (KGV)}{11}{section.10}%
+\contentsline {section}{\numberline {11}Prinzip der virtuellen Verschiebungen (PvV)}{12}{section.11}%
+\contentsline {section}{\numberline {12}Meldungen im Tragwerksskript}{12}{section.12}%
+\contentsline {subsection}{\numberline {12.1}Warnungen (rot bzw.\ orange)}{12}{subsection.12.1}%
+\contentsline {subsection}{\numberline {12.2}Hinweise (gelb)}{13}{subsection.12.2}%
+\contentsline {subsection}{\numberline {12.3}Export- und Rand-LGS-Meldungen}{13}{subsection.12.3}%
+\contentsline {section}{\numberline {13}Was das Tragwerksskript nicht kann}{14}{section.13}%
+\contentsline {section}{\numberline {14}Wie gerechnet wird}{14}{section.14}%
+\contentsline {part}{II\hspace {1em}Querschnittsskript}{14}{part.2}%
+\contentsline {section}{\numberline {15}Ein erster Querschnitt}{15}{section.15}%
+\contentsline {section}{\numberline {16}Elemente zeichnen}{15}{section.16}%
+\contentsline {section}{\numberline {17}Koordinatensystem, Einheiten, Optionen}{16}{section.17}%
+\contentsline {section}{\numberline {18}Querschnittswerte}{16}{section.18}%
+\contentsline {section}{\numberline {19}Normalspannung $\sigma _x$}{17}{section.19}%
+\contentsline {section}{\numberline {20}Schubspannung und Schubmittelpunkt}{17}{section.20}%
+\contentsline {subsection}{\numberline {20.1}Geschlossene Zellen: warum die Symmetrie so wichtig ist}{18}{subsection.20.1}%
+\contentsline {section}{\numberline {21}Torsion}{18}{section.21}%
+\contentsline {section}{\numberline {22}Kernfläche}{19}{section.22}%
+\contentsline {section}{\numberline {23}Meldungen im Querschnittsskript}{19}{section.23}%
+\contentsline {section}{\numberline {24}Was das Querschnittsskript nicht kann}{20}{section.24}%
+\contentsline {section}{\numberline {25}Wie gerechnet wird}{20}{section.25}%
+\contentsline {part}{III\hspace {1em}Spannungskreis}{20}{part.3}%
+\contentsline {section}{\numberline {26}Die Idee: Eingabe über Schnitte}{20}{section.26}%
+\contentsline {section}{\numberline {27}Bedienung}{21}{section.27}%
+\contentsline {section}{\numberline {28}Die beiden Bilder}{21}{section.28}%
+\contentsline {section}{\numberline {29}Wann ist der Zustand bestimmt?}{22}{section.29}%
+\contentsline {section}{\numberline {30}Grenzen und Tricks}{22}{section.30}%
+\contentsline {part}{IV\hspace {1em}Anhang}{22}{part.4}%
+\contentsline {section}{\numberline {A}Tastenkürzel Tragwerksskript}{23}{appendix.A}%
+\contentsline {section}{\numberline {B}Tastenkürzel Querschnittsskript}{23}{appendix.B}%
+\contentsline {section}{\numberline {C}Tastenkürzel Spannungskreis}{23}{appendix.C}%
+\contentsline {section}{\numberline {D}Häufige Stolpersteine}{24}{appendix.D}%

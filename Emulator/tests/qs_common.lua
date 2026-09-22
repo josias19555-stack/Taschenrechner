@@ -67,6 +67,7 @@ _G.__Q = {
     return shear_results
   end,
   meldung = function() return qsMeldung end,
+  meldungWeg = function() qsMeldung = nil end,
   ftmBezug = function(v) if v then ftm_bezug = v end; return ftm_bezug end,
   loeschFrage = function() return qsLoeschFrage end,
   menu = function(page, row) menuOpen, menuPage, menuRow = page ~= nil, page or 1, row or 1 end,
@@ -74,6 +75,8 @@ _G.__Q = {
   tabelle = function(gc) showTable = true; drawTable(gc, 318, 212); showTable = false end,
   kraft = function(k) table.insert(kraefte, k) end,
   auswahl = function(t, i) selected_type, selected_idx = t, i end,
+  hover = function(t, i) hover_type, hover_idx = t, i end,
+  menuStatus = function() return menuOpen, menuPage, menuRow, selected_type, selected_idx end,
   selektor = function(offen) shear_selector_open = offen end,
   paint = function(gc) showResults = false; on.paint(gc) end,
 }

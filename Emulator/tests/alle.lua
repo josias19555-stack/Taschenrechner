@@ -20,9 +20,11 @@ local REIHEN = {
     { name = 'Starre Staebe: direkt gegen Grenzwert', datei = dir .. 'starr_direkt.lua' },
     { name = 'Randbedingungen lesbar (eingesetzte Werte, Gruppen)', datei = dir .. 'randbed.lua' },
     { name = 'Temperatur (auch symbolisch)', datei = dir .. 'temperatur.lua' },
+    { name = 'LGS-Export gegen FEM (Gelenke, Auflager)', datei = dir .. 'lgs.lua' },
     { name = 'KGV-Matrizen gegen FEM', datei = dir .. 'kgv.lua' },
     { name = 'Oberflaeche Tragwerk (ESC, Obermenue)', datei = dir .. 'oberflaeche.lua' },
     { name = 'Querschnitt (Handrechnung, Oberflaeche)', datei = dir .. 'querschnitt.lua' },
+    { name = 'Spannungskreis (Schnitte, Ansichten)', datei = dir .. 'spannung.lua' },
 }
 
 -- Zeilen, die auch ohne -v angezeigt werden

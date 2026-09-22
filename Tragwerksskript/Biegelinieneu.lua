@@ -324,7 +324,7 @@ function smartToFracStr(v, tol)
     
     if zahlenFormat ~= 3 then
         -- 1. Try a STRICT rational fraction first (to catch exact rational numbers like 0.8, 13/200, 41/200, 11/150, 77/600 etc.)
-        local strict_frac = floatToFrac_lua(v, 1e-9 * math.max(1, math.abs(v)), 10000)
+        local strict_frac = floatToFrac_lua(v, 1e-12 * math.max(1, math.abs(v)), 10000)
         if strict_frac then return strict_frac end
         
         -- 2. Try square root of a simple fraction (using a slightly looser tolerance because numeric squaring amplifies errors)
@@ -363,6 +363,8 @@ function smartToFracStr(v, tol)
                         return sign .. string.format("%d/%d", total_coeff_n, combined_den)
                     end
                     
+                    -- unhandliche Wurzeln (z. B. sqrt(1000127/2)) lieber als Dezimalzahl zeigen
+                    if final_rem > 1000 or combined_den > 1000 then return string.format("%.4f", v) end
                     local root_str = "sqrt(" .. final_rem .. ")"
                     if total_coeff_n == 1 and combined_den == 1 then
                         return sign .. root_str
@@ -379,7 +381,8 @@ function smartToFracStr(v, tol)
         end
         
         -- 3. If no simple strict fraction or sqrt, try loose rational fraction (using user's tol)
-        local loose_frac = floatToFrac_lua(v, tol, 10000)
+        -- nur kleine Nenner: mit Nennern bis 10000 wurde aus jedem irrationalen Wert ein Bruch
+        local loose_frac = floatToFrac_lua(v, tol, 100)
         if loose_frac then return loose_frac end
     end
     
@@ -4631,10 +4634,6 @@ function exportLGSMatrixToTI(only_build)
                     end
                 else
                     hinge_vars[i].multi = false
-                    hinge_vars[i].single = {
-                        H = addVar("Gx_"..getHingeNumber(i)),
-                        V = addVar("Gy_"..getHingeNumber(i))
-                    }
                     
                     local r1, r2
                     if k.gelenk then
@@ -4653,6 +4652,34 @@ function exportLGSMatrixToTI(only_build)
                     end
                     hinge_vars[i].r1 = r1
                     hinge_vars[i].r2 = r2
+                    -- Welche Groessen uebertraegt die Verbindung? Nur die, die nicht geloest sind.
+                    -- Momentengelenk: N und Q, als globale Komponenten Gx, Gy (wie im E-Modus).
+                    -- N-/Q-Gelenk: die verbleibende Stabkraft laengs (Gn) bzw. quer (Gq) plus das
+                    -- Moment Gm -- genau die Groessen, die der E-Modus an diesen Enden beschriftet.
+                    local nr = getHingeNumber(i)
+                    local sb = r1 and staebe[r1] or nil
+                    local rel_n, rel_q = false, false
+                    local rel_m = k.gelenk and true or false
+                    if sb then
+                        if sb.k1 == i then
+                            rel_n = sb.n_gelenk_A and true or false
+                            rel_q = sb.q_gelenk_A and true or false
+                            rel_m = rel_m or (sb.gelenk_A and true or false)
+                        else
+                            rel_n = sb.n_gelenk_B and true or false
+                            rel_q = sb.q_gelenk_B and true or false
+                            rel_m = rel_m or (sb.gelenk_B and true or false)
+                        end
+                    end
+                    if rel_m and not rel_n and not rel_q then
+                        hinge_vars[i].single = { H = addVar("Gx_"..nr), V = addVar("Gy_"..nr) }
+                    else
+                        local einzeln = {}
+                        if not rel_n then einzeln.N = addVar("Gn_"..nr) end
+                        if not rel_q then einzeln.Q = addVar("Gq_"..nr) end
+                        if not rel_m then einzeln.M = addVar("Gm_"..nr) end
+                        hinge_vars[i].single = einzeln
+                    end
                 end
             end
         end
@@ -4674,6 +4701,16 @@ function exportLGSMatrixToTI(only_build)
             row.bm = row.bm - M
             local cx, cy = disk_centers[d].x, disk_centers[d].y
             row.bm = row.bm - ((x - cx) * V - (y - cy) * H)
+        end
+
+        -- Unbekannte Kraft var in Richtung (fx, fy) (Einheitsvektor) am Punkt (x, y)
+        local function addVarDirToDisk(d, x, y, var, fx, fy, sign)
+            if not d or d < 1 or d > num_disks or not var then return end
+            local row = rows_per_disk[d]
+            local cx, cy = disk_centers[d].x, disk_centers[d].y
+            row.rx[var] = row.rx[var] + sign * fx
+            row.ry[var] = row.ry[var] + sign * fy
+            row.rm[var] = row.rm[var] + sign * ((x - cx) * fy - (y - cy) * fx)
         end
 
         local function addVarForceToDisk(d, x, y, varH, varV, varM, sign)
@@ -4784,8 +4821,35 @@ function exportLGSMatrixToTI(only_build)
                         local sign1 = (staebe[r1].k1 == i) and -1 or 1
                         local sign2 = (staebe[r2].k1 == i) and -1 or 1
                         if sign1 == sign2 then sign2 = -sign1 end
-                        addVarForceToDisk(ts_scheibe[r1], k.x, k.y, hv.single.H, hv.single.V, nil, sign1)
-                        addVarForceToDisk(ts_scheibe[r2], k.x, k.y, hv.single.H, hv.single.V, nil, sign2)
+                        local sg = hv.single
+                        if sg.H or sg.V then
+                            addVarForceToDisk(ts_scheibe[r1], k.x, k.y, sg.H, sg.V, nil, sign1)
+                            addVarForceToDisk(ts_scheibe[r2], k.x, k.y, sg.H, sg.V, nil, sign2)
+                        end
+                        if sg.N or sg.Q or sg.M then
+                            -- lokale Richtungen des geloesten Stabes: t laengs, n quer
+                            local sb = staebe[r1]
+                            local ka, kb = knoten[sb.k1], knoten[sb.k2]
+                            local dx, dy = kb.x - ka.x, kb.y - ka.y
+                            local L = math.sqrt(dx*dx + dy*dy)
+                            if L > 1e-9 then
+                                local tx, ty = dx/L, dy/L
+                                local nx, ny = -dy/L, dx/L
+                                if sg.N then
+                                    addVarDirToDisk(ts_scheibe[r1], k.x, k.y, sg.N, tx, ty, sign1)
+                                    addVarDirToDisk(ts_scheibe[r2], k.x, k.y, sg.N, tx, ty, sign2)
+                                end
+                                if sg.Q then
+                                    addVarDirToDisk(ts_scheibe[r1], k.x, k.y, sg.Q, nx, ny, sign1)
+                                    addVarDirToDisk(ts_scheibe[r2], k.x, k.y, sg.Q, nx, ny, sign2)
+                                end
+                                if sg.M then
+                                    -- Vorzeichen so, dass Gm dem im E-Modus gezeigten Stabendmoment entspricht
+                                    addVarForceToDisk(ts_scheibe[r1], k.x, k.y, nil, nil, sg.M, -sign1)
+                                    addVarForceToDisk(ts_scheibe[r2], k.x, k.y, nil, nil, sg.M, -sign2)
+                                end
+                            end
+                        end
                     end
                 end
             end
@@ -6671,7 +6735,7 @@ function on.paint(gc)
 
     local function drawReactionArrow(gc, val, dirX, dirY, cx, cy, labelPrefix, symb_label, custom_val_str, forceDraw)
         if math.abs(val) < 1e-4 and not forceDraw then return end
-        local arrowLen = math.max(30, drawPxProMeter * 0.4)
+        local arrowLen = math.max(18, drawPxProMeter * 0.24)   -- kurze Pfeile im E-Modus
         local sign = val >= 0 and 1 or -1
         if forceDraw then sign = 1 end
         local mag = math.abs(val)
@@ -6703,7 +6767,7 @@ function on.paint(gc)
 
     local function drawFBDArrow(gc, val, dirX, dirY, x, y, labelPrefix, symb_label, custom_val_str, forceDraw, flipMultiplier)
         if math.abs(val) < 1e-4 and not forceDraw then return end
-        local arrowLen = math.max(30, drawPxProMeter * 0.45)
+        local arrowLen = math.max(18, drawPxProMeter * 0.27)   -- kurze Pfeile im E-Modus
         local sign = val >= 0 and 1 or -1
         if forceDraw then sign = 1 end
         if forceDraw and flipMultiplier then sign = sign * flipMultiplier end

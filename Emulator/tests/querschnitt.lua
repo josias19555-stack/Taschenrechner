@@ -657,4 +657,204 @@ fall('25 Symmetrische Zelle: S auf den symmetrischen Schnitt bezogen', function(
         m2 and m2.text or 'keine Meldung')
 end)
 
+fall('26 Startmarken im Schubverlauf', function()
+    T.abschnitt('"Start" wo S = 0 ist (freies Ende oder Symmetrieachse), sonst "Schnitt"')
+    local function marken()
+        T.texte, T.pos = {}, {}
+        Q.setView(3, true)
+        Q.paint(T.gc)
+        Q.setView(0, false)
+        local gefunden = {}
+        for _, t in ipairs(T.texte) do
+            if t:find('Start', 1, true) or t:find('Schnitt', 1, true) then gefunden[#gefunden + 1] = t end
+        end
+        return table.concat(gefunden, ' | ')
+    end
+    -- offenes Profil: S beginnt am freien Ende bei null
+    T.zug({ 0, 0, 40, 0, 40, 20 }, 2)
+    T.rechne()
+    Q.schub(0, 1)
+    local m = marken()
+    T.wahr('offenes Profil: Start', m:find('Start', 1, true) ~= nil and m:find('Schnitt', 1, true) == nil, m)
+    -- symmetrischer Kasten mit Ast auf der Symmetrieachse: Start am Ast, Schnitt an der Zelle
+    T.reset()
+    T.duenn(T.P(0, 0), T.P(40, 0), 2)
+    T.duenn(T.P(40, 0), T.P(40, 20), 2)
+    T.duenn(T.P(40, 20), T.P(20, 20), 2)
+    T.duenn(T.P(20, 20), T.P(0, 20), 2)
+    T.duenn(T.P(0, 20), T.P(0, 0), 2)
+    T.duenn(T.P(20, 20), T.P(20, 35), 2)
+    T.rechne()
+    local res = Q.schub(0, 1)
+    T.wahr('Schub berechnet', res ~= nil, Q.status())
+    if res then
+        T.wahr('S der Zelle korrigiert', res.zelle_korrigiert ~= nil and res.zelle_korrigiert.b == true)
+        -- alle gespiegelten Punkte der Zelle muessen sich aufheben (S antisymmetrisch)
+        local ys = Q.R().ys
+        local paare, fehler = 0, 0
+        for _, a in ipairs(res.samples) do
+            if a.in_cell and a.u < ys - 1e-6 then
+                for _, b in ipairs(res.samples) do
+                    if b.in_cell and math.abs(b.u - (2 * ys - a.u)) < 1e-9 and math.abs(b.v - a.v) < 1e-9 then
+                        paare = paare + 1
+                        if math.abs(a.Sy * a.cell_sign + b.Sy * b.cell_sign) > 1e-6 * math.max(1, math.abs(a.Sy)) then
+                            fehler = fehler + 1
+                        end
+                        break
+                    end
+                end
+            end
+        end
+        T.wahr('gespiegelte Punkte gefunden', paare > 50, paare)
+        T.wahr('S in der Zelle antisymmetrisch', fehler == 0, fehler .. ' von ' .. paare)
+    end
+    local m2 = marken()
+    T.wahr('Kasten mit Ast: Start am freien Ende', m2:find('Start |', 1, true) ~= nil or m2:find('| Start', 1, true) ~= nil, m2)
+    T.wahr('Zellschnitt liegt auf der Symmetrieachse', m2:find('Start (Symmetrieachse)', 1, true) ~= nil, m2)
+    T.wahr('kein "q0 offen" bei erkannter Symmetrie', m2:find('q0 offen', 1, true) == nil, m2)
+    -- unsymmetrische Zelle: Schnitt mit Hinweis
+    T.reset()
+    T.duenn(T.P(0, 0), T.P(40, 0), 2)
+    T.duenn(T.P(40, 0), T.P(10, 20), 2)
+    T.duenn(T.P(10, 20), T.P(0, 0), 2)
+    T.rechne()
+    Q.schub(0, 0)
+    local m3 = marken()
+    T.wahr('unsymmetrische Zelle: Schnitt (q0 offen)', m3:find('q0 offen', 1, true) ~= nil, m3)
+    T.wahr('kein "Start" ohne freies Ende', m3:find('Start', 1, true) == nil, m3)
+end)
+
+fall('27 Zellschnitt auf der Symmetrieachse', function()
+    T.abschnitt('Kasten 40x20: die Laufvariable beginnt auf der Symmetrieachse, dort ist S = 0')
+    T.duenn(T.P(0, 0), T.P(40, 0), 2)
+    T.duenn(T.P(40, 0), T.P(40, 20), 2)
+    T.duenn(T.P(40, 20), T.P(0, 20), 2)
+    T.duenn(T.P(0, 20), T.P(0, 0), 2)
+    T.rechne()
+    local res = Q.schub(0, 1)
+    T.wahr('Schub berechnet', res ~= nil, Q.status())
+    if not res then return end
+    T.wahr('Schnitt auf der Achse gemeldet', res.schnitt_auf_achse == true, tostring(res.schnitt_auf_achse))
+    local start
+    for _, pfad in ipairs(res.paths or {}) do
+        if pfad.start_kind == 'cut_sym' then start = pfad.items[1] and pfad.items[1].p1 end
+    end
+    T.wahr('Zellpfad startet als cut_sym', start ~= nil)
+    if start then
+        T.zahl('Startpunkt liegt auf u = y_s', start.u, Q.R().ys, 1e-9)
+        local sy
+        for _, sample in ipairs(res.samples) do
+            if math.abs(sample.u - start.u) < 1e-9 and math.abs(sample.v - start.v) < 1e-9 then sy = sample.Sy end
+        end
+        T.zahl('S am Start ist null', sy or 999, 0, 1e-9)
+    end
+    -- Zelle, die von der Schwerpunktachse nicht geschnitten wird: Warnung
+    T.reset()
+    -- kleiner Kasten links, schwerer Gurt rechts zieht den Schwerpunkt aus der Zelle heraus
+    T.duenn(T.P(0, 0), T.P(4, 0), 1)
+    T.duenn(T.P(4, 0), T.P(4, 4), 1)
+    T.duenn(T.P(4, 4), T.P(0, 4), 1)
+    T.duenn(T.P(0, 4), T.P(0, 0), 1)
+    T.duenn(T.P(4, 2), T.P(60, 2), 20)
+    T.rechne()
+    local res2 = Q.schub(0, 1)
+    if res2 then
+        T.wahr('Schnitt nicht auf der Achse', res2.schnitt_auf_achse == false, tostring(res2.schnitt_auf_achse))
+        local m = Q.meldung()
+        T.wahr('Warnung dazu', m ~= nil and tostring(m.text):find('Symmetrieachse beginnen', 1, true) ~= nil,
+            m and m.text or 'keine Meldung')
+    else
+        T.write('   Schub abgelehnt: ' .. tostring(Q.status()) .. '\n')
+    end
+end)
+
+fall('28 Menue per Hover', function()
+    T.abschnitt('Enter oeffnet das Elementmenue schon beim Hovern, ohne vorherigen Klick')
+    T.massiv({ type = 'rect', points = { T.P(0, 0), T.P(-40, -60) } })
+    T.duenn(T.P(0, 0), T.P(40, 0), 2)
+    T.rechne()
+    -- nichts ausgewaehlt, nichts unter dem Zeiger: Enter oeffnet kein Elementmenue
+    Q.auswahl(nil, nil); Q.hover(nil, nil)
+    on.enterKey()
+    local offen = Q.menuStatus()
+    T.wahr('ohne Hover und Auswahl kein Menue', offen == false, tostring(offen))
+    -- nur hovern: Enter oeffnet das Menue des Elements unter dem Zeiger
+    Q.hover('massiv', 1)
+    on.enterKey()
+    local o2, seite, _, typ, idx = Q.menuStatus()
+    T.wahr('Hover oeffnet das Menue', o2 == true and seite == 3, tostring(o2) .. '/' .. tostring(seite))
+    T.wahr('richtiges Element uebernommen', typ == 'massiv' and idx == 1, tostring(typ) .. ' ' .. tostring(idx))
+    on.escapeKey()
+    -- Hover gewinnt gegen eine alte Auswahl
+    Q.auswahl('massiv', 1); Q.hover('duenn', 1)
+    on.enterKey()
+    local _, _, _, typ2, idx2 = Q.menuStatus()
+    T.wahr('Hover hat Vorrang vor der Auswahl', typ2 == 'duenn' and idx2 == 1, tostring(typ2) .. ' ' .. tostring(idx2))
+    on.escapeKey()
+    -- ohne Hover bleibt die angeklickte Auswahl
+    Q.auswahl('massiv', 1); Q.hover(nil, nil)
+    on.enterKey()
+    local o3, _, _, typ3 = Q.menuStatus()
+    T.wahr('Auswahl ohne Hover oeffnet weiterhin', o3 == true and typ3 == 'massiv', tostring(o3) .. ' ' .. tostring(typ3))
+    on.escapeKey()
+    Q.auswahl(nil, nil)
+end)
+
+fall('29 Warnung bei Verlauf ohne Symmetrieachse', function()
+    T.abschnitt('Zelle nur senkrecht symmetrisch: S und tau der anderen Richtung sind unbestimmt')
+    -- Kasten mit senkrechtem Ast auf der Achse: sym_v bleibt, sym_h faellt weg
+    T.duenn(T.P(0, 0), T.P(40, 0), 2)
+    T.duenn(T.P(40, 0), T.P(40, 20), 2)
+    T.duenn(T.P(40, 20), T.P(20, 20), 2)
+    T.duenn(T.P(20, 20), T.P(0, 20), 2)
+    T.duenn(T.P(0, 20), T.P(0, 0), 2)
+    T.duenn(T.P(20, 20), T.P(20, 35), 2)
+    T.rechne()
+    local res = Q.schub(0, 1)
+    T.wahr('Schub berechnet', res ~= nil, Q.status())
+    if not res then return end
+    T.wahr('nur senkrechte Symmetrie', res.sym_v == true and res.sym_h == false,
+        tostring(res.sym_v) .. '/' .. tostring(res.sym_h))
+    local function ansicht(ziffer)
+        Q.meldungWeg()
+        Q.selektor(true)
+        on.charIn(ziffer)
+        local m = Q.meldung()
+        return m and tostring(m.text) or ''
+    end
+    -- 3 = S_a und 6 = tau_b gehoeren zur senkrechten Achse: vorhanden, keine Warnung
+    T.wahr('Ansicht 3 ohne Warnung', ansicht('3') == '', ansicht('3'))
+    T.wahr('Ansicht 6 ohne Warnung', ansicht('6') == '', ansicht('6'))
+    -- 4 = S_b und 5 = tau_a brauchen die waagerechte Achse: Warnung
+    local w4 = ansicht('4')
+    T.wahr('Ansicht 4 warnt', w4:find('Symmetrie zur', 1, true) ~= nil, w4:sub(1, 60))
+    T.wahr('Warnung nennt die Groesse S', w4:sub(1, 2) == 'Sz' or w4:sub(1, 2) == 'Sy', w4:sub(1, 10))
+    local w5 = ansicht('5')
+    T.wahr('Ansicht 5 warnt', w5:find('Symmetrie zur', 1, true) ~= nil, w5:sub(1, 60))
+    T.wahr('Warnung nennt tau', w5:find('tau_', 1, true) ~= nil, w5:sub(1, 10))
+    -- vollsymmetrischer Kasten: keine Warnung in beiden Richtungen
+    T.reset()
+    T.duenn(T.P(0, 0), T.P(40, 0), 2)
+    T.duenn(T.P(40, 0), T.P(40, 20), 2)
+    T.duenn(T.P(40, 20), T.P(0, 20), 2)
+    T.duenn(T.P(0, 20), T.P(0, 0), 2)
+    T.rechne()
+    Q.schub(0, 1)
+    local function ansicht2(ziffer)
+        Q.meldungWeg()
+        Q.selektor(true)
+        on.charIn(ziffer)
+        local m = Q.meldung()
+        return m and tostring(m.text) or ''
+    end
+    T.wahr('symmetrischer Kasten: Ansicht 4 ohne Warnung', ansicht2('4') == '', ansicht2('4'))
+    T.wahr('symmetrischer Kasten: Ansicht 5 ohne Warnung', ansicht2('5') == '', ansicht2('5'))
+    -- offenes Profil: nie eine Warnung
+    T.reset()
+    T.zug({ 0, 0, 40, 0, 40, 20 }, 2)
+    T.rechne()
+    Q.schub(0, 1)
+    T.wahr('offenes Profil: keine Warnung', ansicht2('4') == '', ansicht2('4'))
+end)
+
 T.ende('Querschnitt')

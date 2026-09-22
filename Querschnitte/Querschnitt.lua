@@ -1475,16 +1475,56 @@ local function berechneDuenneSchubspannung(Qa, Qb)
     end
     resolve_branch_nodes()
 
-    -- 3) Die geschlossene Zelle an beliebiger Stelle aufschneiden (q = 0), weiter wie offen.
+    -- 3) Die geschlossene Zelle aufschneiden, moeglichst auf der Symmetrieachse: dort ist der
+    --    Schubfluss null, die Laufvariable beginnt also wie in der Handrechnung bei S = 0.
+    --    duennGraph teilt die Kanten bereits an den Schwerpunktachsen, der Knoten existiert also,
+    --    sofern die Achse die Zelle ueberhaupt schneidet.
+    local achs_tol = 0
+    for _, n in ipairs(nodes) do
+        achs_tol = math.max(achs_tol, math.abs(n.u - r.ys), math.abs(n.v - r.zs))
+    end
+    achs_tol = 1e-6 * math.max(achs_tol, 1)
+    local function schnittAufAchse()
+        if zellen.cells ~= 1 then return nil end
+        -- Achse parallel zur (groesseren) Querkraft zuerst; ohne Querkraft die vorhandene
+        local reihenfolge = (math.abs(Qb) >= math.abs(Qa)) and { "v", "h" } or { "h", "v" }
+        for _, achse in ipairs(reihenfolge) do
+            if (achse == "v" and sym_v) or (achse == "h" and sym_h) then
+                for edge_index, edge in ipairs(edges) do
+                    if not edge.used and zellen.in_loop[edge.i] then
+                        for _, node_index in ipairs({ edge.n1, edge.n2 }) do
+                            local nd = nodes[node_index]
+                            local auf
+                            if achse == "v" then auf = math.abs(nd.u - r.ys) <= achs_tol
+                            else auf = math.abs(nd.v - r.zs) <= achs_tol end
+                            if auf then return edge_index, node_index end
+                        end
+                    end
+                end
+            end
+        end
+        return nil
+    end
     local sicherheit = #edges + 1
+    local erster_schnitt = true
     while sicherheit > 0 do
         sicherheit = sicherheit - 1
-        local offen_idx = nil
-        for edge_index, edge in ipairs(edges) do
-            if not edge.used then offen_idx = edge_index; break end
+        local offen_idx, start_node, art = nil, nil, "cut"
+        if erster_schnitt then
+            offen_idx, start_node = schnittAufAchse()
+            if offen_idx then art = "cut_sym"; info.schnitt_auf_achse = true end
+        end
+        if not offen_idx then
+            for edge_index, edge in ipairs(edges) do
+                if not edge.used then offen_idx = edge_index; start_node = edge.n1; break end
+            end
         end
         if not offen_idx then break end
-        make_path(edges[offen_idx].n1, offen_idx, nil, nil, "cut")
+        if erster_schnitt and zellen.cells == 1 and not info.schnitt_auf_achse then
+            info.schnitt_auf_achse = false
+        end
+        erster_schnitt = false
+        make_path(start_node, offen_idx, nil, nil, art)
         resolve_branch_nodes()
     end
 
@@ -1781,6 +1821,8 @@ berechneSchubspannungsResultate = function(input_Qa, input_Qb)
             samples = samples, paths = paths, thin_walled = true, axis_a = a, axis_b = b,
             thin_closed = thin_closed, torsion_constant = torsion_constant, enclosed_area = enclosed_area,
             sym_v = info and info.sym_v, sym_h = info and info.sym_h,
+            zelle_korrigiert = info and info.zelle_s_korrigiert,
+            schnitt_auf_achse = info and info.schnitt_auf_achse,
             shear_center = berechneSchubmittelpunkt(), torsion_open = r.It, torsion_closed = r.It_closed
         }
         shear_results = result
@@ -1790,6 +1832,13 @@ berechneSchubspannungsResultate = function(input_Qa, input_Qb)
         -- Geschlossene Zelle: q0 (konstanter Umlaufanteil) folgt nur aus der Symmetrie. Ohne erkannte
         -- Symmetrie bzw. ohne Querkraft bleibt er offen, die Verlaeufe gelten dann nur bis auf q0.
         if thin_closed then
+            if (result.sym_v or result.sym_h) and result.schnitt_auf_achse == false then
+                ist_warnung = true
+                hinweise[#hinweise + 1] = "Geschlossene Zelle: die Laufvariable konnte nicht auf der "
+                    .. "Symmetrieachse beginnen, weil dort kein Knoten der Zelle liegt (die Achse schneidet "
+                    .. "die Zelle nicht). Der Schnitt liegt an beliebiger Stelle; die Werte sind zwar ueber "
+                    .. "die Symmetrie korrigiert, S beginnt aber nicht bei null."
+            end
             if not (result.sym_v or result.sym_h) then
                 ist_warnung = true
                 hinweise[#hinweise + 1] = "Geschlossene Zelle ohne erkannte Symmetrie: der Umlaufschubfluss q0 "
@@ -2482,7 +2531,17 @@ local function drawShearProfileLegacy(gc)
                 local start_x, start_y = toScreen(start_point.u, start_point.v)
                 gc:fillArc(start_x - 3, start_y - 3, 6, 6, 0, 360)
                 gc:setFont("sansserif", "b", 9)
-                gc:drawString("Start", start_x + 5, start_y - 10)
+                -- "Start" heisst: hier beginnt die Laufvariable und S ist null (freies Ende).
+                -- In der geschlossenen Zelle wird nur aufgeschnitten; S = 0 liegt nach der
+                -- Symmetriekorrektur auf der Symmetrieachse, ohne Symmetrie ist es offen.
+                local text = "Start"
+                if path.start_kind == "cut_sym" then
+                    text = "Start (Symmetrieachse)"
+                elseif path.start_kind == "cut" then
+                    local k = shear_results.zelle_korrigiert
+                    text = (k and (k.a or k.b)) and "Schnitt" or "Schnitt (q0 offen)"
+                end
+                gc:drawString(text, start_x + 5, start_y - 10)
             end
             for _, item in ipairs(path.items) do
                 if item.p1 and item.p2 and (not hovered_segment or item.edge.index == hovered_segment) then
@@ -4068,7 +4127,7 @@ function on.mouseUp(x, y)
         if hover_type then
             selected_type = hover_type
             selected_idx = hover_idx
-            status = "Element ausgewaehlt. Druecke Enter zum Bearbeiten."
+            status = "Element ausgewaehlt. Enter bearbeitet (auch ohne Klick, nur mit dem Zeiger darauf)."
         else
             selected_type, selected_idx = nil, nil
             status = "Menue oeffnen mit 'M' oder 'D'."
@@ -4104,6 +4163,28 @@ local function zoomCenter(factor)
     ox = w/2 - (w/2 - ox) * real_f
     oy = h/2 - (h/2 - oy) * real_f
     scale = new_scale
+end
+
+-- Verlauf einer Richtung, fuer die die geschlossene Zelle keine Symmetrieachse hat, ist nur bis
+-- auf den Umlaufanteil q0 bestimmt. Die Anzeige waere dann falsch, also warnen.
+--   Ansicht 3 (S_a) und 6 (tau_b) gehoeren zur Querkraft in b-Richtung  -> senkrechte Achse (sym_v)
+--   Ansicht 4 (S_b) und 5 (tau_a) gehoeren zur Querkraft in a-Richtung  -> waagerechte Achse (sym_h)
+local function pruefeVerlaufSymmetrie(mode)
+    if not shear_results or not shear_results.thin_closed then return end
+    local a, b = axes()
+    local braucht_v = (mode == 3 or mode == 6)
+    local braucht_h = (mode == 4 or mode == 5)
+    if not (braucht_v or braucht_h) then return end
+    if braucht_v and shear_results.sym_v then return end
+    if braucht_h and shear_results.sym_h then return end
+    local u_ist_a = (rotation == 0 or rotation == 180)
+    local achse = braucht_v and (u_ist_a and b or a) or (u_ist_a and a or b)
+    local groesse = (mode == 3 and ("S" .. a)) or (mode == 4 and ("S" .. b))
+        or (mode == 5 and ("tau_" .. a)) or ("tau_" .. b)
+    meldung(groesse .. " setzt bei einer geschlossenen Zelle die Symmetrie zur " .. achse
+        .. "-Achse voraus; die ist hier nicht vorhanden. Der Umlaufschubfluss q0 bleibt fuer diese "
+        .. "Richtung unbestimmt, der gezeigte Verlauf ist deshalb sehr wahrscheinlich falsch "
+        .. "(er gilt nur bis auf einen konstanten Anteil in der Zelle).", "Warnung", true)
 end
 
 function on.charIn(c)
@@ -4199,6 +4280,7 @@ function on.charIn(c)
         shear_profile_visible, shear_view_mode = true, choice
         shear_hover_index = nil
         status = "Schubverlauf " .. (c == "0" and "10" or c) .. " angezeigt."
+        pruefeVerlaufSymmetrie(choice)
     elseif c == "+" then zoomCenter(1.25)
     elseif c == "-" then zoomCenter(1/1.25)
     elseif c == "c" then on.clearKey()
@@ -4456,7 +4538,10 @@ function on.enterKey()
     if sigma_input_step > 0 then enterSigmaInput(); return end
     if shear_input_step > 0 then enterShearInput(); return end
     if torsion_input_step > 0 then enterTorsionInput(); platform.window:invalidate(); return end
-    if not menuOpen and mode == "idle" and selected_idx then
+    -- Wie im Tragwerksskript: Hovern genuegt, vorher anklicken ist nicht noetig.
+    -- Liegt der Zeiger auf einem Objekt, gilt dieses; sonst das zuletzt ausgewaehlte.
+    if not menuOpen and mode == "idle" and (hover_idx or selected_idx) then
+        if hover_idx then selected_type, selected_idx = hover_type, hover_idx end
         menuOpen, menuPage, menuRow, showResults = true, 3, 1, false
         platform.window:invalidate()
         return
