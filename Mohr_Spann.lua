@@ -1,5 +1,6 @@
 -- Perfektionierter Mohrscher Spannungskreis für TI-Nspire
--- Inkl. 4 Modi: Standard, 2-Punkte, 1-Punkt + Winkel, LGS-SOLVER
+-- Inkl. 4 Modi: Standard, 2-Punkte, 1-Punkt + Winkel, FORMEL-SOLVER
+-- Solver berechnet nun auch Winkel rückwärts aus gegebenen Schnittspannungen!
 
 local state = 0
 local mode = 1
@@ -15,35 +16,24 @@ local sigm, r, sig1, sig2, phi = 0, 0, 0, 0, 0
 local sv = {}
 local sv_given = {}
 local solver_idx = 1
-local solver_variant = 0
-local stress_prompts = {
-    {"Messung 1: Winkel", "α_1", "gegen Uhrzeigersinn positiv"},
-    {"Messung 1: Art", "1=Normal, 2=Schub", "Spannungstyp"},
-    {"Messung 1: Wert", "σ_1/τ_1", "mit Vorzeichen eingeben"},
-    {"Messung 2: Winkel", "α_2", "gegen Uhrzeigersinn positiv"},
-    {"Messung 2: Art", "1=Normal, 2=Schub", "Spannungstyp"},
-    {"Messung 2: Wert", "σ_2/τ_2", "mit Vorzeichen eingeben"},
-    {"Messung 3: Winkel", "α_3", "gegen Uhrzeigersinn positiv"},
-    {"Messung 3: Art", "1=Normal, 2=Schub", "Spannungstyp"},
-    {"Messung 3: Wert", "σ_3/τ_3", "mit Vorzeichen eingeben"}
-}
-local stress_keys = {"a1", "kind1", "v1", "a2", "kind2", "v2", "a3", "kind3", "v3"}
 local solver_prompts = {
-    {"Messung 1: Winkel", "α_1", "optional; Leer = unbekannt"},
-    {"Messung 1: Normalspg.", "σ_n1", "mit Vorzeichen eingeben"},
-    {"Messung 1: Schubspg.", "τ_1", "mit Vorzeichen eingeben"},
-    {"Messung 2: Winkel", "α_2", "optional; Leer = unbekannt"},
-    {"Messung 2: Normalspg.", "σ_n2", "mit Vorzeichen eingeben"},
-    {"Messung 2: Schubspg.", "τ_2", "mit Vorzeichen eingeben"},
-    {"Messung 3: Winkel", "α_3", "optional; Leer = unbekannt"},
-    {"Messung 3: Normalspg.", "σ_n3", "mit Vorzeichen eingeben"},
-    {"Messung 3: Schubspg.", "τ_3", "mit Vorzeichen eingeben"}
+    {"Normalspg. (x)", "σ_x", "Merksatz: Druck \"-\""},
+    {"Normalspg. (y)", "σ_y", "Merksatz: Druck \"-\""},
+    {"Schubspannung", "τ_xy", "Merksatz: gegen Uhrz. \"+\""},
+    {"Drehwinkel 1", "α_1", "Merksatz: gegen Uhrz. \"+\""},
+    {"Gedrehtes σ_ξ 1", "σ_ξ1", "Merksatz: Druck \"-\""},
+    {"Gedrehtes τ_ξη 1", "τ_ξ1η1", "Merksatz: gegen Uhrz. \"+\""},
+    {"Drehwinkel 2", "α_2", "Merksatz: gegen Uhrz. \"+\""},
+    {"Gedrehtes σ_ξ 2", "σ_ξ2", "Merksatz: Druck \"-\""},
+    {"Gedrehtes τ_ξη 2", "τ_ξ2η2", "Merksatz: gegen Uhrz. \"+\""},
+    {"Hauptspannung 1", "σ_1", "Meist die größere Spannung"},
+    {"Hauptspannung 2", "σ_2", "Meist die kleinere Spannung"},
+    {"Max Schubspg.", "τ_max", "Radius des Kreises"},
+    {"Winkel zu τ_max", "α_tmax", "Merksatz: gegen Uhrz. \"+\""}
 }
-local solver_keys = {"a1", "sn1", "tn1", "a2", "sn2", "tn2", "a3", "sn3", "tn3"}
+local solver_keys = {"sx", "sy", "txy", "a1", "s_xi1", "t_xiet1", "a2", "s_xi2", "t_xiet2", "s1", "s2", "tmax", "a_tmax"}
 
 local show_table = false
-local solver_ok = true
-local table_scroll = 0
 local W = platform.window:width() or 318
 local H = platform.window:height() or 212
 
@@ -77,8 +67,7 @@ function drawInputBox(gc, title, varName, hint)
     gc:setFont("sansserif", "b", 13)
     gc:setColorRGB(0, 50, 150)
     local displayStr = varName .. " = " .. inputStr .. "_"
-    local solver_angle_input = mode == 4 and solver_variant == 2 and (solver_idx == 1 or solver_idx == 4 or solver_idx == 7)
-    if (state == 14 or state == 33 or (mode == 4 and not solver_angle_input)) and inputStr == "" then
+    if (state == 14 or state == 33 or mode == 4) and inputStr == "" then
         displayStr = varName .. " = _ (Leer = ?)"
     end
     gc:drawString(displayStr, boxX + 10, boxY + 45)
@@ -112,7 +101,7 @@ function on.paint(gc)
         gc:setColorRGB(0, 150, 0)
         gc:drawString("[ 3 ] Punkt + Winkel zu τ_max", 25, 110)
         gc:setColorRGB(100, 0, 150)
-        gc:drawString("[ 4 ] Solver (3 Messungen per LGS)", 25, 135)
+        gc:drawString("[ 4 ] Solver (Finde Unbekannte!)", 25, 135)
         
         gc:setColorRGB(100, 100, 100)
         gc:setFont("sansserif", "i", 9)
@@ -135,13 +124,8 @@ function on.paint(gc)
     
     -- Modus 4
     elseif state == 40 then
-        if solver_variant == 0 then
-            drawInputBox(gc, "Solver-Modus wählen", "1=Spg. 2=Winkel", "Was soll gesucht werden?")
-        else
-            local prompts = solver_variant == 1 and stress_prompts or solver_prompts
-            local p = prompts[solver_idx]
-            drawInputBox(gc, solver_idx.."/"..#prompts..": "..p[1], p[2], p[3])
-        end
+        local p = solver_prompts[solver_idx]
+        drawInputBox(gc, solver_idx.."/"..#solver_prompts..": "..p[1], p[2], p[3])
         
     elseif state == 5 then
         if show_table then drawTable(gc) else drawGraph(gc) end
@@ -157,14 +141,6 @@ function getNiceStep(span)
     local nice = 1
     if norm > 5 then nice = 10 elseif norm > 2 then nice = 5 elseif norm > 1 then nice = 2 end
     return nice * factor
-end
-
-function tensorMeasurement(angle_value)
-    local rad = math.rad(angle_value)
-    local c, s = math.cos(rad), math.sin(rad)
-    local normal = sx*c*c + sy*s*s + 2*txy*c*s
-    local shear = (sy - sx)*c*s + txy*(c*c - s*s)
-    return normal, shear
 end
 
 function drawGraph(gc)
@@ -247,21 +223,6 @@ function drawGraph(gc)
     gc:fillArc(ox + sig2*scale - 2, cy - 2, 4, 4, 0, 360)
     drawLabel(gc, "σ_1", ox + sig1*scale + 2, cy - 15)
     drawLabel(gc, "σ_2", ox + sig2*scale - 18, cy - 15)
-
-    if mode == 4 and solver_ok then
-        local colors = {{180, 0, 180}, {0, 140, 140}, {220, 100, 0}}
-        for i = 1, 3 do
-            local angle = sv["a"..i]
-            local normal, shear = tensorMeasurement(angle)
-            local opposite_normal, opposite_shear = tensorMeasurement(angle + 90)
-            local color = colors[i]
-            gc:setColorRGB(color[1], color[2], color[3])
-            gc:fillArc(ox + normal*scale - 3, oy - shear*scale - 3, 6, 6, 0, 360)
-            gc:fillArc(ox + opposite_normal*scale - 3, oy - opposite_shear*scale - 3, 6, 6, 0, 360)
-            drawLabel(gc, "M"..i, ox + normal*scale + 4, oy - shear*scale - 8)
-            drawLabel(gc, "M"..i.."'", ox + opposite_normal*scale + 4, oy - opposite_shear*scale - 8)
-        end
-    end
     
     if mode == 1 or (mode == 4 and sv.sx and sv.sy) then
         local px1 = ox + sx * scale; local py1 = oy - txy * scale
@@ -276,7 +237,7 @@ function drawGraph(gc)
             local px4 = ox + s_eta * scale; local py4 = oy + t_xiet * scale
             gc:setColorRGB(0, 150, 0); gc:drawLine(px3, py3, px4, py4)
             gc:fillArc(px3 - 2, py3 - 2, 4, 4, 0, 360); gc:fillArc(px4 - 2, py4 - 2, 4, 4, 0, 360)
-            drawLabel(gc, "σ_ξ", px3 + 4, py3 - 8); drawLabel(gc, "σ_η", px4 + 4, py4 - 8)
+            drawLabel(gc, "σ_ξ1", px3 + 4, py3 - 8); drawLabel(gc, "σ_η1", px4 + 4, py4 - 8)
         end
         if mode == 4 and sv.a2 and sv.s_xi2 and sv.s_eta2 and sv.t_xiet2 then
             local px5 = ox + sv.s_xi2 * scale; local py5 = oy - sv.t_xiet2 * scale
@@ -304,11 +265,7 @@ function drawTable(gc)
     gc:setFont("sansserif", "b", 11)
     
     if mode == 4 then
-        if solver_ok then
-            gc:drawString("LGS-Ergebnisse ([Esc] Zurueck)", 5, 5)
-        else
-            gc:drawString("LGS nicht eindeutig ([Esc] Zurueck)", 5, 5)
-        end
+        gc:drawString("Solver Ergebnisse ([Esc] Zurueck)", 5, 5)
     else
         gc:drawString("Ergebnistabelle (Schliessen mit 'T')", 5, 5)
     end
@@ -352,191 +309,39 @@ function drawTable(gc)
             if sv_given[k] then return s .. " (*)" else return s end
         end
         data = {
-            {"σ_x", fmt(sv.sx, "sx"), "σ_y", fmt(sv.sy, "sy")},
-            {"τ_xy", fmt(sv.txy, "txy"), "σ_m", fmt(sv.sm, "sm")},
-            {"R", fmt(sv.R, "R"), "φ", fmt(sv.phi, "phi")},
-            {"σ_1", fmt(sv.s1, "s1"), "σ_2", fmt(sv.s2, "s2")}
+            {"σ_x", fmt(sv.sx, "sx"), "α_1", fmt(sv.a1, "a1")},
+            {"σ_y", fmt(sv.sy, "sy"), "σ_ξ1", fmt(sv.s_xi1, "s_xi1")},
+            {"τ_xy", fmt(sv.txy, "txy"), "σ_η1", fmt(sv.s_eta1, "s_eta1")},
+            {"", "", "τ_ξ1η1", fmt(sv.t_xiet1, "t_xiet1")},
+            {"α_2", fmt(sv.a2, "a2"), "σ_ξ2", fmt(sv.s_xi2, "s_xi2")},
+            {"σ_η2", fmt(sv.s_eta2, "s_eta2"), "τ_ξ2η2", fmt(sv.t_xiet2, "t_xiet2")},
+            {"Mitte σ_m", fmt(sv.sm, "sm"), "Winkel σ_1", fmt(sv.phi, "phi")},
+            {"Rad. τ_max", fmt(sv.R, "R"), "Winkel α_tmax", fmt(sv.a_tmax, "a_tmax")},
+            {"Haupt. σ_1", fmt(sv.s1, "s1"), "(*) = Eingabe", ""},
+            {"Haupt. σ_2", fmt(sv.s2, "s2"), "", ""}
         }
-        if solver_variant == 1 then
-            for i = 1, 3 do
-                data[#data + 1] = {"M"..i.." Wert", fmt(sv["v"..i], "v"..i), "M"..i.." α", fmt(sv["a"..i], "a"..i)}
-                data[#data + 1] = {"M"..i.." Art", fmt(sv["kind"..i], "kind"..i), "", "1=N  2=S"}
-            end
-        else
-            for i = 1, 3 do
-                data[#data + 1] = {"M"..i.." σ", fmt(sv["sn"..i], "sn"..i), "M"..i.." α", fmt(sv["a"..i], "a"..i)}
-                data[#data + 1] = {"M"..i.." τ", fmt(sv["tn"..i], "tn"..i), "", "Winkel optional"}
-            end
-        end
-        if solver_ok then
-            for i = 1, 3 do
-                local angle = sv["a"..i]
-                local normal, shear = tensorMeasurement(angle)
-                local opposite_normal, opposite_shear = tensorMeasurement(angle + 90)
-                data[#data + 1] = {
-                    "M"..i..": σ", string.format("%.2f", normal),
-                    "M"..i..": τ", string.format("%.2f", shear)
-                }
-                data[#data + 1] = {
-                    "M"..i.."' +90 σ", string.format("%.2f", opposite_normal),
-                    "M"..i.."' +90 τ", string.format("%.2f", opposite_shear)
-                }
-            end
-        end
     end
     
     local y_start = 30
     local row_h = 18
-    local visible_rows = math.floor((H - y_start - 12) / row_h)
-    local max_scroll = math.max(0, #data - visible_rows)
-    if table_scroll > max_scroll then table_scroll = max_scroll end
-    if table_scroll < 0 then table_scroll = 0 end
-    local first_row = table_scroll + 1
-    local last_row = math.min(#data, table_scroll + visible_rows)
     local col1, col2, col3, col4 = 5, 105, 165, 255
-    if mode == 4 then col1 = 2; col2 = 72; col3 = 158; col4 = 228 end
+    if mode == 4 then col1 = 2; col2 = 85; col3 = 155; col4 = 240 end
     
-    for i = first_row, last_row do
-        local row = data[i]
-        local y = y_start + (i-first_row) * row_h
+    for i, row in ipairs(data) do
+        local y = y_start + (i-1) * row_h
         if i % 2 == 0 then
             gc:setColorRGB(240, 240, 240); gc:fillRect(0, y, W, row_h); gc:setColorRGB(0, 0, 0)
         end
-        gc:setFont("sansserif", "b", 8); gc:drawString(row[1], col1, y + 3); gc:drawString(row[3], col3, y + 3)
+        gc:setFont("sansserif", "b", 9); gc:drawString(row[1], col1, y + 2); gc:drawString(row[3], col3, y + 2)
         if mode == 4 and row[2]:match("%(%*%)") then gc:setColorRGB(0, 100, 0) else gc:setColorRGB(0,0,0) end
-        gc:setFont("sansserif", "r", 8); gc:drawString(row[2], col2, y + 3)
+        gc:setFont("sansserif", "r", 9); gc:drawString(row[2], col2, y + 2)
         if mode == 4 and row[4]:match("%(%*%)") then gc:setColorRGB(0, 100, 0) else gc:setColorRGB(0,0,0) end
-        gc:drawString(row[4], col4, y + 3)
+        gc:drawString(row[4], col4, y + 2)
         gc:setColorRGB(0,0,0)
     end
-    if #data > visible_rows then
-        gc:setFont("sansserif", "i", 8)
-        gc:setColorRGB(80, 80, 80)
-        gc:drawString("Zeilen "..first_row.."-"..last_row.."/"..#data.." [hoch/runter]", 5, H - 9)
-    end
 end
 
--- ================= TENSOR-LGS-SOLVER =================
-function solveAngleLGS()
-    local known = {}
-    local missing = nil
-    for i = 1, 3 do
-        if sv["a"..i] == nil then
-            if missing ~= nil then return false end
-            missing = i
-        else
-            known[#known + 1] = i
-        end
-        if sv["sn"..i] == nil or sv["tn"..i] == nil then return false end
-    end
-    if missing == nil or #known ~= 2 then return false end
-
-    -- Jede vollständige Messung liefert in ihrem lokalen System:
-    -- [sigma_n, tau_nt] = [sigma_xi, tau_xieta]. Die beiden bekannten
-    -- Winkel ergeben daraus ein lineares System für sx, sy und txy.
-    local matrix, rhs = {}, {}
-    for _, i in ipairs(known) do
-        local angle = math.rad(sv["a"..i])
-        local c, s = math.cos(angle), math.sin(angle)
-        matrix[#matrix + 1] = {c*c, s*s, 2*c*s}
-        rhs[#rhs + 1] = sv["sn"..i]
-        matrix[#matrix + 1] = {-c*s, c*s, c*c - s*s}
-        rhs[#rhs + 1] = sv["tn"..i]
-    end
-
-    -- Zwei bekannte Messungen bilden vier Gleichungen für drei Tensorwerte.
-    -- Die ersten drei werden gelöst; die vierte dient als Konsistenzprüfung.
-    local reduced = {matrix[1], matrix[2], matrix[3]}
-    local reduced_rhs = {rhs[1], rhs[2], rhs[3]}
-    for col = 1, 3 do
-        local pivot = col
-        for row = col + 1, 3 do
-            if math.abs(reduced[row][col]) > math.abs(reduced[pivot][col]) then pivot = row end
-        end
-        if math.abs(reduced[pivot][col]) < 1e-10 then return false end
-        reduced[col], reduced[pivot] = reduced[pivot], reduced[col]
-        reduced_rhs[col], reduced_rhs[pivot] = reduced_rhs[pivot], reduced_rhs[col]
-        for row = col + 1, 3 do
-            local factor = reduced[row][col] / reduced[col][col]
-            for j = col, 3 do reduced[row][j] = reduced[row][j] - factor * reduced[col][j] end
-            reduced_rhs[row] = reduced_rhs[row] - factor * reduced_rhs[col]
-        end
-    end
-    local result = {}
-    for row = 3, 1, -1 do
-        local value = reduced_rhs[row]
-        for j = row + 1, 3 do value = value - reduced[row][j] * result[j] end
-        result[row] = value / reduced[row][row]
-    end
-    sv.sx, sv.sy, sv.txy = result[1], result[2], result[3]
-    sv.sm = (sv.sx + sv.sy) / 2
-    sv.R = math.sqrt(((sv.sx - sv.sy) / 2)^2 + sv.txy^2)
-    sv.s1, sv.s2 = sv.sm + sv.R, sv.sm - sv.R
-    sv.phi = 0.5 * math.deg(math.atan2(2 * sv.txy, sv.sx - sv.sy))
-    sv.a_tmax = sv.phi - 45
-
-    -- Fehlenden Winkel aus dem vorgegebenen Spannungspaar bestimmen.
-    local normal_offset = sv["sn"..missing] - sv.sm
-    local d = (sv.sx - sv.sy) / 2
-    local radius_squared = d*d + sv.txy*sv.txy
-    if radius_squared < 1e-12 then return false end
-    local cos_2a = (d*normal_offset + sv.txy*sv["tn"..missing]) / radius_squared
-    local sin_2a = (sv.txy*normal_offset - d*sv["tn"..missing]) / radius_squared
-    sv["a"..missing] = 0.5 * math.deg(math.atan2(sin_2a, cos_2a))
-    return true
-end
-
-function solveStressLGS()
-    local matrix, rhs = {}, {}
-    for i = 1, 3 do
-        if sv["a"..i] == nil or sv["v"..i] == nil then return false end
-        local angle = math.rad(sv["a"..i])
-        local c, s = math.cos(angle), math.sin(angle)
-        if sv["kind"..i] == 1 then
-            matrix[i] = {c*c, s*s, 2*c*s}
-        elseif sv["kind"..i] == 2 then
-            matrix[i] = {-c*s, c*s, c*c - s*s}
-        else
-            return false
-        end
-        rhs[i] = sv["v"..i]
-    end
-    for col = 1, 3 do
-        local pivot = col
-        for row = col + 1, 3 do
-            if math.abs(matrix[row][col]) > math.abs(matrix[pivot][col]) then pivot = row end
-        end
-        if math.abs(matrix[pivot][col]) < 1e-10 then return false end
-        matrix[col], matrix[pivot] = matrix[pivot], matrix[col]
-        rhs[col], rhs[pivot] = rhs[pivot], rhs[col]
-        for row = col + 1, 3 do
-            local factor = matrix[row][col] / matrix[col][col]
-            for j = col, 3 do matrix[row][j] = matrix[row][j] - factor * matrix[col][j] end
-            rhs[row] = rhs[row] - factor * rhs[col]
-        end
-    end
-    local result = {}
-    for row = 3, 1, -1 do
-        local value = rhs[row]
-        for j = row + 1, 3 do value = value - matrix[row][j] * result[j] end
-        result[row] = value / matrix[row][row]
-    end
-    sv.sx, sv.sy, sv.txy = result[1], result[2], result[3]
-    sv.sm = (sv.sx + sv.sy) / 2
-    sv.R = math.sqrt(((sv.sx - sv.sy) / 2)^2 + sv.txy^2)
-    sv.s1, sv.s2 = sv.sm + sv.R, sv.sm - sv.R
-    sv.phi = 0.5 * math.deg(math.atan2(2 * sv.txy, sv.sx - sv.sy))
-    sv.a_tmax = sv.phi - 45
-    return true
-end
-
-function solveTensorLGS()
-    if solver_variant == 1 then return solveStressLGS() end
-    return solveAngleLGS()
-end
--- ==============================================================
-
--- ================= INFERENCE ENGINE (LEGACY) =================
+-- ================= INFERENCE ENGINE (SOLVER) =================
 function solveEquations()
     local changed = true
     local iters = 0
@@ -554,132 +359,96 @@ function solveEquations()
             return value
         end
 
-        local function solveRotated(angle_key, xi_key, eta_key, tau_key)
-            local angle, xi, eta, tau = sv[angle_key], sv[xi_key], sv[eta_key], sv[tau_key]
-            if angle and sv.sm and sv.R and sv.phi then
-                local rad = math.rad(2 * (sv.phi - angle))
-                set(xi_key, sv.sm + sv.R * math.cos(rad))
-                set(eta_key, sv.sm - sv.R * math.cos(rad))
-                set(tau_key, sv.R * math.sin(rad))
-            end
-            if xi and eta then
-                set("sm", (xi + eta) / 2)
-            end
-            if xi and eta and tau then
-                set("R", math.sqrt(((xi - eta) / 2)^2 + tau^2))
-                if angle then
-                    local principal = angle + 0.5 * math.deg(math.atan2(tau, (xi - eta) / 2))
-                    set("phi", normAngle(principal))
-                end
-            end
-        end
-
-        -- Beide gedrehten Spannungsebenen beschreiben denselben Mohrschen Kreis.
-        solveRotated("a1", "s_xi1", "s_eta1", "t_xiet1")
-        solveRotated("a2", "s_xi2", "s_eta2", "t_xiet2")
-        
-        -- 1. Radien & max Schubspannung
-        if sv.tmax then set("R", math.abs(sv.tmax)) end
-        if sv.R then set("tmax", sv.R) end
-        
-        -- 2. Winkel zu Hauptspannungen
-        if sv.a_tmax then
-            local p = sv.a_tmax + 45
-            while p <= -90 do p = p + 180 end
-            while p > 90 do p = p - 180 end
-            set("phi", p)
-        end
-        if sv.phi then
-            local at = sv.phi - 45
-            while at <= -90 do at = at + 180 end
-            while at > 90 do at = at - 180 end
-            set("a_tmax", at)
-        end
-        
-        -- 3. Mittelpunktspannung aus Paaren
+        -- 1. Mittelpunktspannung und Invarianten
         if sv.sx and sv.sy then set("sm", (sv.sx + sv.sy)/2) end
         if sv.s1 and sv.s2 then set("sm", (sv.s1 + sv.s2)/2) end
-        if sv.s_xi and sv.s_eta then set("sm", (sv.s_xi + sv.s_eta)/2) end
+        if sv.s_xi1 and sv.s_eta1 then set("sm", (sv.s_xi1 + sv.s_eta1)/2) end
         
-        -- 4. Fehlende Partner bei bekanntem Mittelpunkt
         if sv.sm and sv.sx then set("sy", 2*sv.sm - sv.sx) end
         if sv.sm and sv.sy then set("sx", 2*sv.sm - sv.sy) end
         if sv.sm and sv.s1 then set("s2", 2*sv.sm - sv.s1) end
         if sv.sm and sv.s2 then set("s1", 2*sv.sm - sv.s2) end
-        if sv.sm and sv.s_xi then set("s_eta", 2*sv.sm - sv.s_xi) end
-        if sv.sm and sv.s_eta then set("s_xi", 2*sv.sm - sv.s_eta) end
+        if sv.sm and sv.s_xi1 then set("s_eta1", 2*sv.sm - sv.s_xi1) end
         
-        -- 5. Radius R aus Hauptspannungen
+        -- 2. Winkel zu Hauptspannungen
+        if sv.a_tmax then
+            set("phi", normAngle(sv.a_tmax + 45))
+        end
+        if sv.phi then
+            set("a_tmax", normAngle(sv.phi - 45))
+        end
+        
+        -- 3. Radius & max Schubspannung
+        if sv.tmax then set("R", math.abs(sv.tmax)) end
+        if sv.R then set("tmax", sv.R) end
         if sv.s1 and sv.s2 then set("R", math.abs(sv.s1 - sv.s2)/2) end
         if sv.sm and sv.s1 then set("R", math.abs(sv.s1 - sv.sm)) end
-        if sv.sm and sv.s2 then set("R", math.abs(sv.sm - sv.s2)) end
+        if sv.sx and sv.sy and sv.txy then 
+            set("R", math.sqrt(((sv.sx-sv.sy)/2)^2 + sv.txy^2)) 
+        end
         
-        -- 6. Hauptspannungen aus sm und R
+        -- 4. Hauptspannungen aus sm und R
         if sv.sm and sv.R then
             set("s1", sv.sm + sv.R)
             set("s2", sv.sm - sv.R)
         end
         
-        -- 7. Radius aus kartesischen Spannungen
-        if sv.sx and sv.sy and sv.txy then 
-            set("R", math.sqrt(((sv.sx-sv.sy)/2)^2 + sv.txy^2)) 
-        end
-        if sv.s_xi and sv.s_eta and sv.t_xiet then
-            set("R", math.sqrt(((sv.s_xi-sv.s_eta)/2)^2 + sv.t_xiet^2))
-        end
-        
-        -- 8. Schubspannungen aus R und Normalspannungen berechnen
+        -- 5. txy rückwärts und phi
         if sv.R and sv.sx and sv.sy then
             local t2 = sv.R^2 - ((sv.sx - sv.sy)/2)^2
             if t2 >= -1e-7 then set("txy", math.sqrt(math.max(0, t2))) end
         end
-        if sv.R and sv.s_xi and sv.s_eta then
-            local t2 = sv.R^2 - ((sv.s_xi - sv.s_eta)/2)^2
-            if t2 >= -1e-7 then set("t_xiet", math.sqrt(math.max(0, t2))) end
-        end
-        
-        -- 9. Winkel phi berechnen
         if sv.sx and sv.sy and sv.txy then
-            set("phi", 0.5 * math.deg(math.atan2(2 * sv.txy, sv.sx - sv.sy)))
-        end
-        if sv.sx and sv.sm and sv.txy then
-            set("phi", 0.5 * math.deg(math.atan2(sv.txy, sv.sx - sv.sm)))
+            set("phi", normAngle(0.5 * math.deg(math.atan2(2 * sv.txy, sv.sx - sv.sy))))
         end
         
-        -- 10. Kartesische Spannungen aus sm, R, phi (und umgekehrt)
-        if sv.sm and sv.R and sv.phi then
-            local rad = math.rad(2*sv.phi)
-            set("sx", sv.sm + sv.R * math.cos(rad))
-            set("sy", sv.sm - sv.R * math.cos(rad))
-            set("txy", sv.R * math.sin(rad))
-        end
-        
-        if sv.R and sv.phi then
-            local rad = math.rad(2*sv.phi)
-            set("txy", sv.R * math.sin(rad))
-            if sv.sx then set("sm", sv.sx - sv.R * math.cos(rad)) end
-            if sv.sy then set("sm", sv.sy + sv.R * math.cos(rad)) end
-        end
-        
-        if sv.phi then
-            local rad = math.rad(2*sv.phi)
-            if math.abs(math.sin(rad)) > 1e-7 then
-                if sv.sx and sv.txy then
-                    local r_calc = sv.txy / math.sin(rad)
-                    set("R", math.abs(r_calc))
-                    set("sm", sv.sx - r_calc * math.cos(rad))
-                end
-                if sv.sy and sv.txy then
-                    local r_calc = sv.txy / math.sin(rad)
-                    set("R", math.abs(r_calc))
-                    set("sm", sv.sy + r_calc * math.cos(rad))
-                end
-            end
-            if math.abs(math.cos(rad)) > 1e-7 then
-                if sv.sx and sv.sm then set("R", math.abs((sv.sx - sv.sm) / math.cos(rad))) end
-                if sv.sy and sv.sm then set("R", math.abs((sv.sm - sv.sy) / math.cos(rad))) end
+        -- 6. Vorwärts-Rotation (Alpha ist bekannt)
+        local function applyRotation(a_key, xi_key, eta_key, t_key)
+            if sv[a_key] and sv.sx and sv.sy and sv.txy and sv.sm then
+                local rad = math.rad(sv[a_key])
+                local D = (sv.sx - sv.sy) / 2
+                set(xi_key, sv.sm + D * math.cos(2*rad) + sv.txy * math.sin(2*rad))
+                set(eta_key, sv.sm - D * math.cos(2*rad) - sv.txy * math.sin(2*rad))
+                set(t_key, -D * math.sin(2*rad) + sv.txy * math.cos(2*rad))
             end
         end
+        applyRotation("a1", "s_xi1", "s_eta1", "t_xiet1")
+        applyRotation("a2", "s_xi2", "s_eta2", "t_xiet2")
+        
+        -- 7. RÜCKWÄRTS-Winkel-Berechnung (Alpha ist gesucht)
+        local function trySolveAngle(a_key, xi_key, eta_key, t_key)
+            if sv[a_key] == nil and sv.sx and sv.sy and sv.sm and sv.R and sv.R > 0 then
+                local txy = sv.txy or 0
+                local D = (sv.sx - sv.sy) / 2
+                local theta_0 = math.atan2(txy, D)
+                local C = nil
+                
+                if sv[xi_key] ~= nil then
+                    C = sv[xi_key] - sv.sm
+                elseif sv[eta_key] ~= nil then
+                    C = -(sv[eta_key] - sv.sm)
+                end
+                
+                if C ~= nil then
+                    local d = C / sv.R
+                    -- Absicherung gegen Rundungsfehler
+                    if d > 1 then d = 1 elseif d < -1 then d = -1 end
+                    local ac = math.acos(d)
+                    
+                    local u
+                    if sv[t_key] ~= nil then
+                        -- Entscheide Vorzeichen anhand von tau
+                        if sv[t_key] < 0 then u = ac else u = -ac end
+                    else
+                        u = ac -- Nimmt Standardlösung, wenn tau_xi_eta unbekannt
+                    end
+                    
+                    set(a_key, normAngle(math.deg(theta_0 + u) / 2))
+                end
+            end
+        end
+        trySolveAngle("a1", "s_xi1", "s_eta1", "t_xiet1")
+        trySolveAngle("a2", "s_xi2", "s_eta2", "t_xiet2")
         
         iters = iters + 1
     end
@@ -718,8 +487,8 @@ function on.charIn(char)
         elseif char == "2" then mode = 2; state = 21; inputStr = ""; platform.window:invalidate()
         elseif char == "3" then mode = 3; state = 31; inputStr = ""; platform.window:invalidate()
         elseif char == "4" then 
-            mode = 4; state = 40; inputStr = ""; solver_idx = 0; solver_variant = 0
-            sv = {}; sv_given = {}; solver_ok = true
+            mode = 4; state = 40; inputStr = ""; solver_idx = 1
+            sv = {}; sv_given = {}
             platform.window:invalidate()
         end
         return
@@ -731,24 +500,8 @@ function on.charIn(char)
         end
     end
     if state == 5 and (char == "t" or char == "T") then
-        show_table = not show_table; table_scroll = 0; platform.window:invalidate()
+        show_table = not show_table; platform.window:invalidate()
     end
-end
-
-function on.arrowKey(direction)
-    if state ~= 5 or not show_table then return end
-    if direction == "up" then
-        table_scroll = table_scroll - 1
-    elseif direction == "down" then
-        table_scroll = table_scroll + 1
-    elseif direction == "pageup" then
-        table_scroll = table_scroll - 5
-    elseif direction == "pagedown" then
-        table_scroll = table_scroll + 5
-    else
-        return
-    end
-    platform.window:invalidate()
 end
 
 function on.backspaceKey()
@@ -764,26 +517,15 @@ function on.enterKey()
     local val = tonumber(inputStr)
     
     if mode == 4 and state == 40 then
-        if solver_variant == 0 then
-            if val == 1 or val == 2 then
-                solver_variant = val
-                solver_idx = 1
-                inputStr = ""
-            end
-            platform.window:invalidate()
-            return
-        end
         local key = solver_keys[solver_idx]
         if val ~= nil then 
             sv[key] = val
             sv_given[key] = true
         end
-        local prompts = solver_variant == 1 and stress_prompts or solver_prompts
-        if solver_idx < #prompts then
+        if solver_idx < #solver_keys then
             solver_idx = solver_idx + 1; inputStr = ""
         else
-            solver_ok = solveTensorLGS()
-            -- Lade die Tensor-LGS-Ergebnisse für Tabelle und Grafik.
+            solveEquations()
             sigm = sv.sm or 0
             r = sv.R or 0
             sig1 = sv.s1 or (sigm + r)
@@ -800,7 +542,6 @@ function on.enterKey()
             
             state = 5
             show_table = true
-            table_scroll = 0
         end
         platform.window:invalidate()
         return
@@ -827,10 +568,9 @@ end
 function on.escapeKey()
     if state == 5 then
         if mode == 4 then
-            solver_idx = #solver_prompts; state = 40; inputStr = ""
-            table_scroll = 0
+            solver_idx = #solver_keys; state = 40; inputStr = ""
         else
-            if show_table then show_table = false; table_scroll = 0 else
+            if show_table then show_table = false else
                 if mode == 1 then state = 14; inputStr = tostring(alpha)
                 elseif mode == 2 then state = 24; inputStr = tostring(tb)
                 elseif mode == 3 then state = 33; inputStr = tostring(alpha_tmax)
@@ -853,5 +593,5 @@ function on.escapeKey()
 end
 
 function on.clearKey()
-    state = 0; inputStr = ""; show_table = false; solver_ok = true; table_scroll = 0; platform.window:invalidate()
+    state = 0; inputStr = ""; show_table = false; platform.window:invalidate()
 end
