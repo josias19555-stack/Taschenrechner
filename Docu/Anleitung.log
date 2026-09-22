@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.28 (MiKTeX 25.12) (preloaded format=pdflatex 2026.9.20)  22 SEP 2026 16:26
+This is pdfTeX, Version 3.141592653-2.6-1.40.28 (MiKTeX 25.12) (preloaded format=pdflatex 2026.9.20)  22 SEP 2026 23:47
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -641,272 +641,268 @@ Overfull \hbox (5.55864pt too wide) in alignment at lines 178--192
  []
 
 [6]
-Overfull \vbox (109.92865pt too high) has occurred while \output is active []
+Overfull \vbox (103.99586pt too high) has occurred while \output is active []
 
 
 [7] [8]
-Overfull \hbox (5.55865pt too wide) in alignment at lines 285--288
+Overfull \hbox (5.55865pt too wide) in alignment at lines 293--296
  [] [] 
  []
 
 
-Overfull \hbox (5.55865pt too wide) in alignment at lines 288--297
+Overfull \hbox (5.55865pt too wide) in alignment at lines 296--305
  [] [] 
  []
 
 
-Overfull \hbox (5.56567pt too wide) in alignment at lines 316--319
+Overfull \hbox (5.56567pt too wide) in alignment at lines 324--327
  [] [] 
  []
 
 
-Overfull \hbox (5.56567pt too wide) in alignment at lines 319--331
+Overfull \hbox (5.56567pt too wide) in alignment at lines 327--339
  [] [] 
  []
 
-ignored error: Infinite glue shrinkage found in box being split [9]
-Overfull \hbox (5.56567pt too wide) in alignment at lines 343--346
+[9]
+Overfull \hbox (5.56567pt too wide) in alignment at lines 351--354
  [] [] 
  []
 
 
-Overfull \hbox (5.56567pt too wide) in alignment at lines 346--353
+Overfull \hbox (5.56567pt too wide) in alignment at lines 354--361
  [] [] 
  []
 
 LaTeX Font Info:    Font shape `T1/cmtt/bx/n' in size <12> not available
-(Font)              Font shape `T1/cmtt/m/n' tried instead on input line 361.
+(Font)              Font shape `T1/cmtt/m/n' tried instead on input line 369.
 
-Overfull \hbox (5.56567pt too wide) in alignment at lines 375--378
+Overfull \hbox (5.56567pt too wide) in alignment at lines 383--386
  [] [] 
  []
 
 
-Overfull \hbox (5.56567pt too wide) in alignment at lines 378--386
+Overfull \hbox (5.56567pt too wide) in alignment at lines 386--394
  [] [] 
  []
 
-[10] [11]
-Overfull \hbox (8.33797pt too wide) in alignment at lines 477--480
+ignored error: Infinite glue shrinkage found in box being split [10] [11]
+Overfull \hbox (8.33797pt too wide) in alignment at lines 485--488
  [] [] [] 
  []
 
 
-Underfull \hbox (badness 4353) in paragraph at lines 481--482
+Underfull \hbox (badness 4353) in paragraph at lines 489--490
 []|\T1/cmr/m/n/10.95 Symbolische Ein-ga-be, die
  []
 
 
-Underfull \hbox (badness 3108) in paragraph at lines 482--484
+Underfull \hbox (badness 3108) in paragraph at lines 490--492
 \T1/cmr/m/n/10.95 Be-rech-nung und Rand-LGS
  []
 
 
-Underfull \hbox (badness 4353) in paragraph at lines 484--484
+Underfull \hbox (badness 4353) in paragraph at lines 492--492
 []|\T1/cmr/m/n/10.95 Das Glei-chungs-sys-tem ist
  []
 
 
-Underfull \hbox (badness 4403) in paragraph at lines 486--486
+Underfull \hbox (badness 4403) in paragraph at lines 494--494
 []|\T1/cmr/m/n/10.95 Starrmodus & sta-tisch un-be-
  []
 
 
-Underfull \hbox (badness 4621) in paragraph at lines 487--490
+Underfull \hbox (badness 4621) in paragraph at lines 495--498
 []|\T1/cmr/m/n/10.95 In un-be-stimm-ten Sys-te-men
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 487--490
+Underfull \hbox (badness 10000) in paragraph at lines 495--498
 \T1/cmr/m/n/10.95 den Stei-fig-keits-ver-hält-nis-sen
  []
 
 
-Underfull \hbox (badness 7963) in paragraph at lines 487--490
+Underfull \hbox (badness 7963) in paragraph at lines 495--498
 \T1/cmr/m/n/10.95 ab -- mit Stan-dard-wer-ten
  []
 
 
-Overfull \hbox (8.33797pt too wide) in alignment at lines 480--495
+Overfull \hbox (8.33797pt too wide) in alignment at lines 488--503
  [] [] [] 
  []
 
-ignored error: Infinite glue shrinkage found in box being split [12]
-Overfull \hbox (8.33797pt too wide) in alignment at lines 503--506
+[12]
+Overfull \hbox (8.33797pt too wide) in alignment at lines 511--514
  [] [] [] 
  []
 
 
-Underfull \hbox (badness 1810) in paragraph at lines 507--507
+Underfull \hbox (badness 1810) in paragraph at lines 515--515
 []|\T1/cmr/m/n/10.95 Temperaturunterschied oh-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 509--509
+Underfull \hbox (badness 10000) in paragraph at lines 517--517
 []|\T1/cmr/m/n/10.95 Temperatur sym-bo-lisch: Dia-
  []
 
 
-Underfull \hbox (badness 4341) in paragraph at lines 509--509
+Underfull \hbox (badness 4341) in paragraph at lines 517--517
 \T1/cmr/m/n/10.95 gramm-wer-te oh-ne Tem-pe-ra-tu-
  []
 
 
-Underfull \hbox (badness 7944) in paragraph at lines 509--509
+Underfull \hbox (badness 7944) in paragraph at lines 517--517
 []|\T1/cmr/m/n/10.95 Symbolischer Mo-dus mit
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 510--512
+Underfull \hbox (badness 10000) in paragraph at lines 518--520
 []|\T1/cmr/m/n/10.95 Die Dia-gramm-be-schrif-tung
  []
 
 
-Underfull \hbox (badness 5460) in paragraph at lines 512--514
+Underfull \hbox (badness 5460) in paragraph at lines 520--522
 []|\T1/cmr/m/n/10.95 Symbolischer Mo-dus, der
  []
 
 
-Underfull \hbox (badness 2846) in paragraph at lines 512--514
+Underfull \hbox (badness 2846) in paragraph at lines 520--522
 \T1/cmr/m/n/10.95 Stab wird wirk-lich ge-bo-
  []
 
 
-Underfull \hbox (badness 3590) in paragraph at lines 514--518
+Underfull \hbox (badness 3590) in paragraph at lines 522--526
 \T1/cmr/m/n/10.95 len-wert das Er-geb-nis. Sta-
  []
 
 
-Underfull \hbox (badness 1655) in paragraph at lines 514--518
+Underfull \hbox (badness 1655) in paragraph at lines 522--526
 \T1/cmr/m/n/10.95 grö-ÿen blei-ben rich-tig, Bie-
  []
 
 
-Underfull \hbox (badness 1158) in paragraph at lines 514--518
+Underfull \hbox (badness 1158) in paragraph at lines 522--526
 \T1/cmr/m/n/10.95 ge-li-nie und Ex-port mi-schen
  []
 
 
-Underfull \hbox (badness 1297) in paragraph at lines 514--518
+Underfull \hbox (badness 1297) in paragraph at lines 522--526
 \T1/cmr/m/n/10.95 1). Ab-hil-fe: $\OML/cmm/m/it/10.95 EI$ \T1/cmr/m/n/10.95 sym
 -bo-lisch,
  []
 
 
-Overfull \hbox (8.33797pt too wide) in alignment at lines 506--521
+Overfull \hbox (8.33797pt too wide) in alignment at lines 514--529
  [] [] [] 
  []
 
 [13] [14]
-Overfull \hbox (5.56567pt too wide) in alignment at lines 598--601
+Overfull \hbox (5.56567pt too wide) in alignment at lines 606--609
  [] [] 
  []
 
 
-Overfull \hbox (5.56567pt too wide) in alignment at lines 601--611
+Overfull \hbox (5.56567pt too wide) in alignment at lines 609--619
  [] [] 
  []
 
 
-Overfull \hbox (5.56567pt too wide) in alignment at lines 613--616
+Overfull \hbox (5.56567pt too wide) in alignment at lines 621--624
  [] [] 
  []
 
 
-Overfull \hbox (5.56567pt too wide) in alignment at lines 616--622
+Overfull \hbox (5.56567pt too wide) in alignment at lines 624--630
  [] [] 
  []
 
 [15] [16]
-Overfull \hbox (5.56567pt too wide) in alignment at lines 698--701
+Overfull \hbox (5.56567pt too wide) in alignment at lines 706--709
  [] [] 
  []
 
 
-Overfull \hbox (5.56567pt too wide) in alignment at lines 701--710
+Overfull \hbox (5.56567pt too wide) in alignment at lines 709--718
  [] [] 
  []
 
-[17] [18]
-Overfull \hbox (0.95183pt too wide) in alignment at lines 794--797
+[17] [18] [19]
+Overfull \hbox (0.95183pt too wide) in alignment at lines 859--862
  [] [] 
  []
 
 
-Underfull \hbox (badness 6758) in paragraph at lines 799--799
+Underfull \hbox (badness 6758) in paragraph at lines 864--864
 []|\T1/cmr/m/n/10.95 Schub: Haupt-ach-sen nicht par-al-lel
  []
 
 
-Overfull \hbox (0.95183pt too wide) in alignment at lines 797--821
+Overfull \hbox (0.95183pt too wide) in alignment at lines 862--890
  [] [] 
  []
 
-ignored error: Infinite glue shrinkage found in box being split [19] [20]
-Overfull \hbox (5.56567pt too wide) in alignment at lines 882--885
- [] [] 
- []
-
-
-Overfull \hbox (5.56567pt too wide) in alignment at lines 885--898
- [] [] 
- []
-
-[21]
-Overfull \hbox (5.56567pt too wide) in alignment at lines 978--981
+ignored error: Infinite glue shrinkage found in box being split [20] [21]
+Overfull \hbox (5.56567pt too wide) in alignment at lines 951--954
  [] [] 
  []
 
 
-Overfull \hbox (5.56567pt too wide) in alignment at lines 981--999
+Overfull \hbox (5.56567pt too wide) in alignment at lines 954--968
  [] [] 
  []
 
 [22]
-Overfull \hbox (5.56567pt too wide) in alignment at lines 1003--1006
+ignored error: Infinite glue shrinkage found in box being split [23]
+Overfull \hbox (5.56567pt too wide) in alignment at lines 1056--1059
  [] [] 
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1018--1018
+Overfull \hbox (5.56567pt too wide) in alignment at lines 1059--1077
+ [] [] 
+ []
+
+ignored error: Infinite glue shrinkage found in box being split [24]
+Overfull \hbox (5.56567pt too wide) in alignment at lines 1081--1084
+ [] [] 
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 1096--1096
 []|\T1/cmss/bx/n/10.95 Backspace\T1/cmr/m/n/10.95 ,
  []
 
 
-Overfull \hbox (5.56567pt too wide) in alignment at lines 1006--1020
+Overfull \hbox (5.56567pt too wide) in alignment at lines 1084--1098
  [] [] 
  []
 
 
-Overfull \hbox (5.56567pt too wide) in alignment at lines 1024--1027
+Overfull \hbox (5.56567pt too wide) in alignment at lines 1102--1105
  [] [] 
  []
 
 
-Overfull \hbox (5.56567pt too wide) in alignment at lines 1027--1038
+Overfull \hbox (5.56567pt too wide) in alignment at lines 1105--1116
  [] [] 
  []
 
-[23]
 LaTeX Font Info:    Font shape `T1/cmtt/bx/n' in size <10.95> not available
-(Font)              Font shape `T1/cmtt/m/n' tried instead on input line 1044.
- [24] (Anleitung.aux)
+(Font)              Font shape `T1/cmtt/m/n' tried instead on input line 1122.
+[25] [26] (Anleitung.aux)
  ***********
 LaTeX2e <2025-11-01>
 L3 programming layer <2025-12-24>
  ***********
-
-
-LaTeX Warning: Label(s) may have changed. Rerun to get cross-references right.
-
 Package rerunfilecheck Info: File `Anleitung.out' has not changed.
-(rerunfilecheck)             Checksum: 7AB076AEF0835A2DED0B7198D303B16C;8462.
+(rerunfilecheck)             Checksum: 1FA8C7FEDDE93045AD57F9B054777F53;8838.
  ) 
 Here is how much of TeX's memory you used:
- 13155 strings out of 467871
- 203809 string characters out of 5418376
- 658396 words of memory out of 5000000
- 41746 multiletter control sequences out of 15000+600000
+ 13161 strings out of 467871
+ 203877 string characters out of 5418376
+ 658397 words of memory out of 5000000
+ 41748 multiletter control sequences out of 15000+600000
  647745 words of font info for 92 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
  75i,10n,79p,460b,679s stack positions out of 10000i,1000n,20000p,200000b,200000s
@@ -934,9 +930,9 @@ ams/MiKTeX/fonts/type1/public/amsfonts/cm/cmr10.pfb><C:/Users/benja/AppData/Loc
 al/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmr8.pfb><C:/Users/benja/AppD
 ata/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmsy10.pfb><C:/Users/b
 enja/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmsy8.pfb>
-Output written on Anleitung.pdf (24 pages, 400452 bytes).
+Output written on Anleitung.pdf (26 pages, 413805 bytes).
 PDF statistics:
- 1034 PDF objects out of 1200 (max. 8388607)
- 110 named destinations out of 1000 (max. 500000)
- 385 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 1058 PDF objects out of 1200 (max. 8388607)
+ 114 named destinations out of 1000 (max. 500000)
+ 401 words of extra memory for PDF output out of 10000 (max. 10000000)
 

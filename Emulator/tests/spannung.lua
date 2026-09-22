@@ -17,7 +17,7 @@ platform = { window = { width = function() return 318 end, height = function() r
 -- Zeichenstub: merkt sich Texte (mit Breite zur eingestellten Schrift) und Rechtecke.
 -- Die Breite je Zeichen ist bewusst etwas grosszuegiger als auf dem Rechner, damit ein
 -- Layout, das hier passt, auch dort nicht ueber den Rand laeuft.
-local texte, rechtecke = {}, {}
+local texte, rechtecke, linien, boegen = {}, {}, {}, {}
 local schrift = { stil = 'r', groesse = 10 }
 local function utf8len(s)
     local n = 0
@@ -40,6 +40,12 @@ local gc = setmetatable({}, { __index = function(_, k)
     end end
     if k == 'fillRect' then return function(_, x, y, w, h)
         rechtecke[#rechtecke + 1] = { x = x, y = y, w = w, h = h }
+    end end
+    if k == 'drawLine' then return function(_, x1, y1, x2, y2)
+        linien[#linien + 1] = { x1 = x1, y1 = y1, x2 = x2, y2 = y2 }
+    end end
+    if k == 'drawArc' then return function(_, x, y, w, h)
+        boegen[#boegen + 1] = { x = x, y = y, w = w, h = h }
     end end
     if k == 'getStringWidth' then return function(_, t) return breite(t) end end
     if k == 'getStringHeight' then return function() return schrift.groesse + 3 end end
@@ -68,6 +74,7 @@ _G.__S = {
   cursor = function() return spalte, zeile, editiere, text end,
   polygon = function(r) return scheibenPolygon(r) end,
   meldung = function() return meldung end,
+  kreisWinkel = function() return kreisWinkel end,
 }
 ]]
 assert(loadstring(code .. export, '=' .. pfad))()
@@ -122,7 +129,7 @@ local function tippeZelle(s)
 end
 
 local function male(m)
-    S.setModus(m); texte = {}; rechtecke = {}
+    S.setModus(m); texte, rechtecke, linien, boegen = {}, {}, {}, {}
     local ok, err = pcall(on.paint, gc)
     pruef(ok, 'on.paint (' .. m .. ')' .. (ok and '' or (': ' .. tostring(err))))
     local alle = {}
@@ -406,11 +413,127 @@ fall('13 Layout der Tabelle', function()
     -- auch die Zeichnungen bleiben im Bild
     setze({ { 0, 20, 10 }, { 90, -5, nil }, { 30, nil, nil } }); S.rechne()
     for _, m in ipairs({ 'scheibe', 'kreis' }) do
-        S.setModus(m); texte = {}; rechtecke = {}
+        S.setModus(m); texte, rechtecke, linien, boegen = {}, {}, {}, {}
         pcall(on.paint, gc)
         randpruefung(m)
     end
     S.setModus('tabelle')
+end)
+
+fall('14 Kreis im klassischen KOS', function()
+    abschnitt('die tau-Achse steht bei sigma = 0, der Kreis bleibt ganz sichtbar')
+    local W, H = 318, 212
+
+    local function kreisBild(liste)
+        setze(liste); S.rechne()
+        S.setModus('kreis'); texte, rechtecke, linien, boegen = {}, {}, {}, {}
+        local ok, err = pcall(on.paint, gc)
+        pruef(ok, 'on.paint (Kreis)' .. (ok and '' or (': ' .. tostring(err))))
+        local kreis                     -- groesster Bogen ist der Spannungskreis
+        for _, b in ipairs(boegen) do if not kreis or b.w > kreis.w then kreis = b end end
+        local achse                     -- laengste senkrechte Linie ist die tau-Achse
+        for _, l in ipairs(linien) do
+            if math.abs(l.x1 - l.x2) < 0.5 and math.abs(l.y2 - l.y1) > 100 then
+                if not achse or math.abs(l.y2 - l.y1) > math.abs(achse.y2 - achse.y1) then achse = l end
+            end
+        end
+        return kreis, achse
+    end
+    -- Aus dem gezeichneten Kreis die Abbildung zurueckrechnen: Mitte <-> sigma_m, Radius <-> R
+    local function nullBei(kreis, L)
+        return (kreis.x + kreis.w / 2) - L.sig_m * (kreis.w / 2) / L.r
+    end
+    local function imBild(kreis)
+        return kreis and kreis.x > 0 and kreis.x + kreis.w < W and kreis.y > 18 and kreis.y + kreis.h < H
+    end
+
+    -- Zug und Druck: der Ursprung liegt im Kreis
+    local kreis, achse = kreisBild({ { 0, 20, 10 }, { 90, -5, nil } })
+    local L = S.loesung()
+    wahr('Kreis ganz im Bild', imBild(kreis), kreis and
+        string.format('x=%.0f..%.0f y=%.0f..%.0f', kreis.x, kreis.x + kreis.w, kreis.y, kreis.y + kreis.h))
+    wahr('Kreis gross genug', kreis and kreis.w / 2 >= 30, kreis and kreis.w / 2)
+    wahr('tau-Achse steht bei sigma = 0', achse and kreis and math.abs(achse.x1 - nullBei(kreis, L)) < 1.5,
+        achse and kreis and string.format('Achse %.1f, sigma=0 bei %.1f', achse.x1, nullBei(kreis, L)))
+    local hatNull = false
+    for _, e in ipairs(texte) do if e.t == '0' then hatNull = true end end
+    wahr('Nullpunkt mit 0 beschriftet', hatNull)
+
+    -- reiner Zug: der Ursprung liegt links ausserhalb des Kreises, muss aber sichtbar bleiben
+    kreis, achse = kreisBild({ { 0, 100, 0 }, { 90, 60, nil } })
+    L = S.loesung()
+    zahl('sigma_m', L.sig_m, 80, 1e-9)
+    wahr('Kreis ganz im Bild (Zug)', imBild(kreis), kreis and
+        string.format('x=%.0f..%.0f', kreis.x, kreis.x + kreis.w))
+    wahr('tau-Achse links vom Kreis', achse and kreis and achse.x1 < kreis.x, achse and achse.x1)
+    wahr('tau-Achse bei sigma = 0 (Zug)', achse and kreis and math.abs(achse.x1 - nullBei(kreis, L)) < 1.5,
+        achse and kreis and string.format('Achse %.1f, sigma=0 bei %.1f', achse.x1, nullBei(kreis, L)))
+
+    -- weit weg vom Ursprung: der Kreis hat Vorrang, der Nullpunkt wird am Rand vermerkt
+    kreis, achse = kreisBild({ { 0, 1000, 0 }, { 90, 998, nil } })
+    wahr('kleiner Kreis bleibt sichtbar', kreis and kreis.w / 2 >= 30 and imBild(kreis),
+        kreis and kreis.w / 2)
+    local txt = table.concat((function()
+        local t = {}
+        for _, e in ipairs(texte) do t[#t + 1] = e.t end
+        return t
+    end)(), ' | ')
+    wahr('Hinweis auf den Nullpunkt am Rand', txt:find('σ=0', 1, true) ~= nil, txt:sub(1, 60))
+
+    S.setModus('tabelle')
+end)
+
+fall('15 Kreis mit den Pfeiltasten', function()
+    abschnitt('links/rechts springt zwischen den Schnitten, hoch/runter dreht 5 Grad')
+    setze({ { 0, 20, 10 }, { 90, -5, nil }, { 30, nil, nil } })
+    S.rechne()
+    S.setModus('tabelle')
+    on.charIn('k')
+    wahr('Kreis offen', S.modus() == 'kreis', S.modus())
+    zahl('Marke startet beim ersten Schnitt', S.kreisWinkel(), 0, 1e-9)
+
+    on.arrowKey('right'); zahl('rechts: naechster Schnitt', S.kreisWinkel(), 30, 1e-9)
+    on.arrowKey('right'); zahl('rechts: uebernaechster Schnitt', S.kreisWinkel(), 90, 1e-9)
+    on.arrowKey('right'); zahl('rechts laeuft zyklisch weiter', S.kreisWinkel(), 0, 1e-9)
+    on.arrowKey('left');  zahl('links geht zurueck', S.kreisWinkel(), 90, 1e-9)
+    wahr('Pfeile verlassen den Kreis nicht', S.modus() == 'kreis', S.modus())
+
+    on.arrowKey('up');   zahl('hoch dreht 5 Grad', S.kreisWinkel(), 95, 1e-9)
+    on.arrowKey('down'); zahl('runter dreht zurueck', S.kreisWinkel(), 90, 1e-9)
+    on.arrowKey('down'); zahl('runter unter den Schnitt', S.kreisWinkel(), 85, 1e-9)
+
+    -- Marke steht mit Winkel und Spannungen im Bild
+    on.arrowKey('up')
+    local txt = male('kreis')
+    wahr('Marke ist beschriftet', txt:find('90.0', 1, true) ~= nil, txt:sub(1, 90))
+    wahr('Marke nennt ihren Schnitt', txt:find('S2', 1, true) ~= nil)
+    local sg, ta = S.spannungen(90, S.loesung())
+    wahr('Marke zeigt sigma des Schnitts', txt:find(string.format('%.2f', sg), 1, true) ~= nil,
+        string.format('%.2f', sg))
+    wahr('Marke zeigt tau des Schnitts', txt:find(string.format('%.2f', ta), 1, true) ~= nil,
+        string.format('%.2f', ta))
+    S.setModus('tabelle')
+end)
+
+fall('16 Scheibe: x nach unten, y nach rechts', function()
+    abschnitt('Koordinatensystem der Spannungsscheibe wie im Querschnitt')
+    local W, H = 318, 212
+    local cx, cy = W / 2, (H + 18) / 2 + 4
+    setze({ { 0, 20, 10 }, { 90, -5, nil } }); S.rechne()
+    male('scheibe')
+
+    local ax, ay, s1, s2
+    for _, e in ipairs(texte) do
+        if e.t == 'x' then ax = e end
+        if e.t == 'y' then ay = e end
+        if e.t:find('S1 (', 1, true) and not e.t:find('R', 1, true) then s1 = e end
+        if e.t:find('S2 (', 1, true) and not e.t:find('R', 1, true) then s2 = e end
+    end
+    wahr('x-Achse ist nach unten beschriftet', ax and ax.y > cy, ax and ax.y)
+    wahr('y-Achse ist nach rechts beschriftet', ay and ay.x > cx and math.abs(ay.y - cy) < 20,
+        ay and string.format('%.0f/%.0f', ay.x, ay.y))
+    wahr('Schnitt bei 0 Grad liegt unten', s1 and s1.y > cy, s1 and s1.y)
+    wahr('Schnitt bei 90 Grad liegt rechts', s2 and s2.x > cx, s2 and s2.x)
 end)
 
 write(string.format('\nErgebnis Spannungskreis: %d Pruefungen, %d Fehler\n', M.total, M.fails))

@@ -2823,9 +2823,13 @@ local function drawRotatedPolygon(gc, pts, cx, cy, angle)
     for i = 1, #pts, 2 do local dx, dy = pts[i]-cx, pts[i+1]-cy; table.insert(r, cx+dx*c-dy*s); table.insert(r, cy+dx*s+dy*c) end; gc:fillPolygon(r)
 end
 
-local function drawArrow(gc, x1, y1, x2, y2)
+-- Streckenlasten bekommen etwas groessere Pfeilspitzen als die uebrigen Pfeile
+LASTPFEIL_KOPF = 1.4
+
+local function drawArrow(gc, x1, y1, x2, y2, kopf)
     gc:drawLine(x1, y1, x2, y2); local dx, dy = x2 - x1, y2 - y1; local L = math.sqrt(dx*dx + dy*dy)
-    if L > 0 then local ux, uy = dx/L, dy/L; local bx, by = x2 - 6*ux, y2 - 6*uy; gc:fillPolygon({x2, y2, bx + 2*-uy, by + 2*ux, bx - 2*-uy, by - 2*ux}) end
+    local hl, hw = 6 * (kopf or 1), 2 * (kopf or 1)
+    if L > 0 then local ux, uy = dx/L, dy/L; local bx, by = x2 - hl*ux, y2 - hl*uy; gc:fillPolygon({x2, y2, bx + hw*-uy, by + hw*ux, bx - hw*-uy, by - hw*ux}) end
 end
 
 local function drawMoment(gc, cx, cy, r, isClockwise)
@@ -6576,6 +6580,44 @@ end
 -- Diese Funktion wird bei jedem Frame-Update aufgerufen und zeichnet das gesamte System:
 -- Raster, Maßketten, Knoten, Stäbe, Lager, Gelenke, Lasten und Menüs.
 -- Sie behandelt auch die verschiedenen Darstellungsmodi (System, Schnittgrößen, Kinematik, Polplan).
+-- Resultierende R und statisches Moment S (um den Anfangsknoten) einer Streckenlast.
+-- Liegen CAS-Stuetzwerte vor (11 Punkte, sie enthalten die gesamte Last), wird mit Simpson
+-- integriert -- das ist fuer lineare und quadratische Lasten exakt. Sonst gilt der klassische
+-- Trapezanteil plus der im PvV vorbereitete CAS-Anteil. faktor bildet projizierte Lasten ab
+-- (Verhaeltnis von wirksamer zu Stablaenge).
+function lastResultierende(pts, L, wA, wB, R_cas, S_cas, faktor)
+    faktor = faktor or 1
+    if pts and #pts == 11 and L > 1e-9 then
+        local h = L / 10
+        local R, S = 0, 0
+        for j = 1, 11 do
+            local g = (j == 1 or j == 11) and 1 or ((j % 2 == 0) and 4 or 2)
+            R = R + g * pts[j]
+            S = S + g * pts[j] * (j - 1) * h
+        end
+        return R * h / 3 * faktor, S * h / 3 * faktor
+    end
+    local R = ((wA + wB) / 2 * L) * faktor + (R_cas or 0)
+    local S = ((L^2) / 6 * (wA + 2 * wB)) * faktor + (S_cas or 0)
+    return R, S
+end
+
+-- Resultierende einer Streckenlast beschriften: im symbolischen Modus der CAS-Term,
+-- sonst der Zahlenwert. Die Richtung zeigt der Pfeil, darum steht der Betrag.
+function resultierendenLabel(L_phys, L_eff, qs, qa, qb, R_cas, S_cas, R_num, S_num, typ)
+    if symbolischer_modus then
+        local R_str = processDistLoad_PvV(L_phys, L_eff, qs, qa, qb, R_cas, S_cas, R_num, S_num, typ, true)
+        if R_str then return "R = " .. R_str end
+    end
+    return "R = " .. formatLabel(math.abs(R_num))
+end
+
+-- Wirkungslinie einer Resultierenden merken, damit die globale Bemassung ihre Lage zeigt
+function merkeResultierende(x, y)
+    if not glob_resultant_pts then glob_resultant_pts = {} end
+    table.insert(glob_resultant_pts, {x = x, y = y, is_virtual = false})
+end
+
 local function getSymbLabel(s, mode, type_str, num_val)
     
     if symbolischer_modus and s["symb_" .. mode .. "_" .. type_str] then
@@ -7257,22 +7299,29 @@ function on.paint(gc)
             if should_draw_loads and (modusText == "System" or (modusText == "PvV" and not in_pvv_release) or isExplosion) then
                 local has_cas_gy = s.gy_str and string.hasx(s.gy_str)
                 local has_classic_gy = (s.gy or 0) ~= 0
-                if hovered_ts and glob_ts_scheibe and glob_ts_scheibe[i] == hovered_ts and (has_classic_gy or has_cas_gy) then
+                -- Auf der E-Seite (und beim Hovern eines Teilsystems) wird jede Streckenlast
+                -- durch ihre Resultierende ersetzt; die Lage zeigt die globale Bemassung.
+                local zeigeResultierende = isExplosion
+                    or (hovered_ts and glob_ts_scheibe and glob_ts_scheibe[i] == hovered_ts) or false
+                local resPfeil = isExplosion and math.max(18, drawPxProMeter * 0.24) or 40
+                if zeigeResultierende and (has_classic_gy or has_cas_gy) then
                     local dx_m, dy_m = knoten[s.k2].x - knoten[s.k1].x, knoten[s.k2].y - knoten[s.k1].y
                     local L_phys = math.sqrt(dx_m^2 + dy_m^2)
-                    local Rgy = (s.gy or 0) * (s.gy_proj and math.abs(dx_m) or L_phys) + (s.R_gy_cas or 0)
-                    local Sgy = Rgy * (L_phys/2) + (s.S_gy_cas or 0)
+                    local L_eff = s.gy_proj and math.abs(dx_m) or L_phys
+                    local gy0 = s.gy or 0
+                    local Rgy, Sgy = lastResultierende(s.gy_pts, L_phys, gy0, gy0,
+                        s.R_gy_cas, s.S_gy_cas, L_phys > 1e-9 and (L_eff / L_phys) or 1)
                     if math.abs(Rgy) > 1e-4 then
                         local x_res = Sgy / Rgy
                         local px_res = orig_px1 + ux * x_res * drawPxProMeter
                         local py_res = orig_py1 + uy * x_res * drawPxProMeter
                         gc:setColorRGB(255, 150, 0)
                         local dir = Rgy > 0 and 1 or -1
-                        drawArrow(gc, px_res, py_res - 40 * dir, px_res, py_res)
+                        drawArrow(gc, px_res, py_res - resPfeil * dir, px_res, py_res)
                         gc:setFont("sansserif", "b", 8)
-                        gc:drawString(formatLabel(math.abs(Rgy)), px_res + 5, py_res - 45 * dir - 10)
-                        if not glob_resultant_pts then glob_resultant_pts = {} end
-                        table.insert(glob_resultant_pts, {x = knoten[s.k1].x + ux * x_res, y = knoten[s.k1].y + uy * x_res, is_virtual = false})
+                        gc:drawString(resultierendenLabel(L_phys, L_eff, s.gy_str, nil, nil, s.R_gy_cas_str, s.S_gy_cas_str, Rgy, Sgy, "g"),
+                            px_res + 5, py_res - (resPfeil + 5) * dir - 10)
+                        merkeResultierende(knoten[s.k1].x + ux * x_res, knoten[s.k1].y + uy * x_res)
                     end
                 elseif has_classic_gy or has_cas_gy then
                     local steps = 10
@@ -7295,7 +7344,7 @@ function on.paint(gc)
                                 local h_curr = math.abs(gy_val) * scale_gy * dir
                                 local tailX, tailY = px1 + dx*t, top_y + h_curr
                                 table.insert(env_pts, tailX); table.insert(env_pts, tailY)
-                                if math.abs(h_curr) > 0.5 then drawArrow(gc, tailX, tailY, px1 + dx*t, top_y) end
+                                if math.abs(h_curr) > 0.5 then drawArrow(gc, tailX, tailY, px1 + dx*t, top_y, LASTPFEIL_KOPF) end
                             end
                             gc:setPen("thin", "smooth"); gc:drawPolyLine(env_pts); gc:drawLine(px1, top_y, px2, top_y)
                         else
@@ -7306,7 +7355,7 @@ function on.paint(gc)
                                 local h_curr = math.abs(gy_val) * scale_gy * dir
                                 local tailX, tailY = px1 + dx*t, py1 + dy*t + h_curr
                                 table.insert(env_pts, tailX); table.insert(env_pts, tailY)
-                                if math.abs(h_curr) > 0.5 then drawArrow(gc, tailX, tailY, px1 + dx*t, py1 + dy*t) end
+                                if math.abs(h_curr) > 0.5 then drawArrow(gc, tailX, tailY, px1 + dx*t, py1 + dy*t, LASTPFEIL_KOPF) end
                             end
                             gc:setPen("thin", "smooth"); gc:drawPolyLine(env_pts)
                         end
@@ -7315,22 +7364,24 @@ function on.paint(gc)
 
                 local has_cas_gx = s.gx_str and string.hasx(s.gx_str)
                 local has_classic_gx = (s.gx or 0) ~= 0
-                if hovered_ts and glob_ts_scheibe and glob_ts_scheibe[i] == hovered_ts and (has_classic_gx or has_cas_gx) then
+                if zeigeResultierende and (has_classic_gx or has_cas_gx) then
                     local dx_m, dy_m = knoten[s.k2].x - knoten[s.k1].x, knoten[s.k2].y - knoten[s.k1].y
                     local L_phys = math.sqrt(dx_m^2 + dy_m^2)
-                    local Rgx = (s.gx or 0) * (s.gx_proj and math.abs(dy_m) or L_phys) + (s.R_gx_cas or 0)
-                    local Sgx = Rgx * (L_phys/2) + (s.S_gx_cas or 0)
+                    local L_eff = s.gx_proj and math.abs(dy_m) or L_phys
+                    local gx0 = s.gx or 0
+                    local Rgx, Sgx = lastResultierende(s.gx_pts, L_phys, gx0, gx0,
+                        s.R_gx_cas, s.S_gx_cas, L_phys > 1e-9 and (L_eff / L_phys) or 1)
                     if math.abs(Rgx) > 1e-4 then
                         local x_res = Sgx / Rgx
                         local px_res = orig_px1 + ux * x_res * drawPxProMeter
                         local py_res = orig_py1 + uy * x_res * drawPxProMeter
                         gc:setColorRGB(255, 150, 0)
                         local dir = Rgx > 0 and -1 or 1
-                        drawArrow(gc, px_res + 40 * dir, py_res, px_res, py_res)
+                        drawArrow(gc, px_res + resPfeil * dir, py_res, px_res, py_res)
                         gc:setFont("sansserif", "b", 8)
-                        gc:drawString(formatLabel(math.abs(Rgx)), px_res + 45 * dir + 5, py_res - 10)
-                        if not glob_resultant_pts then glob_resultant_pts = {} end
-                        table.insert(glob_resultant_pts, {x = knoten[s.k1].x + ux * x_res, y = knoten[s.k1].y + uy * x_res, is_virtual = false})
+                        gc:drawString(resultierendenLabel(L_phys, L_eff, s.gx_str, nil, nil, s.R_gx_cas_str, s.S_gx_cas_str, Rgx, Sgx, "g"),
+                            px_res + (resPfeil + 5) * dir + 5, py_res - 10)
+                        merkeResultierende(knoten[s.k1].x + ux * x_res, knoten[s.k1].y + uy * x_res)
                     end
                 elseif has_classic_gx or has_cas_gx then
                     local steps = 10
@@ -7353,7 +7404,7 @@ function on.paint(gc)
                                 local h_curr = math.abs(gx_val) * scale_gx * dir
                                 local tailX, tailY = side_x + h_curr, py1 + dy*t
                                 table.insert(env_pts, tailX); table.insert(env_pts, tailY)
-                                if math.abs(h_curr) > 0.5 then drawArrow(gc, tailX, tailY, side_x, py1 + dy*t) end
+                                if math.abs(h_curr) > 0.5 then drawArrow(gc, tailX, tailY, side_x, py1 + dy*t, LASTPFEIL_KOPF) end
                             end
                             gc:setPen("thin", "smooth"); gc:drawPolyLine(env_pts); gc:drawLine(side_x, py1, side_x, py2)
                         else
@@ -7364,7 +7415,7 @@ function on.paint(gc)
                                 local h_curr = math.abs(gx_val) * scale_gx * dir
                                 local tailX, tailY = px1 + dx*t + h_curr, py1 + dy*t
                                 table.insert(env_pts, tailX); table.insert(env_pts, tailY)
-                                if math.abs(h_curr) > 0.5 then drawArrow(gc, tailX, tailY, px1 + dx*t, py1 + dy*t) end
+                                if math.abs(h_curr) > 0.5 then drawArrow(gc, tailX, tailY, px1 + dx*t, py1 + dy*t, LASTPFEIL_KOPF) end
                             end
                             gc:setPen("thin", "smooth"); gc:drawPolyLine(env_pts)
                         end
@@ -7375,22 +7426,21 @@ function on.paint(gc)
                 local has_classic_q = (s.q + s.q_A ~= 0) or (s.q + s.q_B ~= 0)
                 local has_cas_q = (s.q_pts and #s.q_pts == 11)
 
-                if hovered_ts and glob_ts_scheibe and glob_ts_scheibe[i] == hovered_ts and (has_classic_q or has_cas_q) then
+                if zeigeResultierende and (has_classic_q or has_cas_q) then
                     local dx_m, dy_m = knoten[s.k2].x - knoten[s.k1].x, knoten[s.k2].y - knoten[s.k1].y
                     local L_phys = math.sqrt(dx_m^2 + dy_m^2)
                     local qA = s.q + (s.q_A or 0); local qB = s.q + (s.q_B or 0)
-                    local Rq = (qA + qB)/2 * L_phys + (s.R_q_cas or 0)
-                    local Sq = (L_phys^2)/6 * (qA + 2*qB) + (s.S_q_cas or 0)
+                    local Rq, Sq = lastResultierende(s.q_pts, L_phys, qA, qB, s.R_q_cas, s.S_q_cas)
                     if math.abs(Rq) > 1e-4 then
                         local x_res = Sq / Rq
                         local px_res = orig_px1 + ux * x_res * drawPxProMeter
                         local py_res = orig_py1 + uy * x_res * drawPxProMeter
-                        drawArrow(gc, px_res - nx * 40 * (Rq > 0 and 1 or -1), py_res - ny * 40 * (Rq > 0 and 1 or -1), px_res, py_res)
+                        local vz = Rq > 0 and 1 or -1
+                        drawArrow(gc, px_res - nx * resPfeil * vz, py_res - ny * resPfeil * vz, px_res, py_res)
                         gc:setFont("sansserif", "b", 8)
-                        gc:drawString(formatLabel(math.abs(Rq)), px_res - nx * 45 * (Rq > 0 and 1 or -1) - 10, py_res - ny * 45 * (Rq > 0 and 1 or -1) - 10)
-                        -- Let's also add the resultant point to a global so we can dimension it
-                        if not glob_resultant_pts then glob_resultant_pts = {} end
-                        table.insert(glob_resultant_pts, {x = knoten[s.k1].x + ux * x_res, y = knoten[s.k1].y + uy * x_res, is_virtual = false})
+                        gc:drawString(resultierendenLabel(L_phys, L_phys, s.q_str, s.q_A_str, s.q_B_str, s.R_q_cas_str, s.S_q_cas_str, Rq, Sq, "q"),
+                            px_res - nx * (resPfeil + 5) * vz - 10, py_res - ny * (resPfeil + 5) * vz - 10)
+                        merkeResultierende(knoten[s.k1].x + ux * x_res, knoten[s.k1].y + uy * x_res)
                     end
                 elseif has_classic_q or has_cas_q then
                     local combined_q = {}; local max_abs_q = 0
@@ -7407,7 +7457,7 @@ function on.paint(gc)
                             local t = j / 10; local h_curr = -combined_q[j+1] * scale_q
                             local fx, fy = px1 + dx*t, py1 + dy*t
                             table.insert(pts_env, fx + nx*h_curr); table.insert(pts_env, fy + ny*h_curr)
-                            if math.abs(h_curr) > 0.5 then drawArrow(gc, fx + nx*h_curr, fy + ny*h_curr, fx, fy) end
+                            if math.abs(h_curr) > 0.5 then drawArrow(gc, fx + nx*h_curr, fy + ny*h_curr, fx, fy, LASTPFEIL_KOPF) end
                         end
                         gc:setPen("thin", "smooth"); gc:drawPolyLine(pts_env)
                         gc:drawLine(px1, py1, pts_env[1], pts_env[2]); gc:drawLine(px2, py2, pts_env[#pts_env-1], pts_env[#pts_env])
@@ -7418,7 +7468,23 @@ function on.paint(gc)
                 local has_classic_n = (s.n + s.n_A ~= 0) or (s.n + s.n_B ~= 0)
                 local has_cas_n = (s.n_pts and #s.n_pts == 11)
 
-                if has_classic_n or has_cas_n then
+                if zeigeResultierende and (has_classic_n or has_cas_n) then
+                    local dx_m, dy_m = knoten[s.k2].x - knoten[s.k1].x, knoten[s.k2].y - knoten[s.k1].y
+                    local L_phys = math.sqrt(dx_m^2 + dy_m^2)
+                    local nA = s.n + (s.n_A or 0); local nB = s.n + (s.n_B or 0)
+                    local Rn, Sn = lastResultierende(s.n_pts, L_phys, nA, nB, s.R_n_cas, s.S_n_cas)
+                    if math.abs(Rn) > 1e-4 then
+                        local x_res = Sn / Rn
+                        local px_res = orig_px1 + ux * x_res * drawPxProMeter
+                        local py_res = orig_py1 + uy * x_res * drawPxProMeter
+                        local vz = Rn > 0 and 1 or -1
+                        drawArrow(gc, px_res - ux * resPfeil * vz, py_res - uy * resPfeil * vz, px_res, py_res)
+                        gc:setFont("sansserif", "b", 8)
+                        gc:drawString(resultierendenLabel(L_phys, L_phys, s.n_str, s.n_A_str, s.n_B_str, s.R_n_cas_str, s.S_n_cas_str, Rn, Sn, "q"),
+                            px_res - ux * (resPfeil + 5) * vz + 5, py_res - uy * (resPfeil + 5) * vz - 10)
+                        merkeResultierende(knoten[s.k1].x + ux * x_res, knoten[s.k1].y + uy * x_res)
+                    end
+                elseif has_classic_n or has_cas_n then
                     local combined_n = {}; local max_abs_n = 0
                     for j = 0, 10 do
                         local t = j / 10; local n_class = (s.n + s.n_A)*(1-t) + (s.n + s.n_B)*t
@@ -7434,7 +7500,7 @@ function on.paint(gc)
                             local t = j/10; local n_curr = combined_n[j+1]; local fx, fy = px1 + dx*t + nx*dist, py1 + dy*t + ny*dist
                             if math.abs(n_curr) > 0.5 then
                                 local arr_len = (n_curr/max_abs_n)*12
-                                drawArrow(gc, fx - (dx/L)*arr_len, fy - (dy/L)*arr_len, fx + (dx/L)*arr_len, fy + (dy/L)*arr_len)
+                                drawArrow(gc, fx - (dx/L)*arr_len, fy - (dy/L)*arr_len, fx + (dx/L)*arr_len, fy + (dy/L)*arr_len, LASTPFEIL_KOPF)
                             end
                         end
                         
@@ -7444,7 +7510,24 @@ function on.paint(gc)
                 local has_classic_m = (s.m ~= 0)
                 local has_cas_m = (s.m_pts and #s.m_pts == 11)
 
-                if has_classic_m or has_cas_m then
+                if zeigeResultierende and (has_classic_m or has_cas_m) then
+                    local dx_m, dy_m = knoten[s.k2].x - knoten[s.k1].x, knoten[s.k2].y - knoten[s.k1].y
+                    local L_phys = math.sqrt(dx_m^2 + dy_m^2)
+                    local m0 = s.m or 0
+                    local Rm = lastResultierende(s.m_pts, L_phys, m0, m0, s.R_m_cas, nil)
+                    if math.abs(Rm) > 1e-4 then
+                        local pxm = (orig_px1 + orig_px2) / 2
+                        local pym = (orig_py1 + orig_py2) / 2
+                        gc:setColorRGB(255, 150, 0)
+                        drawMoment(gc, pxm, pym, 12, Rm < 0)
+                        gc:setFont("sansserif", "b", 8)
+                        local lbl = "M = " .. formatLabel(math.abs(Rm))
+                        if symbolischer_modus and s.m_str and s.m_str ~= "0" then
+                            lbl = "M = (" .. s.m_str .. ")*" .. symbLaenge(L_phys)
+                        end
+                        gc:drawString(lbl, pxm + 15, pym - 10)
+                    end
+                elseif has_classic_m or has_cas_m then
                     local combined_m = {}; local max_abs_m = 0
                     for j = 0, 10 do
                         local m_class = s.m; local m_c = (has_cas_m and s.m_pts[j+1]) or 0; local m_tot = m_class + m_c
@@ -8745,6 +8828,12 @@ function on.paint(gc)
             gc:setFont("sansserif", "b", 10)
             gc:drawString("P" .. (c.node_id or hovered_ts), px + 8, py - 15)
         end
+        drawBemassung(gc, pts)
+    elseif isExplosion and glob_resultant_pts and #glob_resultant_pts > 0 then
+        -- E-Seite: Knoten und die Wirkungslinien der Resultierenden zusammen bemassen
+        local pts = {}
+        for _, k in ipairs(knoten) do pts[#pts+1] = k end
+        for _, pt in ipairs(glob_resultant_pts) do pts[#pts+1] = pt end
         drawBemassung(gc, pts)
     else
         drawBemassung(gc)

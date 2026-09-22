@@ -6,16 +6,21 @@ local node, fixed, pinned, roller = T.node, T.fixed, T.pinned, T.roller
 local STANDARD_DEHNSTARR = randDehnstarr   -- Wert ab Werk (vor jedem T.reset)
 local STANDARD_DIREKT = randStarrDirekt
 
--- Zeichen-Attrappe: Texte sammeln, Textbreite 6 px je Zeichen
-local texte = {}
+-- Zeichen-Attrappe: Texte und gefuellte Polygone sammeln, Textbreite 6 px je Zeichen
+local texte, polygone = {}, {}
 local gc = setmetatable({}, { __index = function(_, k)
     if k == 'drawString' then return function(_, text, x, y) texte[#texte + 1] = { t = tostring(text), x = x, y = y } end end
+    if k == 'fillPolygon' then return function(_, pts)
+        local p = {}
+        for i, v in ipairs(pts) do p[i] = v end
+        polygone[#polygone + 1] = p
+    end end
     if k == 'getStringWidth' then return function(_, text) return #tostring(text) * 6 end end
     if k == 'getStringHeight' then return function() return 12 end end
     return function() end
 end })
 local function zeichne()
-    texte = {}
+    texte, polygone = {}, {}
     local ok, err = pcall(on.paint, gc)
     if not ok then T.pruef(false, 'on.paint Absturz: ' .. tostring(err):gsub('\n.*', '')) end
     return texte
@@ -354,6 +359,116 @@ fall('12 Menues links', function()
     local x3 = menuX('Stab 1')
     T.wahr('Stabmenue links', x3 ~= nil and x3 < breite / 2, tostring(x3))
     menuOffen = false
+end)
+
+fall('13 Resultierende im E-Modus', function()
+    T.abschnitt('E-Seite: Streckenlasten treten als Resultierende R auf, Lage in der Bemassung')
+
+    -- alle gezeichneten Texte einsammeln
+    local function texteJetzt() return zeichne() end
+    local function rWert()
+        for _, e in ipairs(texteJetzt()) do
+            local v = e.t:match('^R = (.*)$')
+            if v then return v end
+        end
+    end
+    -- Beschriftungen koennen exakte Brueche sein (z. B. 64/3)
+    local function zahlAus(t)
+        if not t then return nil end
+        local a, b = t:match('^(-?%d+)/(%d+)$')
+        if a then return tonumber(a) / tonumber(b) end
+        return tonumber(t)
+    end
+    local function textDa(t)
+        for _, e in ipairs(texteJetzt()) do if e.t == t then return true end end
+        return false
+    end
+
+    -- Balken 0..4 m mit Gleichlast q = 2
+    leer({ pinned(node(0)), roller(node(4)) })
+    setStaebe({ T.bar(1, 2, { q = 2, q_str = '2' }) })
+    pcall(starteBerechnung)
+
+    ansichtsModus = 'System'
+    T.wahr('Systemansicht zeigt die Streckenlast selbst', rWert() == nil, rWert())
+
+    ansichtsModus = 'E'; explosionPage = 1
+    local r = rWert()
+    T.wahr('E-Seite beschriftet die Resultierende mit R', r ~= nil, r)
+    T.wahr('R = q*L = 8', r ~= nil and zahlAus(r) ~= nil and math.abs(zahlAus(r) - 8) < 1e-6, r)
+    T.wahr('Lage 2 m steht in der Bemassung', textDa('2'))
+
+    explosionPage = 2
+    T.wahr('auch auf Seite 2 der E-Ansicht', rWert() ~= nil, rWert())
+
+    -- Dreieckslast: Resultierende liegt bei 2/3 der Laenge
+    explosionPage = 1
+    setStaebe({ T.bar(1, 2, { q = 0, q_str = '0', q_A = 0, q_B = 3 }) })
+    pcall(starteBerechnung)
+    ansichtsModus = 'E'
+    local r2 = rWert()
+    T.wahr('Dreieckslast: R = 6', r2 ~= nil and zahlAus(r2) ~= nil and math.abs(zahlAus(r2) - 6) < 1e-6, r2)
+    T.wahr('Schwerpunkt 2.67 m bemasst', textDa('2.67'), '')
+    T.wahr('Restmass 1.33 m bemasst', textDa('1.33'), '')
+
+    -- globale Linienlast gy
+    setStaebe({ T.bar(1, 2, { gy = 2, gy_str = '2' }) })
+    pcall(starteBerechnung)
+    ansichtsModus = 'E'
+    local r3 = rWert()
+    T.wahr('globale Linienlast: R = 8', r3 ~= nil and zahlAus(r3) ~= nil and math.abs(zahlAus(r3) - 8) < 1e-6, r3)
+
+    -- CAS-Last q = x ueber 4 m: R = 8, Schwerpunkt bei 2.67 m
+    setStaebe({ T.bar(1, 2, { q_str = 'x' }) })
+    pcall(starteBerechnung)
+    ansichtsModus = 'E'
+    local r4 = rWert()
+    T.wahr('CAS-Last: R = 8', r4 ~= nil and zahlAus(r4) ~= nil and math.abs(zahlAus(r4) - 8) < 1e-4, r4)
+    T.wahr('CAS-Last: Schwerpunkt 2.67 m', textDa('2.67'), '')
+
+    -- quadratische CAS-Last q = x^2 ueber 4 m: R = 64/3, Schwerpunkt bei 3 m (Simpson ist exakt)
+    setStaebe({ T.bar(1, 2, { q_str = 'x^2' }) })
+    pcall(starteBerechnung)
+    ansichtsModus = 'E'
+    local r5 = rWert()
+    T.wahr('quadratische Last: R = 21.33', r5 ~= nil and zahlAus(r5) ~= nil and math.abs(zahlAus(r5) - 64/3) < 1e-3, r5)
+    T.wahr('quadratische Last: Schwerpunkt 3 m', textDa('3'), '')
+
+    -- Streckenmoment: eine Resultierende M statt vieler Momentsymbole
+    setStaebe({ T.bar(1, 2, { m = 1.5, m_str = '1.5' }) })
+    pcall(starteBerechnung)
+    ansichtsModus = 'E'
+    local mm
+    for _, e in ipairs(texteJetzt()) do
+        local v = e.t:match('^M = (.*)$')
+        if v and zahlAus(v) then mm = zahlAus(v) end
+    end
+    T.wahr('Streckenmoment: M = m*L = 6', mm ~= nil and math.abs(mm - 6) < 1e-6, mm)
+
+    ansichtsModus = 'System'; explosionPage = 1
+end)
+
+fall('14 Pfeilspitzen der Streckenlasten', function()
+    T.abschnitt('Lastflaechen bekommen groessere Spitzen, andere Pfeile bleiben wie sie sind')
+    local k2 = roller(node(4)); k2.last_y, k2.last_y_str = 5, '5'
+    leer({ pinned(node(0)), k2 })
+    setStaebe({ T.bar(1, 2, { q = 2, q_str = '2' }) })
+    pcall(starteBerechnung)
+    ansichtsModus = 'System'
+    zeichne()
+
+    -- Spitzenlaenge eines Dreiecks: Abstand der Spitze zur Mitte der Grundseite
+    local gross, normal = 0, 0
+    for _, p in ipairs(polygone) do
+        if #p == 6 then
+            local mx, my = (p[3] + p[5]) / 2, (p[4] + p[6]) / 2
+            local hl = math.sqrt((p[1] - mx) ^ 2 + (p[2] - my) ^ 2)
+            if math.abs(hl - 6 * 1.4) < 0.5 then gross = gross + 1
+            elseif math.abs(hl - 6) < 0.5 then normal = normal + 1 end
+        end
+    end
+    T.wahr('Streckenlast zeichnet groessere Spitzen', gross >= 8, gross)
+    T.wahr('Einzellast behaelt die normale Spitze', normal >= 1, normal)
 end)
 
 T.ende('Oberflaeche Tragwerk')

@@ -114,8 +114,9 @@ Diese Datei dokumentiert alle funktionalen Features des Programms, ihre Möglich
 - Die Schubspannungsansicht kann über zehn Darstellungen geprüft werden: zwei Momentendichten, zwei statische Momente, zwei Querlastanteile, Torsionsanteil, resultierende Schubspannung und Laufkoordinate $s$.
 - Für Kontrollen stehen die integrierten Teilkräfte und Momentbeiträge je Element in einer Schubmomenttabelle bereit.
 - Bei einer Last aus platzierten Kräften können die beiden Querkraftkomponenten automatisch aus den Kraftresultierenden übernommen werden.
-- Berechnet wird nur, was nach TM2 statisch bestimmt ist: offene Profile (auch unsymmetrisch, mit $I_{yz}$-Kopplung $\tau = -\frac{Q_z (I_y S_y + I_{yz} S_z)}{(I_y I_z - I_{yz}^2)\,t}$, für $Q_y$ analog) und Profile mit genau einer geschlossenen Zelle (auch mit offenen Ästen, z. B. Kasten mit überstehendem Gurt), sofern die Querkraft parallel zu einer Symmetrieachse wirkt. Dann ist der Schubfluss antisymmetrisch und $q_0$ folgt aus der Symmetrie; freie Äste werden vorher integriert.
-- Mehrzellige Profile, unsymmetrische geschlossene Zellen und eine Querkraft quer zur einzigen Symmetrieachse sind statisch unbestimmt: Die Rechnung bricht mit einer Meldung ab. Der Schubmittelpunkt wird nur so weit angegeben, wie er bestimmt ist (z. B. nur die Lage auf der Symmetrieachse).
+- Offene Profile (auch unsymmetrisch, mit $I_{yz}$-Kopplung $\tau = -\frac{Q_z (I_y S_y + I_{yz} S_z)}{(I_y I_z - I_{yz}^2)\,t}$, für $Q_y$ analog) und Profile mit genau einer geschlossenen Zelle (auch mit offenen Ästen, z. B. Kasten mit überstehendem Gurt). Wirkt die Querkraft parallel zu einer Symmetrieachse, ist der Schubfluss antisymmetrisch und $q_0$ folgt wie in TM2 aus der Symmetrie; freie Äste werden vorher integriert.
+- **Fehlt die Symmetrieachse parallel zur Querkraft** (unsymmetrische Zelle, Querkraft quer zur einzigen Achse, Symmetrie nicht erkannt), folgt $q_0$ aus der **Verträglichkeit**: Unter einer Querkraft im Schubmittelpunkt verdrillt sich die Zelle nicht, also $\oint q/(G t)\,ds = 0$. Weil die Matrix $\begin{pmatrix} I_y & I_{yz} \\ I_{yz} & I_z \end{pmatrix}$ regulär ist, zerfällt das in $\oint S_z/t\,ds = 0$ und $\oint S_y/t\,ds = 0$ – je eine Konstante für $S_z$ und $S_y$, unabhängig von $Q$ und von der Kopplung. Damit stimmen auch die angezeigten statischen Momente, und der Schubmittelpunkt ist für jede einzellige Zelle bestimmt (damit auch „Torsion aus Kräften“). Beim symmetrischen Profil liefert die Bedingung dieselbe Lösung wie die Spiegelung (Test 30 prüft das Stützstelle für Stützstelle). Die Warnungen zur fehlenden Symmetrie bleiben erhalten und sagen dazu, dass $S$ und $\tau$ trotzdem richtig sind; die Startmarke heißt dann **Schnitt (q0 aus Verträglichkeit)**.
+- Nur **mehrzellige** Profile bleiben statisch unbestimmt: Die Rechnung bricht mit einer Meldung ab.
 - Massive Querschnitte: $\tau = Q S/(I b)$ über waagerechte bzw. senkrechte Schnitte (auch für Sektor, Kreisabschnitt und dicke Linie), nur wenn $I_{yz} = 0$ ist. Gemischte massiv/dünnwandige Querschnitte werden nicht berechnet.
 - Eingegebene Querkräfte und Momente beziehen sich auf das angezeigte KOS und werden intern gedreht (auch bei KOS-Drehung 90°/270°).
 - Die Schubmomententabelle verwendet die aktuell aktive Querschnitts-KOS und zeigt hinter jeder Lastspalte den zugehörigen effektiven Hebelarm $r=M/F$.
@@ -124,10 +125,27 @@ Diese Datei dokumentiert alle funktionalen Features des Programms, ihre Möglich
 
 **Grenzen:**
 - Die exakte Visualisierung und Verteilung des Schubflusses ist primär auf dünnwandige Profile zugeschnitten. Bei rein massiven Vollquerschnitten basiert die Berechnung auf einer schichtweisen Integration, die bei komplexen Geometrien (z.B. sternförmig) an die Grenzen der 1D-Balkentheorie stößt.
-- Statisch unbestimmte Fälle (siehe oben) werden bewusst nicht berechnet; es gibt keine Verträglichkeits- oder Mehrzellenrechnung.
+- Mehrzellige Profile werden nicht berechnet (keine Mehrzellenrechnung).
 - Liegen die Hauptachsen nicht parallel zu y/z ($I_{yz} \ne 0$, Winkel kein Vielfaches von 90°), erscheint bei dünnwandigem Schub ein gelber Hinweis mit dem Hauptachsenwinkel: Der Schubfluss wurde mit $I_{yz}$-Kopplung (schiefe Biegung) berechnet, nicht mit $\tau = QS/(It)$. Bei massiven Querschnitten wird der Schub in diesem Fall abgelehnt (rote Box mit Begründung). Das Ergebnisfeld zeigt grün „Hauptachsen parallel zu den Achsen“ bzw. orange „Hauptachsen nicht parallel zu den Achsen“.
-- Die Integrationsauflösung ist an das Zeichenraster gekoppelt und kann bei sehr kleinen oder sehr großen Geometrien die Genauigkeit beeinflussen.
+- Die Stützstellendichte ist an das Zeichenraster gekoppelt (mindestens 64 Intervalle je Kante, gerade Anzahl). Die $S$-Werte an den Stützstellen sind davon unabhängig exakt (Mittelpunktsregel auf linearem Integranden); Umlauf- und Momentintegrale (Verträglichkeit, Schubmittelpunkt, Verwölbung) laufen mit Simpson je Kante und sind für die dort quadratischen bzw. kubischen Integranden ebenfalls exakt.
+
+**Zeichnen der Verläufe:** Die Rechnung war nie der Engpass, das Zeichnen schon – pro Frame wurden alle Stützstellen neu sortiert, mehrfach ausgewertet und einzeln als Linie gezeichnet. Jetzt baut `verlaufAbschnitte` die sortierten Abschnitte mit Werten und Pixelversatz einmal auf (ungültig bei neuem Ergebnis, Ansichtswechsel, Torsion, KOS-Drehung oder Hover), und `drawVerlauf` zeichnet je Frame nur noch **eine Polylinie je Abschnitt**, auf etwa einen Punkt je 1,5 px ausgedünnt. Min/Max und Endwerte kommen weiterhin aus allen Stützstellen. Die frühere Suche nach der nächsten Stützstelle bei jeder Mausbewegung (mit Neuzeichnen) ist entfallen – sie wurde nie angezeigt.
 - Die Angaben zur Schubspannung werden in MPa dargestellt, sofern die internen Einheiten N und mm verwendet werden.
+
+## 6a. Verwölbung dünnwandiger Profile (Menü: b → 7)
+**Möglichkeiten:**
+- Eigener Modus unter `b` → **7. Verwölbung**. Ein Dialog fragt das Torsionsmoment $M_T$ (vorbelegt mit dem Moment der platzierten Kräfte um den Schubmittelpunkt, sonst leer) und den Schubmodul $G$ in N/mm² (vorbelegt 81 000). Das hier eingegebene $M_T$ gilt **nur in dieser Ansicht** und wird nicht an die Torsion der Schubspannungsrechnung übergeben; `Esc` schließt die Ansicht und verwirft es.
+- Formel der Formelsammlung (Kap. 6): $u_x(s) = \int \left[ \frac{M_T}{2 G A_m h(s)} - r_\perp \vartheta \right] ds + c$ mit $\vartheta = M_T/(G I_T)$ und $I_T = 4A_m^2/\oint ds/h$ (Bredt).
+- **Pol** ist der Schubmittelpunkt (Drillruhepunkt). $r_\perp = (y-y_M)\,t_z - (z-z_M)\,t_y$ ist der vorzeichenbehaftete Abstand des Pols von der Kantentangente: positiv, wenn der Fahrstrahl vom Pol zum Laufpunkt in Laufrichtung im Sinn des positiven Torsionsmoments dreht – derselbe Umlaufsinn wie der Bredt-Schubfluss. Für eine konvexe Zelle mit Pol innen ist das überall der positive Abstand (Handrechnung); bei offenen Profilen mit Pol außerhalb (C-Profil) wechselt das Vorzeichen zwischen Steg und Flanschen.
+- **Konstante $c$** aus $\int u_x\,h\,ds = 0$ (keine mittlere Längsverschiebung, $N = 0$). Bei symmetrischen Profilen ist die Verwölbung antisymmetrisch, $u_x$ auf der Achse also automatisch null – genau der Startpunkt der Handrechnung. Der Startknoten der Integration liegt wie der Zellschnitt möglichst auf einer Symmetrieachse; das Ergebnis hängt wegen $c$ nicht davon ab.
+- $r_\perp$ ist auf geraden Kanten linear, $u_x$ quadratisch: beides wird geschlossen integriert, die Stützstellen dienen nur der Darstellung. Für die Zelle wird geprüft, dass der Umlauf schließt (`schluss` ≈ 0).
+- **Offene Profile:** kein umlaufender Schubfluss, der Bredt-Term entfällt, $u_x = -\vartheta \int r_\perp\,ds + c$ mit $I_T = \sum \xi/3\,h^3 \ell$. Standardtheorie, aber nicht in der Formelsammlung – deshalb eine **Warnung** statt eines Fehlers.
+- **Darstellung** wie die Schubverläufe (normal zur Wand, min/max, Endwerte) in Grün; $M_T$ wird als Drehpfeil um den Pol gezeichnet (gegen den Uhrzeigersinn für $M_T > 0$, wie der Bredt-Schubfluss), platzierte Kräfte werden in dieser Ansicht ausgeblendet. Das Ergebnisfeld (`e`) zeigt $M_T$, $G$, $I_T$, $A_m$, $\vartheta$, $u_{x,max}$ mit Lage und den Pol.
+- **Prüfungen (Tests 32/33):** Quadratrohr wölbt nicht ($u_x \equiv 0$, das prüft nebenbei die Vorzeichenkonsistenz von Bredt-Term und $r_\perp$), Rechteckrohr $b \times h$ mit konstantem $t$: Eckwerte $|u| = \vartheta\,b h |b-h| / (4(b+h))$ alternierend, mittlere Verwölbung null; C-Profil: $|u| = \vartheta (h/2)(b-e)$ an den Flanschspitzen, $\vartheta\,e\,h/2$ an den Stegenden, null in Stegmitte.
+
+**Grenzen:**
+- Nur rein dünnwandige Profile mit geraden Elementen; massiv, gemischt, mehrzellig oder mit Kreisbögen: Fehler mit Begründung.
+- Reine Saint-Venant-Verwölbung; keine Wölbkrafttorsion, keine Wölbnormalspannungen.
 
 ## 7. Kernfläche
 **Möglichkeiten:**
@@ -185,7 +203,7 @@ Diese Datei dokumentiert alle funktionalen Features des Programms, ihre Möglich
 **Tastatur- und Bedienkürzel:**
 - `m`: Massiv-Element zeichnen.
 - `d`: Dünnwandiges Element zeichnen.
-- `b`: Berechnungsmenü öffnen.
+- `b`: Berechnungsmenü öffnen (1 Querschnittswerte, 2 Einzelwerte-Tabelle, 3 σx, 4 Kernfläche, 5 Schubspannung, 6 Schubmittelpunkt, 7 Verwölbung, 8 Schließen).
 - `e`: Ergebnistabelle öffnen.
 - `t`: Einzelwertetabelle öffnen.
 - `v`: Schubverlaufs-Auswahl öffnen; Ziffern `0` bis `9` wählen die Darstellung.
@@ -195,7 +213,7 @@ Diese Datei dokumentiert alle funktionalen Features des Programms, ihre Möglich
 - `+`/`-`: Zoom ändern.
 - `Esc`: Aktuelle Eingabe oder Ansicht abbrechen. Ist eine Meldungsbox offen, schließt das erste `Esc` nur die Box.
 - **Meldungsbox:** Gründe, warum etwas nicht berechnet wurde (Schub, Torsion, $\sigma_x$), ungültige Eingaben und Hinweise erscheinen als Box in der Bildmitte (rot: nicht berechnet bzw. Eingabefehler, gelb: Hinweis). Sie verschwindet mit `Esc`, beim Start einer neuen Berechnung oder wenn sich der Querschnitt ändert.
-- `Backspace` beziehungsweise `Delete`: Letztes Element löschen.
+- `Backspace` beziehungsweise `Delete`: Letztes Element löschen; in einer Eingabemaske (σx, Schub, Torsion, Verwölbung, Menüwert) löscht `Backspace` das letzte Zeichen.
 - `c` beziehungsweise die Clear-Taste: alles löschen. Vorher erscheint die Rückfrage **„Wirklich alles loeschen?“** – `Enter` löscht, `Esc` bricht ab. Bei leerem Querschnitt entfällt die Rückfrage.
 - Alle Menüs (Zeichnen, Optionen, Berechnungen, Element-Editor) und die Schubverlaufs-Auswahl stehen am **linken** Bildschirmrand; die Auswahl wird zuletzt gezeichnet und liegt damit über Kräften und Achsen.
 
@@ -206,9 +224,9 @@ Diese Datei dokumentiert alle funktionalen Features des Programms, ihre Möglich
 **Geschlossene Zellen und Symmetrie:** Bei genau einer geschlossenen Zelle folgt der konstante Umlaufschubfluss $q_0$ aus der Spiegelsymmetrie des Profils.
 
 - **Erkennung:** Die Mittellinien werden abgetastet (jeder Punkt muss gespiegelt wieder auf einer Kante gleicher Dicke liegen); die Symmetrie wird also auch erkannt, wenn beide Hälften unterschiedlich in Segmente geteilt sind. Die Ergebnisliste zeigt bei geschlossenen Profilen `Zellsymmetrie: <Achse>` bzw. `keine erkannt (q0 offen)` – schon vor der Schubrechnung.
-- **Schnitt auf der Symmetrieachse:** Dort ist der Schubfluss null, die Laufvariable beginnt also wie in der Handrechnung bei $S = 0$. Der nötige Knoten entsteht automatisch, weil die Elemente an den Schwerpunktachsen geteilt werden; bei zwei Querkraftkomponenten wird die Achse der größeren gewählt. Die Startmarke zeigt den Fall: **Start** am freien Ende, **Start (Symmetrieachse)** am Zellschnitt, **Schnitt (q0 offen)** ohne erkannte Symmetrie.
+- **Schnitt auf der Symmetrieachse:** Dort ist der Schubfluss null, die Laufvariable beginnt also wie in der Handrechnung bei $S = 0$. Der nötige Knoten entsteht automatisch, weil die Elemente an den Schwerpunktachsen geteilt werden; bei zwei Querkraftkomponenten wird die Achse der größeren gewählt. Die Startmarke zeigt den Fall: **Start** am freien Ende, **Start (Symmetrieachse)** am Zellschnitt, **Schnitt (q0 aus Verträglichkeit)**, wenn $q_0$ für eine Richtung aus der Verträglichkeit kam.
 - **Statische Momente:** Die $S$-Werte der Zelle werden auf diesen symmetrischen Schnitt bezogen. Die angezeigten $S$-Verläufe stimmen damit auch ohne eingegebene Querkraft mit der Handrechnung überein, nicht nur $\tau$.
-- **Warnungen:** Ohne erkannte Symmetrie wird an beliebiger Stelle geschnitten, $S$ und $\tau$ gelten dann nur bis auf $q_0$ – dazu erscheint bei jeder Schubrechnung eine Warnung. Schneidet die Achse die Zelle nicht (Schwerpunkt außerhalb), wird ebenfalls gewarnt. Mit Querkraft quer zur einzigen Symmetrieachse bleibt die Rechnung abgelehnt; die Begründung nennt die erkannten Symmetrieachsen.
+- **Warnungen:** Ohne erkannte Symmetrie oder mit Querkraft quer zur einzigen Achse wird an beliebiger Stelle geschnitten und $q_0$ aus der Verträglichkeit bestimmt. Die Warnung bleibt bewusst erhalten (die Symmetrie fehlt), sagt aber, dass $S$ und $\tau$ trotzdem richtig sind, und nennt die erkannten Achsen; dasselbe gilt für die Warnung beim Wechsel auf einen Verlauf der Richtung ohne Achse. Schneidet die Achse die Zelle nicht (Schwerpunkt außerhalb), wird ebenfalls gewarnt.
 
 ## 11. Bekannte fachliche und technische Grenzen
 **Geometrie:**
@@ -236,9 +254,14 @@ Meldungen erscheinen als Box in der Bildmitte: rot, wenn etwas nicht berechnet w
 | … Hauptachsen nicht parallel zu y/z (Winkel) | Massiver Querschnitt mit $I_{yz} \ne 0$ | $\tau = QS/(Ib)$ gilt nur bei Hauptachsen parallel zu den Achsen |
 | … nur für gerade dünnwandige Elemente | Dünnwandige Kreise oder Bögen | Der Profilgraph besteht nur aus Geraden |
 | … Mehrzelliges Profil: statisch unbestimmt | Zwei oder mehr geschlossene Zellen | Nur statisch bestimmte Fälle werden gerechnet |
-| … Geschlossene Zelle: Querkraft quer zur Symmetrieachse | Eine Zelle, Querkraft nicht parallel zu einer Symmetrieachse | Der Zellschubfluss $q_0$ folgt nur aus der Symmetrie |
+| **Warnung:** Geschlossene Zelle: für die Querkraft … fehlt die Symmetrieachse | Eine Zelle, Querkraft nicht parallel zu einer Symmetrieachse | $q_0$ kommt aus der Verträglichkeit, $S$ und $\tau$ sind trotzdem richtig |
+| **Warnung:** Geschlossene Zelle ohne erkannte Symmetrie | Keine Spiegelachse durch den Schwerpunkt erkannt | $q_0$ aus der Verträglichkeit, $S$ und $\tau$ trotzdem richtig; Hinweis auf gleiche Dicken |
+| **Warnung:** S bzw. τ setzt die Symmetrie zur …-Achse voraus | Ansicht 3–6 in einer Richtung ohne Achse | wie oben |
 | … Trägheitsmomente singulär | $I_yI_z - I_{yz}^2 \approx 0$ | Division durch null |
-| … Symmetriepartner in der Zelle nicht gefunden | Numerischer Sonderfall der Symmetrieauswertung | Schutz vor falschem $q_0$ |
+| … Umlaufintegral der Zelle nicht auswertbar | Numerischer Sonderfall ($\oint ds/t = 0$) | Schutz vor falschem $q_0$ |
+| **Verwölbung nicht berechnet:** nur rein dünnwandige Profile / Mehrzelliges Profil / I_T = 0 / Schubmittelpunkt nicht bestimmbar | Massiv oder gemischt, zwei Zellen, kein Torsionswiderstand | Keine TM2-Formel bzw. statisch unbestimmt |
+| **Warnung:** Offenes Profil: … nicht in der Formelsammlung | Verwölbung eines offenen Profils | $u_x = -\vartheta \int r\,ds + c$ ist Standardtheorie, steht aber nicht in der Formelsammlung |
+| **Hinweis:** V gehört zur Schubspannungsansicht | `v` in der Verwölbungsansicht | Bedienhinweis, `Esc` schließt die Verwölbung |
 | **Hinweis:** Hauptachsen nicht parallel zu y/z (Winkel), I_yz-Kopplung | Dünnwandiges Profil mit $I_{yz} \ne 0$ | Der Schubfluss wird mit Kopplung gerechnet (schiefe Biegung), nicht mit $\tau = QS/(It)$ |
 | **Torsion nicht berechnet:** nur rein dünnwandige Profile | Massiv oder gemischt | Keine Prandtl-Lösung in TM2 |
 | … Mehrzelliges Profil | Zwei oder mehr Zellen | Statisch unbestimmt |
@@ -257,5 +280,5 @@ Weitere Anzeigen außerhalb der Box:
 | Warnung: Numerisch berechnet! (Ergebnisfeld) | Ein Element wurde numerisch addiert | Die Werte sind eine Rasternäherung |
 | Hauptachsen parallel zu den Achsen ($I_{yz} = 0$), grün | $I_{yz} \approx 0$ | Hinweis, dass die einfachen Formeln gelten |
 | Hauptachsen nicht parallel zu den Achsen, orange | $I_{yz} \ne 0$ | Hinweis auf schiefe Biegung |
-| Schubmittelpunkt: statisch unbestimmt / zweite Koordinate statisch unbestimmt | Geschlossene Zelle mit Symmetrie nur in einer Richtung | Es wird nur angegeben, was bestimmt ist |
+| Schubmittelpunkt: statisch unbestimmt | Mehrzelliges Profil | Es wird nur angegeben, was bestimmt ist |
 | M o. D für Querschnitt | Leerer Bildschirm | Bedienhinweis zum Einstieg |

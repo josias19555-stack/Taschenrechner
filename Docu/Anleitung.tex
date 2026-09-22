@@ -197,6 +197,14 @@ angreifen -- also genau das Bild, das ihr sonst von Hand malt. Seite~1 zeigt die
 Seite~2 dieselben Kräfte mit ihren Namen ($Gx_1$, $Gn_2$, $A_h$ \dots), so wie sie auch im
 LGS-Export heißen.
 
+\textbf{Streckenlasten stehen dort als Resultierende:} Statt der Lastfläche seht ihr einen Pfeil
+auf der Wirkungslinie, beschriftet mit $R = \dots$, und die Lage hängt in der Maßkette unter dem
+System -- den Hebelarm könnt ihr also direkt ablesen. Das gilt für die Querlast $q$, die Längslast
+$n$ und die globalen Linienlasten $p_X$, $p_Y$; ein Streckenmoment $m$ wird zu einem Moment
+$M = m\,l$ in Stabmitte. Bei einer Dreieckslast sitzt der Pfeil, wo er hingehört, nämlich bei
+$x_R = S/R$ vom Stabanfang aus, und bei einer Lastfunktion wie \code{x\^{}2} rechnet das
+Programm $R$ und die Lage aus der Lastfunktion selbst.
+
 Im Obermenü (\taste{o}) stellt ihr die Darstellung ein: Seite~1 die Anzeige der Normalkraft und
 den Schnittgrößenmodus (\emph{Hover} zeigt den Wert unter dem Zeiger, \emph{Start\&End} die
 Stabendwerte), Seite~3 das Zahlenformat (Wurzelbrüche, nur Brüche, Dezimal), die Bemaßung, die
@@ -585,7 +593,7 @@ Flächenträgheitsmomente benutzen.
   \item Mit dem Zeiger auf einem Element und \taste{Enter} öffnet sich dessen Bearbeitungsmenü
         (Koordinaten, Dicke, Loch/Positiv, Löschen); ein Klick vorher ist nicht nötig.
   \item \taste{e} zeigt die Querschnittswerte, \taste{t} die Einzelwerte je Element.
-  \item \taste{b} öffnet das Berechnungsmenü für Spannungen, Schub, Torsion und Kernfläche.
+  \item \taste{b} öffnet das Berechnungsmenü für Spannungen, Schub, Kernfläche und Verwölbung.
 \end{enumerate}
 
 Zeichnen könnt ihr grob -- die Koordinaten korrigiert ihr danach im Elementmenü exakt. Das ist
@@ -713,19 +721,17 @@ Der \emph{Schubmittelpunkt} wird aus den Momenten der Schubflüsse für Einheits
 bestimmt; mit der Momententabelle (\taste{t} im Zusatzmenü) könnt ihr die Rechnung Segment für
 Segment nachvollziehen.
 
-\textbf{Berechnet wird nur, was nach TM2 statisch bestimmt ist:}
+\textbf{Berechnet wird:}
 
 \begin{itemize}
   \item offene dünnwandige Profile, auch unsymmetrische (mit $I_{yz}$-Kopplung),
-  \item Profile mit genau einer geschlossenen Zelle, auch mit offenen Ästen, sofern die Querkraft
-        parallel zu einer Symmetrieachse wirkt,
+  \item Profile mit genau einer geschlossenen Zelle, auch mit offenen Ästen -- mit Symmetrieachse
+        parallel zur Querkraft über die Symmetrie, sonst über die Verträglichkeit (siehe unten),
   \item massive Querschnitte mit $\tau = QS/(Ib)$, aber nur bei $I_{yz} = 0$.
 \end{itemize}
 
-Nicht berechnet werden: mehrzellige Profile, unsymmetrische geschlossene Zellen, Querkraft quer
-zur einzigen Symmetrieachse, gemischt massiv-dünnwandige Querschnitte und massive Querschnitte
-mit gedrehten Hauptachsen. Dann kommt eine rote Box mit dem Grund. Ist der Schubmittelpunkt nur
-teilweise bestimmt, gibt euch das Programm nur die Koordinate, die wirklich feststeht.
+Nicht berechnet werden: mehrzellige Profile, gemischt massiv-dünnwandige Querschnitte und massive
+Querschnitte mit gedrehten Hauptachsen. Dann kommt eine rote Box mit dem Grund.
 
 \subsection{Geschlossene Zellen: warum die Symmetrie so wichtig ist}
 
@@ -746,11 +752,32 @@ Genau das macht das Programm:
   \item Auch die angezeigten $S$-Verläufe sind auf diesen Schnitt bezogen, nicht nur $\tau$.
 \end{itemize}
 
-\textbf{Und wenn die Symmetrie fehlt?} Dann warnt euch das Programm, und zwar an zwei Stellen:
-einmal bei der Schubrechnung selbst (die Zelle wurde an beliebiger Stelle aufgeschnitten, $S$ und
-$\tau$ gelten nur bis auf $q_0$), und einmal, wenn ihr einen Verlauf anschaut, dessen Richtung
-keine Symmetrieachse hat. Habt ihr z.\,B.\ nur die $z$-Achse als Symmetrieachse, dann sind $S_y$
-und $\tau_z$ in Ordnung, $S_z$ und $\tau_y$ aber nicht -- und genau dann kommt die Warnung.
+\subsection{Ohne Symmetrieachse: die Verträglichkeit}
+
+Fehlt die Symmetrieachse parallel zur Querkraft -- unsymmetrische Zelle, Querkraft quer zur
+einzigen Achse, oder das Programm erkennt die Symmetrie aus irgendeinem Grund nicht --, dann hilft
+die Symmetrie nicht weiter. Das Programm schneidet die Zelle trotzdem auf, rechnet den offenen
+Verlauf und holt sich $q_0$ aus der \textbf{Verträglichkeit}: Unter einer Querkraft im
+Schubmittelpunkt verdrillt sich die Zelle nicht, also
+
+\[
+  \oint \frac{q}{G\,t}\,ds = 0 .
+\]
+
+Das ist genau die Handrechnung, die ihr sonst für die statisch unbestimmte Zelle machen würdet.
+Praktisch daran: Die Bedingung zerfällt in $\oint S_z/t\,ds = 0$ und $\oint S_y/t\,ds = 0$, das
+Programm verschiebt also jedes statische Moment um seine eigene Konstante. Damit stimmen nicht nur
+$\tau$, sondern auch die angezeigten $S$-Verläufe, und der Schubmittelpunkt ist für jede einzellige
+Zelle bestimmt -- also auch \emph{Torsion aus Kräften}. Beim symmetrischen Profil kommt exakt die
+antisymmetrische Lösung heraus; die Marke im Verlauf heißt dann \emph{Schnitt (q0 aus
+Verträglichkeit)}.
+
+\textbf{Die Warnung bleibt trotzdem}, und zwar an zwei Stellen: bei der Schubrechnung selbst
+(die Symmetrie fehlt, $q_0$ kam aus der Verträglichkeit) und wenn ihr einen Verlauf anschaut,
+dessen Richtung keine Symmetrieachse hat. Habt ihr z.\,B.\ nur die $z$-Achse als Symmetrieachse,
+dann kommen $S_y$ und $\tau_z$ aus der Symmetrie, $S_z$ und $\tau_y$ aus der Verträglichkeit --
+genau dann kommt die Warnung, und sie sagt dazu, dass $S$ und $\tau$ trotzdem richtig sind. Ihr
+sollt wissen, dass ihr in der Klausur an dieser Stelle die Verträglichkeitsbedingung braucht.
 
 Bei $I_{yz} \ne 0$ und dünnwandigem Profil erscheint zusätzlich ein gelber Hinweis mit dem
 Hauptachsenwinkel: Der Schubfluss wurde mit der Kopplung
@@ -778,6 +805,44 @@ ist dann der \emph{Schubmittelpunkt}. Für massive und gemischte Querschnitte gi
 TM2-Formel, für mehrzellige Profile ebenfalls nicht: Das Programm lehnt mit Begründung ab und
 rechnet bewusst keine Prandtl-Lösung, die ihr in der Klausur ohnehin nicht verwenden dürftet.
 
+\section{Verwölbung}
+
+Im Berechnungsmenü unter \emph{7. Verwölbung} bekommt ihr die Verwölbung dünnwandiger Profile
+nach Kapitel~6 der Formelsammlung:
+
+\[
+  u_x(s) = \int_s \left[ \frac{M_T}{2\,G\,A_m\,h(s)} - r_\perp\,\vartheta \right] ds + c,
+  \qquad \vartheta = \frac{M_T}{G\,I_T}, \qquad I_T = \frac{4A_m^2}{\oint ds/h}.
+\]
+
+Ein Dialog fragt $M_T$ (vorbelegt mit dem Moment eurer platzierten Kräfte um den
+Schubmittelpunkt, sonst leer) und den Schubmodul $G$ in N/mm$^2$ (vorbelegt 81\,000). Das
+$M_T$ gilt \textbf{nur in dieser Ansicht} -- \taste{Esc} schließt sie und verwirft es, an die
+Torsion der Schubspannungsrechnung wird es nicht übergeben. Der Verlauf wird wie die
+Schubverläufe normal zur Wand gezeichnet, $M_T$ als Drehpfeil um den Pol; \taste{e} zeigt
+$\vartheta$, $I_T$, $A_m$ und $u_{x,max}$.
+
+Drei Dinge, die ihr aus der Handrechnung kennt und die das Programm genauso macht:
+
+\begin{itemize}
+  \item \textbf{Pol ist der Schubmittelpunkt}, denn um den dreht sich der Querschnitt bei
+        Torsion. Bei doppelt symmetrischen Profilen ist das der Schwerpunkt.
+  \item $r_\perp$ \textbf{hat ein Vorzeichen}: positiv, wenn der Fahrstrahl vom Pol zum
+        Laufpunkt beim Fortschreiten im Drehsinn des positiven Torsionsmoments dreht. Bei einer
+        Zelle mit dem Pol innen ist das überall der positive Abstand -- deshalb funktioniert die
+        Handrechnung mit \enquote{Abstand} so gut. Beim C-Profil liegt der Pol außerhalb, und der
+        Stegbeitrag geht mit anderem Vorzeichen ein als die Flanschbeiträge.
+  \item \textbf{Die Konstante $c$} legt das Nullniveau fest: $\int u_x\,h\,ds = 0$, also keine
+        mittlere Längsverschiebung. Bei symmetrischen Profilen ist $u_x$ damit auf der Achse null
+        -- genau das bekommt ihr, wenn ihr dort mit $c = 0$ startet.
+\end{itemize}
+
+\textbf{Offene Profile} rechnet das Programm auch: Der Bredt-Term entfällt, es bleibt
+$u_x = -\vartheta \int r_\perp\,ds + c$. Das ist Standardtheorie, steht aber nicht in der
+Formelsammlung -- deshalb kommt eine Warnung. Ein Quadratrohr wölbt sich nicht; das Rechteckrohr
+$b \times h$ hat an den Ecken $|u_x| = \vartheta\,b\,h\,|b-h|/(4(b+h))$, abwechselnd nach vorn und
+hinten. Mehrzellige, massive und gemischte Querschnitte: Fehler mit Begründung.
+
 \section{Kernfläche}
 
 \taste{k} schaltet den Kernflächenmodus weiter: umhüllende Geraden, Kernfläche, aus. Die
@@ -800,12 +865,16 @@ auch, wenn ihr neu rechnet oder den Querschnitt ändert.
   Schub: nur für gerade dünnwandige Elemente & Dünnwandige Kreise und Bögen sind nicht im
     Profilgraph \\
   Schub: mehrzelliges Profil & Statisch unbestimmt \\
-  Schub: Querkraft quer zur Symmetrieachse & Der Zellschubfluss folgt nur aus der Symmetrie; die
-    Meldung nennt die erkannten Achsen \\
-  Geschlossene Zelle ohne erkannte Symmetrie & $q_0$ bleibt offen, $S$ und $\tau$ gelten nur bis
-    auf diesen konstanten Anteil \\
-  $S$ bzw.\ $\tau$ in der Richtung ohne Symmetrieachse & Der gezeigte Verlauf ist dort sehr
-    wahrscheinlich falsch \\
+  Warnung: Querkraft quer zur Symmetrieachse & $q_0$ kommt aus der Verträglichkeit, $S$ und
+    $\tau$ sind trotzdem richtig; die Meldung nennt die erkannten Achsen \\
+  Warnung: Geschlossene Zelle ohne erkannte Symmetrie & $q_0$ aus der Verträglichkeit, $S$ und
+    $\tau$ trotzdem richtig \\
+  Warnung: $S$ bzw.\ $\tau$ in der Richtung ohne Symmetrieachse & Dort kam $q_0$ aus der
+    Verträglichkeit; der Verlauf ist trotzdem richtig \\
+  Verwölbung nicht berechnet & Massiv, gemischt, mehrzellig, $I_T = 0$ oder Schubmittelpunkt
+    unbestimmt \\
+  Warnung: Offenes Profil, nicht in der Formelsammlung & $u_x = -\vartheta\int r\,ds + c$ ist
+    Standardtheorie, aber nicht Teil der Formelsammlung \\
   Schub: Trägheitsmomente singulär & $I_yI_z - I_{yz}^2 \approx 0$ \\
   Hinweis: Hauptachsen nicht parallel, $I_{yz}$-Kopplung & Schiefe Biegung, siehe oben \\
   Torsion: nur rein dünnwandige Profile & Keine Prandtl-Lösung \\
@@ -823,10 +892,10 @@ auch, wenn ihr neu rechnet oder den Querschnitt ändert.
 \section{Was das Querschnittsskript nicht kann}
 
 \begin{itemize}
-  \item Kein Schub und keine Torsion für statisch unbestimmte Fälle (siehe oben).
+  \item Kein Schub, keine Torsion und keine Verwölbung für mehrzellige Profile.
   \item Keine Prandtlsche Torsionsrechnung für massive Querschnitte.
-  \item Keine Wölbkrafttorsion, keine Querschnittsverformung, keine lokalen Spannungsspitzen,
-        keine Kerbwirkung.
+  \item Keine Wölbkrafttorsion (die Verwölbung selbst schon, siehe oben), keine
+        Querschnittsverformung, keine lokalen Spannungsspitzen, keine Kerbwirkung.
   \item Dünnwandige Kreise und Bögen gehen in die Querschnittswerte ein, nicht aber in die
         Schubrechnung.
   \item Numerisch addierte Elemente sind eine Rasternäherung (Warnung im Ergebnisfeld).
@@ -883,7 +952,8 @@ das gar nicht bestimmt ist.
   \toprule
   \textbf{Taste} & \textbf{Wirkung} \\
   \midrule \endhead
-  Pfeiltasten & Zelle wählen: links/rechts der Schnitt, oben/unten $\alpha$, $\sigma$, $\tau$ \\
+  Pfeiltasten & Tabelle: Zelle wählen (links/rechts der Schnitt, oben/unten $\alpha$, $\sigma$,
+    $\tau$); Kreis: Marke bewegen (links/rechts der Schnitt, oben/unten $5^\circ$) \\
   Ziffer, \code{.}, \code{-} & fängt sofort eine neue Eingabe in der Zelle an \\
   \taste{Enter} & Zelle zum Ändern öffnen bzw.\ übernehmen; danach geht es
     $\alpha \rightarrow \sigma \rightarrow \tau \rightarrow$ nächster Schnitt \\
@@ -901,7 +971,9 @@ In die Zellen dürft ihr auch rechnen: \code{10*2}, \code{sqrt(2)} und \code{1,5
 
 \section{Die beiden Bilder}
 
-\textbf{Spannungsscheibe (\taste{s}):} Die Scheibe ist ein \textbf{Vieleck mit einer Kante je
+\textbf{Spannungsscheibe (\taste{s}):} Gezeichnet wird im gewohnten Koordinatensystem:
+\textbf{$x$ zeigt nach unten, $y$ nach rechts} -- genau wie im Querschnittsskript. Ein Schnitt mit
+$\alpha = 0$ liegt damit unten. Die Scheibe ist ein \textbf{Vieleck mit einer Kante je
 Schnitt} -- also genau die Figur, die ihr in der Aufgabe seht. An jeder Kante hängt ein roter
 Pfeil für die Normalspannung (nach außen bei Zug, auf die Kante zu bei Druck) und ein blauer für
 die Schubspannung längs der Kante, dazu die Beschriftung mit $\alpha$, $\sigma$ und $\tau$
@@ -910,10 +982,16 @@ Schnitten zum Beispiel --, ergänzt das Programm die Rückseiten, damit die Sche
 ist; diese Kanten sind mit \code{R} gekennzeichnet und tragen dieselben Spannungen.
 
 \textbf{Mohrscher Kreis (\taste{k}):} $\sigma$ nach rechts, $\tau$ nach oben, der Kreis um
-$(\sigma_m, 0)$ mit Radius $R$. Hauptspannungen und Mittelpunkt sind markiert, jeder Schnitt ist
-als Punkt mit Radiusstrahl eingezeichnet. Denkt an den Faktor~2: Eine Drehung des Schnitts um
-$\alpha$ entspricht im Kreis $2\alpha$, und bei wachsendem $\alpha$ wandern die Punkte im
-Uhrzeigersinn.
+$(\sigma_m, 0)$ mit Radius $R$. Die $\tau$-Achse steht dort, wo sie hingehört, nämlich bei
+$\sigma = 0$ -- ihr seht also ein richtiges Koordinatensystem und könnt direkt sehen, ob der
+Zustand ganz im Zug- oder Druckbereich liegt. Hauptspannungen, Mittelpunkt und Nullpunkt sind
+markiert, jeder Schnitt ist als Punkt mit Radiusstrahl eingezeichnet. Liegt der Kreis sehr weit
+vom Ursprung weg, hat der Kreis Vorrang; der Nullpunkt steht dann als gepunktete Linie am
+Bildrand. Mit den \textbf{Pfeiltasten} wandert ihr über den Kreis: links und rechts springen von
+Schnitt zu Schnitt, hoch und runter drehen in $5^\circ$-Schritten weiter. Unten stehen dabei
+immer $\alpha$, $\sigma$ und $\tau$ der Marke -- so bekommt ihr auch den Zustand in einem Schnitt,
+den ihr gar nicht eingegeben habt. Denkt an den Faktor~2: Eine Drehung des Schnitts um $\alpha$ entspricht im Kreis
+$2\alpha$, und bei wachsendem $\alpha$ wandern die Punkte im Uhrzeigersinn.
 
 \bildplatz{spannungskreis}{Tabelle, Spannungsscheibe und Mohrscher Kreis}
 
@@ -1015,7 +1093,7 @@ Winkel zu $\tau_{max}$). Für alles, was nach Schnitten gefragt ist, ist das neu
   \taste{+}, \taste{-} & Zoom \\
   \taste{Enter} & Menüpunkt wählen, Element bearbeiten, Eingabe übernehmen \\
   \taste{Esc} & Box, Eingabe oder Ansicht schließen \\
-  \taste{Backspace}, \taste{Del} & letztes Element löschen \\
+  \taste{Backspace}, \taste{Del} & letztes Element löschen; in Eingabemasken ein Zeichen \\
   \bottomrule
 \end{longtable}
 
@@ -1025,7 +1103,7 @@ Winkel zu $\tau_{max}$). Für alles, was nach Schnitten gefragt ist, ist das neu
   \toprule
   \textbf{Taste} & \textbf{Funktion} \\
   \midrule \endhead
-  Pfeiltasten & Zelle wählen (links/rechts Schnitt, oben/unten $\alpha$, $\sigma$, $\tau$) \\
+  Pfeiltasten & Zelle wählen; im Kreis die Marke bewegen \\
   Ziffer, \code{.}, \code{-} & Eingabe in der Zelle beginnen \\
   \taste{b} & rechnen \\
   \taste{s}, \taste{k} & Spannungsscheibe, Mohrscher Kreis (nur bei eindeutigem Zustand) \\

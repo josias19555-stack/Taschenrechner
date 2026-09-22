@@ -259,6 +259,28 @@ In der Explosion werden unter anderem dargestellt:
 - Lastangriff und Reaktionsbeiträge,
 - symbolische Bezeichnungen, wenn der symbolische Modus aktiv ist.
 
+### 7.1 Streckenlasten als Resultierende
+
+Auf beiden Explosionsseiten wird jede Streckenlast durch ihre **Resultierende** ersetzt – also
+genau das Bild, mit dem man das Gleichgewicht von Hand aufstellt:
+
+- ein Pfeil auf der Wirkungslinie, beschriftet mit `R = …` (im symbolischen Modus der CAS-Term
+  aus `processDistLoad_PvV`, sonst der Zahlenwert),
+- die Lage folgt aus dem Flächenmoment der Last, $x_R = S/R$ vom Anfangsknoten aus gemessen,
+- betroffen sind die Querlast `q`, die Längslast `n` und die globalen Linienlasten `gx`/`gy`
+  (bei projizierten Lasten mit der projizierten Länge),
+- ein Streckenmoment `m` wird zu einem Momentensymbol in Stabmitte mit `M = …`.
+
+`lastResultierende` liefert $R$ und $S$: Für Lastfunktionen wie `q(x) = x^2` wird über die elf
+gespeicherten Stützwerte mit der Simpson-Regel integriert – für lineare und quadratische Lasten
+ist das exakt –, sonst gilt die Trapezformel aus den Endwerten plus dem im PvV vorbereiteten
+CAS-Anteil.
+
+Die **Wirkungslinien werden bemaßt**: Die Angriffspunkte kommen zusammen mit den Knoten in die
+globale Maßkette, sodass der Hebelarm direkt ablesbar ist. Das passiert auf der E-Seite
+unabhängig vom Schalter *Bemaßung* im Obermenü, weil die Resultierende ohne ihre Lage nichts
+nützt. Beim Hovern eines Teilsystems auf Seite 2 wird nur dieses Teilsystem bemaßt.
+
 ## 8. Kinematik, Polplan und Verschiebungszustände
 
 ### 8.1 Kinematische Prüfung

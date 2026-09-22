@@ -169,6 +169,19 @@ local function resultierende(samples)
     return Fu, Fv, Mo
 end
 
+-- Vertraeglichkeit der Zelle: Umlaufintegral tau/t ds (im Umlaufsinn) muss null sein
+local function umlaufTauDurchT(samples)
+    local summe, laenge = 0, 0
+    for _, s in ipairs(samples or {}) do
+        if s.in_cell then
+            local w = (s.parameter <= 1e-9 or s.parameter >= 1 - 1e-9) and 0.5 or 1
+            summe = summe + s.tau * (s.cell_sign or 1) * s.ds * w / s.thickness
+            laenge = laenge + s.ds * w / s.thickness
+        end
+    end
+    return summe, laenge
+end
+
 fall('5 Kasten doppeltsymmetrisch', function()
     T.abschnitt('Befund 5: Kasten 10x6, t=1, doppeltsymmetrisch, einzellig')
     for _, start in ipairs({ 0, 1 }) do
@@ -192,7 +205,7 @@ fall('5 Kasten doppeltsymmetrisch', function()
 end)
 
 fall('5b Trapezkasten einfachsymmetrisch', function()
-    T.abschnitt('Einzellig, nur zur senkrechten Achse symmetrisch: Q parallel zur Achse ja, quer dazu nein')
+    T.abschnitt('Einzellig, nur zur senkrechten Achse symmetrisch: Q parallel zur Achse per Symmetrie, quer dazu per Vertraeglichkeit')
     T.zug({ -6, 3, 6, 3, 4, -3, -4, -3, -6, 3 }, 1); T.rechne()
     local rb = Q.schub(0, 1)
     wahr('Q_b (parallel zur Symmetrieachse) berechnet', rb ~= nil, Q.status())
@@ -204,8 +217,21 @@ fall('5b Trapezkasten einfachsymmetrisch', function()
         zahl('Resultierende liegt auf der Symmetrieachse (M um u=0 ist 0)', Mo, 0, 1e-3)
     end
     local ra = Q.schub(1, 0)
-    wahr('Q_a (quer zur einzigen Symmetrieachse) wird abgelehnt', ra == nil, Q.status())
-    wahr('  Meldung nennt statische Unbestimmtheit', (Q.status() or ''):find('unbestimmt') ~= nil, Q.status())
+    wahr('Q_a (quer zur einzigen Symmetrieachse) wird jetzt berechnet', ra ~= nil, Q.status())
+    if ra then
+        wahr('  q0 kam fuer diese Richtung aus der Vertraeglichkeit',
+            ra.zelle_korrigiert and ra.zelle_korrigiert.vertraeglich and ra.zelle_korrigiert.vertraeglich.a == true)
+        local _, samples = Q.duennSchub(1, 0)
+        local summe, laenge = umlaufTauDurchT(samples)
+        zahl('  Umlaufintegral tau/t ds = 0', summe / laenge, 0, 1e-6)
+        local Fu, Fv = resultierende(samples)
+        zahl('  Resultierende |F_u| = 1', math.abs(Fu), 1, 1e-3)
+        zahl('  Resultierende F_v = 0', Fv, 0, 1e-3)
+        local m = Q.meldung()
+        wahr('  Warnung nennt die fehlende Achse und "trotzdem richtig"', m ~= nil
+            and tostring(m.text):find('fehlt die Symmetrieachse', 1, true) ~= nil
+            and tostring(m.text):find('trotzdem richtig', 1, true) ~= nil, m and m.text)
+    end
 end)
 
 fall('6 Offene Profile', function()
@@ -241,11 +267,23 @@ fall('6b C-Profil', function()
 end)
 
 fall('6c Geschlossen unsymmetrisch', function()
-    T.abschnitt('Unsymmetrische bzw. mehrzellige geschlossene Profile sind statisch unbestimmt -> Ablehnung')
+    T.abschnitt('Unsymmetrische Zelle ueber die Vertraeglichkeit, mehrzellig bleibt abgelehnt')
     T.zug({ 0, 0, 100, 0, 0, 60, 0, 0 }, 2); T.rechne()
-    wahr('Dreieck geschlossen: Schub abgelehnt', Q.schub(0, 1000) == nil, Q.status())
+    local rd = Q.schub(0, 1000)
+    wahr('Dreieck geschlossen: Schub ueber die Vertraeglichkeit berechnet', rd ~= nil, Q.status())
     local m = Q.smp()
-    wahr('Dreieck geschlossen: kein Schubmittelpunkt ausgegeben', not (m and m.known), m and m.u)
+    wahr('Dreieck geschlossen: Schubmittelpunkt jetzt bestimmt', m and m.known, m and m.u)
+    if rd and m and m.known then
+        for _, q in ipairs({ { 1, 0 }, { 0, 1 } }) do
+            local _, samples = Q.duennSchub(q[1], q[2])
+            local summe, laenge = umlaufTauDurchT(samples)
+            zahl(string.format('Dreieck Q=(%d,%d): Umlaufintegral tau/t ds = 0', q[1], q[2]), summe / laenge, 0, 1e-6)
+            local Fu, Fv, Mo = resultierende(samples)
+            zahl(string.format('Dreieck Q=(%d,%d): |F| = 1', q[1], q[2]), math.sqrt(Fu ^ 2 + Fv ^ 2), 1, 1e-3)
+            zahl(string.format('Dreieck Q=(%d,%d): Moment um den Schubmittelpunkt = 0', q[1], q[2]),
+                Mo - (m.u * Fv - m.v * Fu), 0, 1e-2)
+        end
+    end
     T.reset()
     T.zug({ -6, 3, 6, 3, 6, -3, -6, -3, -6, 3 }, 1); T.duenn(P(0, 3), P(0, -3), 1); T.rechne()
     wahr('Zweizeller: Schub abgelehnt', Q.schub(0, 1) == nil, Q.status())
@@ -327,17 +365,18 @@ fall('6d I-Profil', function()
 end)
 
 fall('7b Torsion einfachsymmetrisch', function()
-    T.abschnitt('Trapezkasten (Symmetrie nur senkrecht): Kraft auf der Achse ja, waagerechte Kraft nein')
+    T.abschnitt('Trapezkasten (Symmetrie nur senkrecht): Kraft auf der Achse ohne Torsion, waagerechte Kraft jetzt bestimmbar')
     T.zug({ -6, 3, 6, 3, 4, -3, -4, -3, -6, 3 }, 1)
     table.insert(Q.K(), { u = 0, v = 1, fa = 0, fb = 1000, fc = 0 })
     T.rechne()
     local m = Q.smp()
-    wahr('Schubmittelpunkt: u bekannt, v statisch unbestimmt', m and m.known_u and not m.known_v)
+    wahr('Schubmittelpunkt: beide Koordinaten bestimmt (v ueber die Vertraeglichkeit)', m and m.known)
     local t = Q.kraftTorsion()
     wahr('senkrechte Kraft auf der Symmetrieachse: keine Torsion', t == nil or math.abs(t.M) < 0.2, t and t.M)
     Q.K()[1].fa, Q.K()[1].fb = 1000, 0
     T.rechne()
-    wahr('waagerechte Kraft: abgelehnt (Schubmittelpunkt-Hoehe unbestimmt)', Q.kraftTorsion() == nil, Q.status())
+    local t2 = Q.kraftTorsion()
+    wahr('waagerechte Kraft: Torsion um den Schubmittelpunkt jetzt bestimmbar', t2 ~= nil and t2.closed == true, Q.status())
 end)
 
 -- ============================================================ Torsion
@@ -597,7 +636,7 @@ fall('23 Zellsymmetrie trotz anderer Unterteilung', function()
 end)
 
 fall('24 Geschlossene Zelle ohne Symmetrie warnt', function()
-    T.abschnitt('Dreieckszelle: keine Spiegelsymmetrie, q0 bleibt offen')
+    T.abschnitt('Dreieckszelle: keine Spiegelsymmetrie, q0 aus der Vertraeglichkeit')
     T.duenn(T.P(0, 0), T.P(40, 0), 2)
     T.duenn(T.P(40, 0), T.P(10, 20), 2)
     T.duenn(T.P(10, 20), T.P(0, 0), 2)
@@ -613,12 +652,13 @@ fall('24 Geschlossene Zelle ohne Symmetrie warnt', function()
     local m = Q.meldung()
     T.wahr('Warnung erscheint', m ~= nil and tostring(m.text):find('ohne erkannte Symmetrie', 1, true) ~= nil,
         m and m.text or 'keine Meldung')
-    -- mit Querkraft: statisch unbestimmt, Begruendung nennt die fehlende Symmetrie
+    -- mit Querkraft: q0 aus der Vertraeglichkeit, die Warnung bleibt und sagt, dass S und tau stimmen
     local res2 = Q.schub(0, 1)
-    T.wahr('Schub abgelehnt', res2 == nil)
-    T.wahr('Begruendung nennt q0 und Symmetrie',
-        tostring(Q.status()):find('Symmetrie', 1, true) ~= nil and tostring(Q.status()):find('q0', 1, true) ~= nil,
-        Q.status())
+    T.wahr('Schub ueber die Vertraeglichkeit berechnet', res2 ~= nil, Q.status())
+    local m2 = Q.meldung()
+    T.wahr('Warnung nennt q0, Symmetrie und "trotzdem richtig"', m2 ~= nil
+        and tostring(m2.text):find('Symmetrie', 1, true) ~= nil and tostring(m2.text):find('q0', 1, true) ~= nil
+        and tostring(m2.text):find('trotzdem richtig', 1, true) ~= nil, m2 and m2.text)
 end)
 
 fall('25 Symmetrische Zelle: S auf den symmetrischen Schnitt bezogen', function()
@@ -720,7 +760,7 @@ fall('26 Startmarken im Schubverlauf', function()
     T.rechne()
     Q.schub(0, 0)
     local m3 = marken()
-    T.wahr('unsymmetrische Zelle: Schnitt (q0 offen)', m3:find('q0 offen', 1, true) ~= nil, m3)
+    T.wahr('unsymmetrische Zelle: Schnitt (q0 aus Vertraeglichkeit)', m3:find('Verträglichkeit', 1, true) ~= nil, m3)
     T.wahr('kein "Start" ohne freies Ende', m3:find('Start', 1, true) == nil, m3)
 end)
 
@@ -748,7 +788,8 @@ fall('27 Zellschnitt auf der Symmetrieachse', function()
         end
         T.zahl('S am Start ist null', sy or 999, 0, 1e-9)
     end
-    -- Zelle, die von der Schwerpunktachse nicht geschnitten wird: Warnung
+    -- Zelle, die von der senkrechten Schwerpunktachse nicht geschnitten wird: der Schnitt liegt auf der
+    -- waagerechten Achse, q0 fuer Q_b kommt aus der Vertraeglichkeit
     T.reset()
     -- kleiner Kasten links, schwerer Gurt rechts zieht den Schwerpunkt aus der Zelle heraus
     T.duenn(T.P(0, 0), T.P(4, 0), 1)
@@ -758,13 +799,15 @@ fall('27 Zellschnitt auf der Symmetrieachse', function()
     T.duenn(T.P(4, 2), T.P(60, 2), 20)
     T.rechne()
     local res2 = Q.schub(0, 1)
+    T.wahr('Schub berechnet (q0 aus der Vertraeglichkeit)', res2 ~= nil, Q.status())
     if res2 then
-        T.wahr('Schnitt nicht auf der Achse', res2.schnitt_auf_achse == false, tostring(res2.schnitt_auf_achse))
+        T.wahr('nur waagerechte Symmetrie', res2.sym_h == true and res2.sym_v == false,
+            tostring(res2.sym_v) .. '/' .. tostring(res2.sym_h))
+        T.wahr('Schnitt liegt auf der waagerechten Achse', res2.schnitt_auf_achse == true, tostring(res2.schnitt_auf_achse))
         local m = Q.meldung()
-        T.wahr('Warnung dazu', m ~= nil and tostring(m.text):find('Symmetrieachse beginnen', 1, true) ~= nil,
-            m and m.text or 'keine Meldung')
-    else
-        T.write('   Schub abgelehnt: ' .. tostring(Q.status()) .. '\n')
+        T.wahr('Warnung nennt die fehlende Achse und "trotzdem richtig"', m ~= nil
+            and tostring(m.text):find('fehlt die Symmetrieachse', 1, true) ~= nil
+            and tostring(m.text):find('trotzdem richtig', 1, true) ~= nil, m and m.text or 'keine Meldung')
     end
 end)
 
@@ -855,6 +898,183 @@ fall('29 Warnung bei Verlauf ohne Symmetrieachse', function()
     T.rechne()
     Q.schub(0, 1)
     T.wahr('offenes Profil: keine Warnung', ansicht2('4') == '', ansicht2('4'))
+end)
+
+fall('30 Vertraeglichkeit gegen Symmetrie', function()
+    T.abschnitt('Symmetrischer Kasten: die Vertraeglichkeit liefert dieselben S und tau wie die Spiegelung')
+    kasten(2, 1); T.rechne()
+    local _, sym = Q.duennSchub(1, 0.5)
+    Q.immerVertraeglich(true)
+    local _, ver = Q.duennSchub(1, 0.5)
+    Q.immerVertraeglich(false)
+    wahr('beide Rechnungen liefern Stuetzstellen', sym ~= nil and ver ~= nil and #sym == #ver, sym and #sym)
+    if sym and ver and #sym == #ver then
+        local dS, dT, skala = 0, 0, 1e-9
+        for i = 1, #sym do
+            dS = math.max(dS, math.abs(sym[i].Sz - ver[i].Sz), math.abs(sym[i].Sy - ver[i].Sy))
+            dT = math.max(dT, math.abs(sym[i].tau - ver[i].tau))
+            skala = math.max(skala, math.abs(sym[i].Sz), math.abs(sym[i].Sy))
+        end
+        zahl('max |Delta S| / max |S| = 0', dS / skala, 0, 1e-9)
+        zahl('max |Delta tau| = 0', dT, 0, 1e-9)
+    end
+end)
+
+fall('31 Verlaufszeichnung', function()
+    T.abschnitt('Zeichnen: eine Polylinie je Abschnitt, pixelweise ausgeduennt, Werte aus allen Stuetzstellen')
+    T.duenn(P(0, 0), P(40, 0), 2); T.duenn(P(40, 0), P(40, 20), 2)
+    T.duenn(P(40, 20), P(0, 20), 2); T.duenn(P(0, 20), P(0, 0), 2)
+    T.rechne()
+    local res = Q.schub(0, 1)
+    wahr('Schub berechnet', res ~= nil, Q.status())
+    if not res then return end
+    Q.setView(7, true)
+    on.charIn('h')          -- einpassen: 40 Einheiten auf ~260 px, Stuetzstellen dichter als 1,5 px
+    T.texte, T.pos = {}, {}; T.zaehlerReset()
+    Q.paint(T.gc)
+    local n = #res.samples
+    wahr('viele Stuetzstellen gerechnet', n > 500, n)
+    wahr('eine Polylinie je Abschnitt', T.zaehler.polylinien >= 4 and T.zaehler.polylinien <= 12, T.zaehler.polylinien)
+    wahr('gezeichnete Punkte deutlich weniger als Stuetzstellen', T.zaehler.polypunkte <= n * 0.6,
+        T.zaehler.polypunkte .. ' von ' .. n)
+    -- der beschriftete Extremwert kommt aus allen Stuetzstellen
+    local v1, v2 = Q.fmt(res.max_tau), Q.fmt(-res.max_tau)
+    local gefunden = false
+    for _, t in ipairs(T.texte) do
+        if t == v1 or t == v2 or t == 'max ' .. v1 or t == 'min ' .. v2 then gefunden = true end
+    end
+    wahr('tau_max steht als Beschriftung im Bild', gefunden, v1 .. ' / ' .. v2)
+    -- Mausbewegung ueber dem Verlauf loest kein Neuzeichnen je Bewegung mehr aus
+    local inv, alt = 0, platform.window.invalidate
+    platform.window.invalidate = function() inv = inv + 1 end
+    for i = 0, 20 do
+        local x, y = Q.toScreen(5 + i * 1.5, 0)
+        on.mouseMove(x, y)
+    end
+    platform.window.invalidate = alt
+    wahr('Mausbewegung entlang der Wand zeichnet hoechstens einmal neu', inv <= 1, inv)
+    Q.setView(0, false)
+end)
+
+fall('32 Verwoelbung', function()
+    T.abschnitt('Verwoelbung: Quadrat woelbt nicht, Rechteck nach Eckformel, C-Profil nach Lehrbuch')
+    local function wertBei(samples, u, v)
+        for _, s in ipairs(samples) do
+            if math.abs(s.u - u) < 1e-6 and math.abs(s.v - v) < 1e-6 then return s.ux end
+        end
+    end
+    -- Quadratrohr 10x10, t=1: I_T = 4*100^2/40 = 1000, keine Verwoelbung
+    T.zug({ -5, 5, 5, 5, 5, -5, -5, -5, -5, 5 }, 1); T.rechne()
+    local q, fehler = Q.verwoelbung(1000, 1)
+    wahr('Quadrat: berechnet', q ~= nil, fehler)
+    if q then
+        zahl('Quadrat: I_T = 1000', q.It, 1000, 1e-9)
+        zahl('Quadrat: u_x = 0 ueberall', q.max_abs, 0, 1e-9)
+        zahl('Quadrat: Umlauf schliesst', q.schluss, 0, 1e-9)
+        wahr('Quadrat: geschlossen', q.closed == true)
+    end
+    -- Rechteckrohr 10x6, t=1: I_T = 4*60^2/32 = 450, Ecke |u| = theta*b*h*|b-h|/(4(b+h)) = 3.75 theta
+    T.reset(); kasten(1, 1); T.rechne()
+    local rr, f2 = Q.verwoelbung(1000, 1)
+    wahr('Rechteck: berechnet', rr ~= nil, f2)
+    if rr then
+        zahl('Rechteck: I_T = 450', rr.It, 450, 1e-9)
+        local theta = 1000 / (1 * 450)
+        zahl('Rechteck: theta = MT/(G I_T)', rr.theta, theta, 1e-9)
+        local soll = theta * 10 * 6 * 4 / (4 * 16)
+        zahl('Rechteck: |u| in der Ecke (5,3)', math.abs(wertBei(rr.samples, 5, 3) or 0), soll, 1e-9)
+        zahl('Rechteck: |u| in der Ecke (-5,-3)', math.abs(wertBei(rr.samples, -5, -3) or 0), soll, 1e-9)
+        wahr('Rechteck: Nachbarecken mit entgegengesetztem Vorzeichen',
+            (wertBei(rr.samples, 5, 3) or 0) * (wertBei(rr.samples, -5, 3) or 0) < 0)
+        zahl('Rechteck: u = 0 auf der Symmetrieachse (0,3)', wertBei(rr.samples, 0, 3) or 999, 0, 1e-9)
+        zahl('Rechteck: u_max = Eckwert', rr.max_abs, soll, 1e-9)
+        zahl('Rechteck: Umlauf schliesst', rr.schluss, 0, 1e-9)
+        local summe, laenge = 0, 0
+        for _, sm in ipairs(rr.samples) do
+            local w = (sm.parameter <= 1e-9 or sm.parameter >= 1 - 1e-9) and 0.5 or 1
+            summe = summe + sm.ux * sm.thickness * sm.ds * w; laenge = laenge + sm.thickness * sm.ds * w
+        end
+        zahl('Rechteck: mittlere Verwoelbung = 0', summe / laenge / soll, 0, 1e-6)
+    end
+    -- C-Profil (offen): Steg h=10, Flansche b=5, t=1, e = 1.875 -> omega_M = (h/2)(b-e) = 15.625 an der Flanschspitze,
+    -- e*h/2 = 9.375 am Stegende, null in Stegmitte (antisymmetrisch)
+    T.reset()
+    T.duenn(P(5, 0), P(0, 0), 1); T.duenn(P(0, 0), P(0, 10), 1); T.duenn(P(0, 10), P(5, 10), 1)
+    local r = T.rechne()
+    local cc, f3 = Q.verwoelbung(1000, 1)
+    wahr('C-Profil: berechnet (offen)', cc ~= nil and cc.closed == false, f3)
+    if cc then
+        local theta = 1000 / (1 * r.It)
+        zahl('C: I_T offen', cc.It, r.It, 1e-12)
+        zahl('C: |u| an der Flanschspitze = theta*15.625', math.abs(wertBei(cc.samples, 5, 0) or 0), theta * 15.625, 1e-6)
+        zahl('C: |u| am Stegende = theta*9.375', math.abs(wertBei(cc.samples, 0, 0) or 0), theta * 9.375, 1e-6)
+        zahl('C: u = 0 in Stegmitte', wertBei(cc.samples, 0, 5) or 999, 0, 1e-6)
+        wahr('C: Flanschspitze und Stegende mit entgegengesetztem Vorzeichen',
+            (wertBei(cc.samples, 5, 0) or 0) * (wertBei(cc.samples, 0, 0) or 0) < 0)
+        zahl('C: antisymmetrisch (Spitze oben = -Spitze unten)',
+            (wertBei(cc.samples, 5, 10) or 0) + (wertBei(cc.samples, 5, 0) or 0), 0, 1e-6)
+    end
+end)
+
+fall('33 Verwoelbung: Menue, Dialog, Esc', function()
+    T.abschnitt('[b] -> 7. Verwoelbung: eigener Modus, MT gilt nur dort, Esc schliesst')
+    kasten(1, 1); T.rechne()
+    Q.menu(5, 1)
+    local items = Q.menuTexte()
+    wahr('Menuepunkt 7 heisst Verwoelbung', items[7] ~= nil and items[7]:find('Verw', 1, true) ~= nil, items[7])
+    wahr('Menue hat 8 Punkte', #items == 8, #items)
+    on.charIn('7')
+    wahr('Dialog offen (Schritt 1: MT)', Q.woelb().step == 1, Q.woelb().step)
+    on.charIn('1'); on.charIn('2'); on.backspaceKey()
+    wahr('Backspace loescht im Dialog ein Zeichen', Q.inputText() == '1', Q.inputText())
+    wahr('  ohne Loeschabfrage', Q.loeschFrage() == false)
+    on.escapeKey()
+    wahr('Esc schliesst den Dialog', Q.woelb().step == 0)
+    wahr('vorher keine Torsion', Q.torsionResults() == nil)
+    local res = Q.woelbEingabe(1000, 81000)
+    wahr('Verwoelbung berechnet', res ~= nil, Q.status())
+    if res then
+        zahl('MT intern in Nmm (Eingabe 1000 Nm)', res.M, 1000 * 1000, 1e-9)
+        zahl('G uebernommen', res.G, 81000, 1e-9)
+        wahr('Ansicht sichtbar', Q.woelb().visible == true)
+    end
+    wahr('MT nicht an die Torsion der Schubspannung uebergeben', Q.torsionResults() == nil)
+    T.texte, T.pos = {}, {}; T.zaehlerReset()
+    Q.paint(T.gc)
+    local mt = false
+    for _, t in ipairs(T.texte) do if t:find('MT = ', 1, true) then mt = true end end
+    wahr('Momentpfeil beschriftet', mt)
+    wahr('Verlauf als Polylinien gezeichnet', T.zaehler.polylinien >= 4, T.zaehler.polylinien)
+    local ef = T.ergebnisfeld()
+    local hat = false
+    for _, t in ipairs(ef) do if t:find('Verwoelbung', 1, true) then hat = true end end
+    wahr('Ergebnisfeld hat den Block Verwoelbung', hat)
+    on.escapeKey()
+    wahr('Esc schliesst die Ansicht', Q.woelb().visible == false and Q.woelb().results == nil)
+    T.texte, T.pos = {}, {}
+    Q.paint(T.gc)
+    mt = false
+    for _, t in ipairs(T.texte) do if t:find('MT = ', 1, true) then mt = true end end
+    wahr('nach Esc kein Momentpfeil mehr', not mt)
+    -- offenes Profil: Warnung statt Fehler
+    T.reset()
+    T.duenn(P(5, 0), P(0, 0), 1); T.duenn(P(0, 0), P(0, 10), 1); T.duenn(P(0, 10), P(5, 10), 1); T.rechne()
+    Q.meldungWeg()
+    local ro = Q.woelbEingabe(100, 81000)
+    wahr('offen: berechnet', ro ~= nil and ro.closed == false)
+    local m = Q.meldung()
+    wahr('offen: Warnung "nicht in der Formelsammlung"', m ~= nil
+        and tostring(m.text):find('nicht in der Formelsammlung', 1, true) ~= nil, m and m.text)
+    on.escapeKey(); on.escapeKey()
+    -- massiv: Fehler
+    T.reset()
+    T.massiv({ type = 'rect', points = { P(-2, -2), P(2, 2) } }); T.rechne()
+    Q.meldungWeg()
+    local rm = Q.woelbEingabe(100, 81000)
+    wahr('massiv: nicht berechnet', rm == nil)
+    m = Q.meldung()
+    wahr('massiv: Fehlermeldung', m ~= nil and m.fehler == true and tostring(m.text):find('duennwandige', 1, true) ~= nil,
+        m and m.text)
 end)
 
 T.ende('Querschnitt')

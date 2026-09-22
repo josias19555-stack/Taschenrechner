@@ -38,7 +38,7 @@ nutzt den Platz bis zum unteren Rand.
 
 | Taste | Wirkung |
 |---|---|
-| Pfeile | Zelle wählen (links/rechts: Schnitt, oben/unten: $\alpha$/$\sigma$/$\tau$) |
+| Pfeile | Tabelle: Zelle wählen (links/rechts Schnitt, oben/unten $\alpha$/$\sigma$/$\tau$); Kreis: Marke bewegen (links/rechts Schnitt, oben/unten 5°) |
 | Ziffer, `.`, `-`, `+`, `(` | beginnt sofort eine neue Eingabe in der Zelle |
 | `Enter` | Zelle zum Ändern öffnen (mit dem alten Wert vorbelegt) bzw. übernehmen; danach geht es $\alpha \to \sigma \to \tau \to$ nächster Schnitt |
 | `Backspace` | beim Ändern ein Zeichen löschen, sonst die Zelle leeren (Wert wird wieder berechnet) |
@@ -54,7 +54,13 @@ widerspruchsfrei ist. Sonst bleibt das Programm in der Tabelle und sagt, warum.
 
 ## 3. Ansichten
 
-**Spannungsscheibe (`s`):** Die Scheibe ist ein **Vieleck mit einer Kante je Schnitt** –
+**Spannungsscheibe (`s`):** Gezeichnet wird im Koordinatensystem des Querschnitts: **x zeigt
+nach unten, y nach rechts**. Ein Punkt $(x, y)$ landet also bei $(c_x + y,\ c_y + x)$, eine
+Richtung entsprechend; ein Schnitt mit $\alpha = 0$ hat seine Normale nach unten und liegt damit
+an der Unterkante. Ein wachsendes $\alpha$ dreht auf dem Bildschirm weiter gegen den
+Uhrzeigersinn, passt also zur Zählweise in der Tabelle.
+
+Die Scheibe ist ein **Vieleck mit einer Kante je Schnitt** –
 gebildet als Schnitt der Halbebenen $\vec n_i \cdot \vec x \le r$. Decken die Normalen nicht den
 ganzen Umfang ab (z. B. nur zwei Schnitte), kommen die Rückseiten $-\vec n_i$ dazu, damit die
 Scheibe geschlossen ist; zwei senkrechte Schnitte ergeben so das übliche Rechteck, die
@@ -67,6 +73,20 @@ bekommen eine Mindestpfeillänge, damit nichts unsichtbar bleibt.
 $(\sigma_m, 0)$ mit Radius $R$; Hauptspannungen und Mittelpunkt sind markiert, jeder Schnitt ist
 als Punkt mit Radiusstrahl eingezeichnet. Bei wachsendem $\alpha$ wandern die Punkte im
 Uhrzeigersinn (Drehung im Kreis: $2\alpha$).
+
+Mit den **Pfeiltasten** wandert eine Marke über den Kreis: links/rechts springt zyklisch von
+Schnittwinkel zu Schnittwinkel, hoch/runter dreht in 5-Grad-Schritten frei weiter (Winkel modulo
+$180^\circ$, denn $\sigma(\alpha)$ und $\tau(\alpha)$ haben diese Periode). Die Marke wird als
+oranger Punkt mit Radiusstrahl gezeichnet und unten mit `S<i>  α = …°   σ = …   τ = …`
+beschriftet – so liest man den Zustand in jedem Schnitt ab, auch in einem, der gar nicht
+eingegeben wurde. `Del` setzt die Marke zurück.
+
+Gezeichnet wird in einem **klassischen Koordinatensystem**: Die $\tau$-Achse steht bei
+$\sigma = 0$, der Nullpunkt ist mit `0` beschriftet. Der Ausschnitt umfasst dafür den Bereich von
+$\min(0,\ \sigma_m - R)$ bis $\max(0,\ \sigma_m + R)$. Damit der Kreis dabei nicht zur Murmel wird,
+gilt ein Mindestradius von 35 px: Liegt der Zustand sehr weit vom Ursprung entfernt (etwa
+$\sigma_m = 999$, $R = 1$), hat der Kreis Vorrang, und der Nullpunkt wird stattdessen mit einer
+gepunkteten Linie und `σ=0 →` am Bildrand vermerkt.
 
 ## 4. Wann ist der Zustand bestimmt?
 

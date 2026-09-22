@@ -16,13 +16,21 @@ platform = { window = { width = function() return 318 end, height = function() r
 timer = { start = function() end, stop = function() end, getMilliSecCounter = function() return 0 end }
 var = { store = function() end }
 
--- Zeichen-Attrappe: sammelt alle drawString-Texte (M.texte) mit Position (M.pos)
+-- Zeichen-Attrappe: sammelt alle drawString-Texte (M.texte) mit Position (M.pos) und zaehlt
+-- Linien und Polylinien (M.zaehler), um den Zeichenaufwand zu pruefen
 M.texte = {}
 M.pos = {}
+M.zaehler = { linien = 0, polylinien = 0, polypunkte = 0 }
+function M.zaehlerReset() M.zaehler = { linien = 0, polylinien = 0, polypunkte = 0 } end
 M.gc = setmetatable({}, { __index = function(_, k)
     if k == 'drawString' then return function(_, text, x, y)
         M.texte[#M.texte + 1] = tostring(text)
         M.pos[#M.pos + 1] = { t = tostring(text), x = x, y = y }
+    end end
+    if k == 'drawLine' then return function() M.zaehler.linien = M.zaehler.linien + 1 end end
+    if k == 'drawPolyLine' then return function(_, pts)
+        M.zaehler.polylinien = M.zaehler.polylinien + 1
+        M.zaehler.polypunkte = M.zaehler.polypunkte + #pts / 2
     end end
     if k == 'getStringWidth' then return function(_, text) return #tostring(text) * 6 end end
     if k == 'getStringHeight' then return function() return 12 end end
@@ -79,6 +87,21 @@ _G.__Q = {
   menuStatus = function() return menuOpen, menuPage, menuRow, selected_type, selected_idx end,
   selektor = function(offen) shear_selector_open = offen end,
   paint = function(gc) showResults = false; on.paint(gc) end,
+  toScreen = function(u, v) return toScreen(u, v) end,
+  -- Verwoelbung
+  verwoelbung = function(M_, G_) return berechneVerwoelbung(M_, G_) end,
+  woelb = function() return woelb end,
+  woelbEingabe = function(M_, G_)
+    openWoelbInput()
+    if woelb.step == 0 then return nil end
+    inputText = tostring(M_); enterWoelbInput()
+    inputText = tostring(G_); enterWoelbInput()
+    return woelb.results
+  end,
+  torsionResults = function() return torsion_results end,
+  immerVertraeglich = function(f) schub_immer_vertraeglich = f and true or false end,
+  inputText = function() return inputText end,
+  fmt = function(v) return formatLabel(v) end,
 }
 ]]
 assert(loadstring(code .. export, '=' .. pfad))()

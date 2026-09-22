@@ -29,6 +29,7 @@ local text = ""
 local scroll = 0             -- erste sichtbare Spalte
 local meldung = nil
 local loeschFrage = false
+local kreisWinkel = nil      -- Marke im Kreisbild (Winkel in Grad), mit den Pfeilen bewegt
 local loesung = nil
 local rang = 0
 local widerspruch = false
@@ -208,7 +209,7 @@ local function allesLoeschen()
     schnitte = { neuerSchnitt() }
     modus, spalte, zeile, editiere, text = "tabelle", 1, 1, false, ""
     loesung, rang, widerspruch, scroll, meldung = nil, 0, false, 0, nil
-    loeschFrage = false
+    loeschFrage, kreisWinkel = false, nil
 end
 
 -- ===================== Zeichenhilfen =====================
@@ -491,8 +492,11 @@ local function zeichneScheibe(gc)
         gc:drawString("Zu wenige Schnitte fuer eine Scheibe", 10, 40)
         return
     end
-    local function sx(p) return cx + p[1] end
-    local function sy(p) return cy - p[2] end
+    -- Koordinatensystem wie im Querschnitt: x zeigt nach unten, y nach rechts.
+    -- Ein Punkt (x, y) landet also bei (cx + y, cy + x), eine Richtung (vx, vy) entsprechend.
+    local function sx(p) return cx + p[2] end
+    local function sy(p) return cy + p[1] end
+    local function ziel(px, py, vx, vy, laenge) return px + vy * laenge, py + vx * laenge end
 
     -- Skalierung der Pfeile
     local gross = 0
@@ -513,9 +517,9 @@ local function zeichneScheibe(gc)
     end
     -- Achsenkreuz
     gc:setColorRGB(0, 150, 0)
-    gc:drawLine(cx, cy, cx + 22, cy); gc:drawLine(cx, cy, cx, cy - 22)
+    gc:drawLine(cx, cy, cx + 22, cy); gc:drawLine(cx, cy, cx, cy + 22)
     gc:setFont("sansserif", "r", 8)
-    gc:drawString("x", cx + 24, cy - 6); gc:drawString("y", cx - 4, cy - 36)
+    gc:drawString("y", cx + 24, cy - 6); gc:drawString("x", cx - 3, cy + 22)
 
     -- je Kante die Spannungen
     gc:setFont("sansserif", "r", 7)
@@ -537,19 +541,22 @@ local function zeichneScheibe(gc)
             if math.abs(ls) < 8 then ls = (ls >= 0 and 8 or -8) end
             setFarbe(gc, FARBE_SIGMA)
             if (sch.s or 0) * vz >= 0 then
-                pfeil(gc, px, py, px + nx * ls, py - ny * ls)
+                local ex, ey = ziel(px, py, nx, ny, ls)
+                pfeil(gc, px, py, ex, ey)
             else
-                pfeil(gc, px - nx * ls, py + ny * ls, px, py)
+                local ax, ay = ziel(px, py, nx, ny, -ls)
+                pfeil(gc, ax, ay, px, py)
             end
             -- Schubspannung laengs der Kante
             local lt = (sch.t or 0) / gross * pmax * 0.8 * vz
             if math.abs(lt) < 8 and math.abs(sch.t or 0) > 1e-9 then lt = (lt >= 0 and 8 or -8) end
             setFarbe(gc, FARBE_TAU)
             if math.abs(sch.t or 0) > 1e-9 then
-                pfeil(gc, px, py, px + tx * lt, py - ty * lt)
+                local ex, ey = ziel(px, py, tx, ty, lt)
+                pfeil(gc, px, py, ex, ey)
             end
             -- Beschriftung nach aussen
-            local bx, by = px + nx * (pmax * 0.55 + 16), py - ny * (pmax * 0.55 + 16)
+            local bx, by = ziel(px, py, nx, ny, pmax * 0.55 + 16)
             bx = math.max(24, math.min(W - 24, bx))
             by = math.max(26, math.min(H - 18, by))
             gc:setFont("sansserif", "b", 7); gc:setColorRGB(0, 0, 0)
@@ -565,6 +572,46 @@ end
 
 -- ===================== Mohrscher Kreis =====================
 
+-- Winkel auf [0, 180) bringen; sigma(α) und tau(α) haben diese Periode
+local function normWinkel(a)
+    a = (a or 0) % 180
+    if a < 0 then a = a + 180 end
+    return a
+end
+
+-- naechster (richtung > 0) bzw. vorheriger Schnittwinkel, zyklisch um den Kreis
+local function schnittWinkel(richtung)
+    local liste = {}
+    for _, sch in ipairs(schnitte) do
+        if sch.a and not leererSchnitt(sch) then liste[#liste + 1] = normWinkel(sch.a) end
+    end
+    if #liste == 0 then return nil end
+    table.sort(liste)
+    local a = normWinkel(kreisWinkel or 0)
+    if richtung > 0 then
+        for _, w in ipairs(liste) do if w > a + 1e-6 then return w end end
+        return liste[1]
+    end
+    for i = #liste, 1, -1 do if liste[i] < a - 1e-6 then return liste[i] end end
+    return liste[#liste]
+end
+
+-- Winkel des ersten brauchbaren Schnitts (Startpunkt der Marke)
+local function ersterWinkel()
+    for _, sch in ipairs(schnitte) do
+        if sch.a and not leererSchnitt(sch) then return normWinkel(sch.a) end
+    end
+end
+
+-- Schnitt, der genau auf diesem Winkel liegt (fuer die Beschriftung der Marke)
+local function schnittZuWinkel(a)
+    for i, sch in ipairs(schnitte) do
+        if sch.a and not leererSchnitt(sch) and math.abs(normWinkel(sch.a) - normWinkel(a)) < 1e-6 then
+            return i
+        end
+    end
+end
+
 local function zeichneKreis(gc)
     kopf(gc, "Mohrscher Spannungskreis", "[t] Tabelle  [s] Scheibe")
     if not bereit() then
@@ -575,17 +622,48 @@ local function zeichneKreis(gc)
     local L = loesung
     local cy = (H + 18) / 2
     local rand = 28
+    local breite, hoehe = W - 2 * rand, H - 18 - 2 * rand
+
+    -- Zwei Massstaebe: sk_kreis fuellt den Kreis aus, sk_voll zeigt zusaetzlich den Ursprung.
+    -- Genommen wird sk_voll, aber nur so weit, dass der Kreis sichtbar gross bleibt.
     local spanne = math.max(L.r * 1.3, 1e-6)
-    local sk = math.min((W - 2 * rand) / (2 * spanne), (H - 18 - 2 * rand) / (2 * spanne))
-    local function px(sig) return W / 2 + (sig - L.sig_m) * sk end
+    local sk_kreis = math.min(breite / (2 * spanne), hoehe / (2 * spanne))
+    local links = math.min(0, L.sig_m - L.r)
+    local rechts = math.max(0, L.sig_m + L.r)
+    local sk_voll = math.min(breite / math.max((rechts - links) * 1.3, 1e-6), hoehe / (2 * spanne))
+    local rmin = (L.r > 1e-9) and (35 / L.r) or 0
+    local sk = math.min(sk_kreis, math.max(sk_voll, math.min(sk_kreis, rmin)))
+
+    -- Bildmitte: moeglichst mittig zwischen Ursprung und Kreis, der Kreis bleibt aber ganz im Bild
+    local mitte = (links + rechts) / 2
+    local frei = math.max(breite / 2 / sk - L.r, 0)
+    if mitte > L.sig_m + frei then mitte = L.sig_m + frei end
+    if mitte < L.sig_m - frei then mitte = L.sig_m - frei end
+
+    local function px(sig) return W / 2 + (sig - mitte) * sk end
     local function py(tau) return cy - tau * sk end
 
+    local x0 = px(0)
+    local sichtbar0 = x0 > 12 and x0 < W - 12
     gc:setColorRGB(150, 150, 150); gc:setPen("thin", "smooth")
     gc:drawLine(8, cy, W - 8, cy)
-    gc:drawLine(px(L.sig_m), 22, px(L.sig_m), H - 6)
-    gc:setFont("sansserif", "r", 8); gc:setColorRGB(120, 120, 120)
-    gc:drawString("σ", W - 14, cy - 12)
-    gc:drawString("τ", px(L.sig_m) + 4, 22)
+    gc:setFont("sansserif", "r", 8)
+    if sichtbar0 then
+        gc:drawLine(x0, 22, x0, H - 6)
+        gc:setColorRGB(120, 120, 120)
+        gc:drawString("σ", W - 14, cy - 12)
+        gc:drawString("τ", x0 + 4, 22)
+        gc:drawString("0", x0 - 8, cy + 4)
+    else
+        -- Ursprung liegt zu weit weg; der Kreis hat Vorrang, der Nullpunkt wird am Rand vermerkt
+        local xr = (x0 <= 12) and 10 or (W - 10)
+        gc:setPen("thin", "dotted")
+        gc:drawLine(xr, 22, xr, H - 6)
+        gc:setPen("thin", "smooth")
+        gc:setColorRGB(120, 120, 120)
+        gc:drawString("σ", W - 14, cy - 12)
+        gc:drawString((x0 <= 12) and "σ=0 ←" or "σ=0 →", (x0 <= 12) and (xr + 4) or (xr - 40), 22)
+    end
 
     local rp = L.r * sk
     gc:setColorRGB(0, 0, 0); gc:setPen("medium", "smooth")
@@ -612,8 +690,26 @@ local function zeichneKreis(gc)
             gc:drawString("S" .. i, x + ((x >= px(L.sig_m)) and 6 or -26), y + ((y <= cy) and -12 or 4))
         end
     end
+    -- Marke: mit den Pfeiltasten bewegter Punkt auf dem Kreis
+    if kreisWinkel then
+        local sg, ta = spannungen(kreisWinkel, L)
+        local x, y = px(sg), py(ta)
+        gc:setColorRGB(220, 120, 0); gc:setPen("medium", "smooth")
+        gc:drawLine(px(L.sig_m), cy, x, y)
+        gc:fillArc(x - 4, y - 4, 8, 8, 0, 360)
+        gc:setPen("thin", "smooth")
+        local nr = schnittZuWinkel(kreisWinkel)
+        gc:setFont("sansserif", "b", 8)
+        gc:drawString((nr and ("S" .. nr .. "  ") or "") .. "α = " .. fmt(kreisWinkel, 1) ..
+            "°   σ = " .. fmt(sg) .. "   τ = " .. fmt(ta), 4, H - 21)
+    end
+
     gc:setFont("sansserif", "r", 7); gc:setColorRGB(60, 60, 60)
-    gc:drawString("Drehung im Kreis: 2α (bei wachsendem α im Uhrzeigersinn)", 4, H - 10)
+    gc:drawString(passend(gc, {
+        "Drehung im Kreis: 2α   Pfeile: Schnitt wechseln, hoch/runter dreht 5°",
+        "2α im Kreis   Pfeile: Schnitt wechseln, hoch/runter 5°",
+        "Pfeile: Schnitt wechseln, hoch/runter 5°",
+    }, W - 8), 4, H - 10)
 end
 
 -- ===================== Zeichnen =====================
@@ -689,7 +785,10 @@ function on.charIn(c)
     elseif c == "s" or c == "S" then
         if bereit() then modus = "scheibe" else meldung = "Scheibe erst, wenn der Zustand eindeutig ist" end
     elseif c == "k" or c == "K" then
-        if bereit() then modus = "kreis" else meldung = "Kreis erst, wenn der Zustand eindeutig ist" end
+        if bereit() then
+            modus = "kreis"
+            if not kreisWinkel then kreisWinkel = ersterWinkel() end
+        else meldung = "Kreis erst, wenn der Zustand eindeutig ist" end
     elseif modus == "tabelle" and c:match("^[%d%.%,%-%+%(]$") then
         starteEingabe(c)
     end
@@ -725,6 +824,15 @@ end
 
 function on.arrowKey(k)
     if loeschFrage then return end
+    if modus == "kreis" then
+        -- links/rechts springt von Schnitt zu Schnitt, hoch/runter dreht in 5-Grad-Schritten
+        if k == "left" or k == "right" then
+            kreisWinkel = schnittWinkel((k == "right") and 1 or -1) or kreisWinkel or 0
+        elseif k == "up" or k == "down" then
+            kreisWinkel = normWinkel((kreisWinkel or 0) + ((k == "up") and 5 or -5))
+        end
+        platform.window:invalidate(); return
+    end
     if modus ~= "tabelle" then
         if k == "left" or k == "right" then modus = "tabelle" end
         platform.window:invalidate(); return

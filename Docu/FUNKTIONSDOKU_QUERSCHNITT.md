@@ -145,9 +145,9 @@ Sie beschreibt zu jeder Funktion: **Zweck**, **Moeglichkeiten** und **Grenzen/be
 
 ## 5. Duennwand-Graph, Schubfluss & Torsion (Kernstueck)
 
-Grundsatz: Es wird nur gerechnet, was nach TM2 statisch bestimmt ist. Statisch unbestimmte Faelle
-(mehrzellig, unsymmetrisch geschlossen, Querkraft quer zur einzigen Symmetrieachse, Torsion massiver
-Querschnitte) werden mit einer Meldung abgelehnt, statt eine Naeherung auszugeben.
+Grundsatz: Es wird gerechnet, was nach TM2 bestimmt ist. Fuer eine geschlossene Zelle ohne passende
+Symmetrieachse kommt q0 aus der Vertraeglichkeit (∮ q/(G t) ds = 0), also ohne Naeherung. Abgelehnt
+werden nur mehrzellige Profile und die Torsion massiver Querschnitte.
 
 ### `duennGraph(achse_u, achse_v)`
 - **Zweck:** Mittelliniengraph aller geraden `duenn_elemente`. Elemente werden an Schnitt- und Beruehrpunkten (T-Knoten, Kreuzungen, kollineare Ueberlappungen) und optional an den Achsen `u = achse_u`, `v = achse_v` geteilt. Doppelt gezeichnete Kanten werden zu einer Kante mit addierter Dicke zusammengelegt.
@@ -166,7 +166,8 @@ Querschnitte) werden mit einer Meldung abgelehnt, statt eine Naeherung auszugebe
 
 ### Zellkorrektur in `berechneDuenneSchubspannung`
 - **Zweck:** Die geschlossene Zelle wird an beliebiger Stelle aufgeschnitten; das statische Moment der Zelle darf danach um eine Konstante verschoben werden. Aus der Symmetrie folgt `S(P) + S(P') = 0` im Umlaufsinn (Schnitt auf der Symmetrieachse, dort ist `q = 0`). Korrigiert werden jetzt `Sz` (waagerechte Symmetrieachse, gehoert zu Q_a) und `Sy` (senkrechte Achse, Q_b); `tau_a`/`tau_b` werden anschliessend aus den korrigierten `S` neu gebildet. Frueher wurde nur `tau` korrigiert, die angezeigten `S`-Verlaeufe blieben auf den zufaelligen Schnitt bezogen.
-- **Grenzen:** Findet sich kein Spiegelpartner in der Zelle, meldet die Funktion "Symmetriepartner in der Zelle nicht gefunden". Ohne erkannte Symmetrie warnt `berechneSchubspannungsResultate`.
+- **Vertraeglichkeit (4b, `korrigiereVertraeglich`):** Fehlt die Symmetrieachse zu einer Richtung (oder wird kein Spiegelpartner gefunden), folgt die Konstante aus ∮ q/(G t) ds = 0. Mit q = -Q (I S + I_yz S')/det und regulaerer Matrix zerfaellt das in ∮ Sz/t ds = 0 und ∮ Sy/t ds = 0: `umlaufintegrale(key)` bildet ∮ S/t ds und ∮ 1/t ds mit Simpson je Kante (S ist dort quadratisch, exakt; darum jetzt gerade Intervallzahl je Kante), die Verschiebung ist `s0 = -∮S/t / ∮1/t`, angebracht mit `cell_sign`. Symmetrie hat Vorrang; der Testschalter `schub_immer_vertraeglich` erzwingt die Vertraeglichkeit auch bei Symmetrie (Gegenprobe, Test 30). Ergebnis in `info.zelle_s_korrigiert.vertraeglich`.
+- **Grenzen:** Ist ∮ ds/t nicht auswertbar, meldet die Funktion "Umlaufintegral der Zelle nicht auswertbar". Ohne erkannte Symmetrie bzw. bei Querkraft quer zur einzigen Achse warnt `berechneSchubspannungsResultate` (mit dem Zusatz, dass S und tau trotzdem richtig sind).
 
 ### `find_closed_cells()`
 - **Zweck:** Bredt fuer genau eine geschlossene Zelle (auch mit offenen Aesten und T-Knoten). Rueckgabe `I_T, A_m, Zellenzahl, Info`.
@@ -177,10 +178,10 @@ Querschnitte) werden mit einer Meldung abgelehnt, statt eine Naeherung auszugebe
 - **Ablauf:** (1) von allen freien Enden (q = 0), (2) an Verzweigungen mit nur noch einem offenen Ast Start mit der Summe der angekommenen statischen Momente, (3) eine geschlossene Zelle an beliebiger Stelle aufschneiden, (4) Zellschubfluss `q0` je Komponente aus der Symmetrie: fuer eine Querkraft parallel zur Symmetrieachse ist q im Umlaufsinn antisymmetrisch, `q(P) + q(P') = 0` fuer Spiegelpunkte. Das erfuellt automatisch die Vertraeglichkeit `∮τ ds = 0` (im Test geprueft).
 - **Formel:** mit `I_yz`-Kopplung `τ_a = -Q_a (I_y S_a + I_yz S_b)/((I_y I_z - I_yz^2) t)`, `τ_b = -Q_b (I_z S_b + I_yz S_a)/((I_y I_z - I_yz^2) t)` (Gross-Vorzeichen `I_yz = -∫uv dA`; fuer `I_yz = 0` die bekannte Form `τ = -Q S/(I t)`).
 - **Rueckgabe:** `maximum, samples, paths, fehler, info`. Samples tragen zusaetzlich `in_cell`, `cell_sign` (Umlaufsinn), `edge_i`, `fwd`.
-- **Grenzen:** mehrzellig, unsymmetrisch geschlossen oder Querkraft quer zur einzigen Symmetrieachse: `nil` und Begruendung in `fehler`.
+- **Grenzen:** mehrzellig: `nil` und Begruendung in `fehler`. Unsymmetrische Zellen und Querkraft quer zur einzigen Achse werden ueber die Vertraeglichkeit gerechnet (`info.erkannt` nennt die gefundenen Achsen fuer die Warnung).
 
 ### `berechneSchubmittelpunkt()`
-- **Zweck:** Schubmittelpunkt aus dem Moment der Schubfluesse fuer Einheitsquerkraefte. Offene Profile: beide Koordinaten. Eine Zelle: nur die Koordinate(n), fuer die eine Symmetrieachse parallel zur Querkraft existiert (`known_u`, `known_v`; `known` nur wenn beide). Ergebnis wird bis zur naechsten `berechneSystem()`-Rechnung zwischengespeichert (`shear_center_cache`).
+- **Zweck:** Schubmittelpunkt aus dem Moment der Schubfluesse fuer Einheitsquerkraefte. Offene Profile und einzellige Zellen: beide Koordinaten (q0 aus Symmetrie oder Vertraeglichkeit); `known_u`/`known_v` bleiben nur bei mehrzelligen Profilen falsch. Das Moment wird je Kante mit Simpson gebildet (Hebelarm linear, q quadratisch, Produkt kubisch: exakt; das Trapez liess den Schubmittelpunkt um ~1e-5 wandern, was in der Verwoelbung sichtbar wurde). Ergebnis wird bis zur naechsten `berechneSystem()`-Rechnung zwischengespeichert (`shear_center_cache`).
 
 ### `berechneSchubMomentTabelle()`
 - **Zweck:** Pro Element aufgeschluesselte resultierende Schubkraefte und Momentbeitraege fuer Einheitslasten, mit signiertem Hebelarm `r = M/F`.
@@ -196,6 +197,15 @@ Querschnitte) werden mit einer Meldung abgelehnt, statt eine Naeherung auszugebe
 ### `berechneKraftTorsion()`
 - **Zweck:** Torsionsmoment der Kraefte in der Querschnittsebene um den **Schubmittelpunkt** (`M_x = Δu F_v - Δv F_u`), danach `berechneTorsionsResultat`.
 - **Grenzen:** Ist die benoetigte Koordinate des Schubmittelpunkts statisch unbestimmt, wird nicht gerechnet (Meldung).
+
+### `berechneVerwoelbung(M, G)`
+- **Zweck:** Verwoelbung u_x(s) duennwandiger Profile nach Formelsammlung Kap. 6: `u_x = Int [MT/(2 G A_m h) - r_perp theta] ds + c`, `theta = MT/(G I_T)`. Pol ist der Schubmittelpunkt; `r_perp = (u-u_M) t_v - (v-v_M) t_u` (Kreuzprodukt, positiv im Umlaufsinn des Bredt-Schubflusses, `ccw_dir`). Geschlossen: `I_T` nach Bredt und Bredt-Anteil `sign * qT/(G h)` je Zellkante; offen: `I_T = r.It` und kein Bredt-Anteil.
+- **Ablauf:** Graph aus `duennGraph(ys, zs)`, Breitensuche ab einem Knoten auf einer Symmetrieachse (sonst Knoten 1); je Kante geschlossene Integration (`u(s) = u0 + bredt s - theta (r1 s + (r2-r1) s^2/(2L))`), Stuetzstellen wie beim Schub (gerade Intervallzahl), nicht zusammenhaengende Teile bekommen eigene Startknoten. `c` aus `Int u h ds = 0` mit Simpson je Kante. Rueckgabe u. a. `samples` (mit `ux`, `r_perp`), `paths`, `theta`, `It`, `Am`, `closed`, `pol`, `max_abs/max_u/max_v`, `schluss` (Probe: Umlauf der Zelle schliesst).
+- **Grenzen:** `nil, fehler` fuer massiv/gemischt, Kreisboegen, mehrzellig, `I_T = 0`, unbestimmten Schubmittelpunkt. Keine Woelbkrafttorsion.
+
+### `openWoelbInput()` / `enterWoelbInput()`
+- **Zweck:** Dialog unter `b` -> 7: Schritt 1 `MT` in `moment_unit` (vorbelegt mit `berechneKraftTorsion().M`, falls Kraefte eingetragen sind), Schritt 2 `G` in N/mm^2 (vorbelegt 81000). Ergebnis in `woelb.results`, Ansicht `woelb.visible`; der Schubverlauf wird ausgeblendet. Offenes Profil: Warnung "nicht in der Formelsammlung".
+- **Grenzen:** `woelb.M` wird bewusst nicht in `torsion_M`/`torsion_results` uebernommen; `Esc` schliesst Dialog bzw. Ansicht und verwirft `woelb.results`, `berechneSystem()` ebenfalls (Geometrie geaendert).
 
 ### `berechneSchubspannungsResultate(input_Qa, input_Qb)`
 - **Zweck:** Gesamtfunktion Schub. Eingaben beziehen sich auf das angezeigte KOS und werden intern gedreht; eingetragene Kraefte kommen hinzu. Massiv: `τ = Q S/(I b)` ueber waagerechte/senkrechte Schnitte (Breiten auch fuer Sektor, Kreisabschnitt und dicke Linie ueber `massiv_outline_polygon`), nur bei `I_yz = 0`. Gemischt massiv/duennwandig: abgelehnt. Begruendungen landen in `schub_grund` bzw. `status`.
@@ -273,14 +283,17 @@ Querschnitte) werden mit einer Meldung abgelehnt, statt eine Naeherung auszugebe
 ### `drawSigmaInput/ drawShearInput / drawTorsionInput(gc, w, h)`
 - **Zweck:** Zeichnen die jeweiligen mehrstufigen Texteingabemasken fuer σx-, Schub- und Torsionsberechnung.
 
-### `drawShearProfileLegacy(gc)`
-- **Zweck:** Zeichnet den gewaehlten Schubspannungs-/Momenten-Verlauf (`shear_view_mode` 1–10) als Liniendiagramm entlang des Profils, inkl. Rand-/Min-/Max-Markierungen, Pfeilmarkierungen der Laufrichtung und gezielter Startmarkierung an echten freien bzw. symmetrischen Integrationsanfaengen.
-- **Grenzen:** Diagrammbreite ist ein fester Bildschirm-Pixelwert (`36/scale`), keine automatische Skalierung nach Spannungsgroesse ausser dem gemeinsamen `shared_section_max`.
+### `verlaufAbschnitte(quelle)` / `drawVerlauf(gc, quelle)` / `drawLaufrichtung(gc, paths, hovered, korrigiert)`
+- **Zweck:** Gemeinsame Verlaufsdarstellung fuer Schub und Verwoelbung. `quelle` = `{ id, key, samples, wert(sample), anzeige(wert), titel, hovered, maximum, farbe }`. `verlaufAbschnitte` gruppiert die Stuetzstellen nach `path_id:segment`, sortiert nach `s`, wertet `wert` je Stuetzstelle einmal aus und merkt den Pixelversatz normal zur Wand (`fx, fy`, 36 px fuer den betragsgroessten Wert); der Cache (`verlauf_cache`) haengt an `id`, `key`, `rotation` und `hovered`. `drawVerlauf` rechnet je Frame nur `toScreen`, duennt auf etwa einen Punkt je 1,5 px aus und zeichnet **eine Polylinie je Abschnitt**, dazu Wandverbinder, Endwerte, min/max (aus allen Stuetzstellen). `drawLaufrichtung` zeichnet Startmarken (Start / Start (Symmetrieachse) / Schnitt / Schnitt (q0 aus Verträglichkeit) / Schnitt (q0 offen)) und Laufrichtungspfeile.
+- **Grenzen:** Diagrammbreite ist ein fester Pixelwert; die Ausduennung betrifft nur die gezeichneten Punkte, nicht die Rechnung.
 
-### `drawShearProfile(gc)`
-- **Zweck:** Wrapper, ruft die aktive Darstellung `drawShearProfileLegacy` auf.
-- **Moeglichkeiten:** Entkoppelt den Aufruf aus `on.paint` von der aktuellen Implementierung der Schubverlaufsdarstellung.
-- **Grenzen:** Die fachliche Darstellung liegt weiterhin vollstaendig in `drawShearProfileLegacy`.
+### `drawShearProfileLegacy(gc)` / `drawShearProfile(gc)`
+- **Zweck:** Baut aus `shear_results` die `quelle` fuer `drawVerlauf` (Titel und `profile_value` je `shear_view_mode` 1–10, Anzeigeeinheit) und ruft `drawLaufrichtung`. `drawShearProfile` bleibt der Wrapper aus `on.paint`.
+- **Grenzen:** `key` enthaelt `shear_view_mode`, `torsion_results` und `max_tau_total`, damit Torsionsaenderungen den Cache erneuern.
+
+### `drawWoelbInput(gc, w, h)` / `drawWoelbProfile(gc)`
+- **Zweck:** Eingabemaske (MT, G) und Verwoelbungsansicht: `drawVerlauf` mit `wert = ux` in Gruen, dazu der Pol (Schubmittelpunkt) mit MT als Drehpfeil (gegen den Uhrzeigersinn fuer MT > 0, wie der Bredt-Schubfluss) und eine Fusszeile mit der verwendeten Formel. Kraefte werden in dieser Ansicht nicht gezeichnet.
+- **Grenzen:** Nur sichtbar, solange `woelb.visible`; `Esc` beendet die Ansicht.
 
 ### `drawShearSelector(gc, w, h)`
 - **Zweck:** Zeigt das Auswahlmenue (Tasten 0–9) fuer die 10 verfuegbaren Schubspannungs-/Momentenverlaeufe, einspaltig untereinander, Kastengroesse passt sich automatisch an die Eintragsanzahl an.

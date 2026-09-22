@@ -20,7 +20,7 @@
 \contentsline {section}{\numberline {12}Meldungen im Tragwerksskript}{12}{section.12}%
 \contentsline {subsection}{\numberline {12.1}Warnungen (rot bzw.\ orange)}{12}{subsection.12.1}%
 \contentsline {subsection}{\numberline {12.2}Hinweise (gelb)}{13}{subsection.12.2}%
-\contentsline {subsection}{\numberline {12.3}Export- und Rand-LGS-Meldungen}{13}{subsection.12.3}%
+\contentsline {subsection}{\numberline {12.3}Export- und Rand-LGS-Meldungen}{14}{subsection.12.3}%
 \contentsline {section}{\numberline {13}Was das Tragwerksskript nicht kann}{14}{section.13}%
 \contentsline {section}{\numberline {14}Wie gerechnet wird}{14}{section.14}%
 \contentsline {part}{II\hspace {1em}Querschnittsskript}{14}{part.2}%
@@ -31,19 +31,21 @@
 \contentsline {section}{\numberline {19}Normalspannung $\sigma _x$}{17}{section.19}%
 \contentsline {section}{\numberline {20}Schubspannung und Schubmittelpunkt}{17}{section.20}%
 \contentsline {subsection}{\numberline {20.1}Geschlossene Zellen: warum die Symmetrie so wichtig ist}{18}{subsection.20.1}%
-\contentsline {section}{\numberline {21}Torsion}{18}{section.21}%
-\contentsline {section}{\numberline {22}Kernfläche}{19}{section.22}%
-\contentsline {section}{\numberline {23}Meldungen im Querschnittsskript}{19}{section.23}%
-\contentsline {section}{\numberline {24}Was das Querschnittsskript nicht kann}{20}{section.24}%
-\contentsline {section}{\numberline {25}Wie gerechnet wird}{20}{section.25}%
-\contentsline {part}{III\hspace {1em}Spannungskreis}{20}{part.3}%
-\contentsline {section}{\numberline {26}Die Idee: Eingabe über Schnitte}{20}{section.26}%
-\contentsline {section}{\numberline {27}Bedienung}{21}{section.27}%
-\contentsline {section}{\numberline {28}Die beiden Bilder}{21}{section.28}%
-\contentsline {section}{\numberline {29}Wann ist der Zustand bestimmt?}{22}{section.29}%
-\contentsline {section}{\numberline {30}Grenzen und Tricks}{22}{section.30}%
-\contentsline {part}{IV\hspace {1em}Anhang}{22}{part.4}%
-\contentsline {section}{\numberline {A}Tastenkürzel Tragwerksskript}{23}{appendix.A}%
-\contentsline {section}{\numberline {B}Tastenkürzel Querschnittsskript}{23}{appendix.B}%
-\contentsline {section}{\numberline {C}Tastenkürzel Spannungskreis}{23}{appendix.C}%
-\contentsline {section}{\numberline {D}Häufige Stolpersteine}{24}{appendix.D}%
+\contentsline {subsection}{\numberline {20.2}Ohne Symmetrieachse: die Verträglichkeit}{18}{subsection.20.2}%
+\contentsline {section}{\numberline {21}Torsion}{19}{section.21}%
+\contentsline {section}{\numberline {22}Verwölbung}{19}{section.22}%
+\contentsline {section}{\numberline {23}Kernfläche}{20}{section.23}%
+\contentsline {section}{\numberline {24}Meldungen im Querschnittsskript}{20}{section.24}%
+\contentsline {section}{\numberline {25}Was das Querschnittsskript nicht kann}{21}{section.25}%
+\contentsline {section}{\numberline {26}Wie gerechnet wird}{21}{section.26}%
+\contentsline {part}{III\hspace {1em}Spannungskreis}{21}{part.3}%
+\contentsline {section}{\numberline {27}Die Idee: Eingabe über Schnitte}{22}{section.27}%
+\contentsline {section}{\numberline {28}Bedienung}{22}{section.28}%
+\contentsline {section}{\numberline {29}Die beiden Bilder}{23}{section.29}%
+\contentsline {section}{\numberline {30}Wann ist der Zustand bestimmt?}{23}{section.30}%
+\contentsline {section}{\numberline {31}Grenzen und Tricks}{24}{section.31}%
+\contentsline {part}{IV\hspace {1em}Anhang}{24}{part.4}%
+\contentsline {section}{\numberline {A}Tastenkürzel Tragwerksskript}{24}{appendix.A}%
+\contentsline {section}{\numberline {B}Tastenkürzel Querschnittsskript}{25}{appendix.B}%
+\contentsline {section}{\numberline {C}Tastenkürzel Spannungskreis}{25}{appendix.C}%
+\contentsline {section}{\numberline {D}Häufige Stolpersteine}{25}{appendix.D}%

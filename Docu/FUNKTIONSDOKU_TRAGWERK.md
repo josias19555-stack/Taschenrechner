@@ -120,11 +120,29 @@ Diese Datei dokumentiert die wichtigsten Funktionen des gemeinsamen Tragwerksmod
 - **Möglichkeiten:** Wird für gedrehte grafische Symbole und Lastdarstellungen verwendet.
 - **Grenzen:** Nur Darstellung; verändert keine Modellkoordinaten.
 
-### `drawArrow(gc, x1, y1, x2, y2)`
+### `drawArrow(gc, x1, y1, x2, y2, kopf)`
 
 - **Zweck:** Zeichnet einen Linienpfeil mit Pfeilspitze.
-- **Möglichkeiten:** Gemeinsame Darstellung für Lasten, Reaktionen, PvV-Beiträge und kinematische Bewegungen.
+- **Möglichkeiten:** Gemeinsame Darstellung für Lasten, Reaktionen, PvV-Beiträge und kinematische Bewegungen. `kopf` skaliert die Spitze; die Lastflächen der Streckenlasten zeichnen mit `LASTPFEIL_KOPF` (1.4) etwas größere Spitzen als der Rest.
 - **Grenzen:** Pfeillänge und Spitzengeometrie sind grafische Bildschirmwerte.
+
+### `lastResultierende(pts, L, wA, wB, R_cas, S_cas, faktor)`
+
+- **Zweck:** Resultierende `R` und statisches Moment `S` (um den Anfangsknoten) einer Streckenlast.
+- **Möglichkeiten:** Liegen elf CAS-Stützwerte vor, wird mit der Simpson-Regel integriert (exakt bis zur dritten Ordnung); sonst Trapezformel aus den Endwerten plus vorbereitetem CAS-Anteil. `faktor` bildet projizierte Lasten ab.
+- **Grenzen:** Bei nicht polynomialen Lastfunktionen ist die Stützwert-Integration eine Näherung; ohne berechnetes System fehlen die Stützwerte.
+
+### `resultierendenLabel(L_phys, L_eff, qs, qa, qb, R_cas, S_cas, R_num, S_num, typ)`
+
+- **Zweck:** Beschriftung `R = …` für die Resultierende einer Streckenlast in der Explosionsansicht.
+- **Möglichkeiten:** Im symbolischen Modus liefert `processDistLoad_PvV` den CAS-Term, sonst wird der Betrag als Zahl gesetzt; die Richtung zeigt der Pfeil.
+- **Grenzen:** Reine Beschriftung; der Wert selbst wird an der Aufrufstelle aus Last und Länge gebildet.
+
+### `merkeResultierende(x, y)`
+
+- **Zweck:** Merkt den Angriffspunkt einer Resultierenden in `glob_resultant_pts`.
+- **Möglichkeiten:** `drawBemassung` nimmt diese Punkte zusammen mit den Knoten in die globale Maßkette auf, sodass der Hebelarm ablesbar ist.
+- **Grenzen:** Die Liste wird zu Beginn jedes `on.paint` geleert und gilt nur für den aktuellen Frame.
 
 ## 4. CAS- und Ergebnisexport
 

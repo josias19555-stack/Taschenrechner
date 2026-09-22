@@ -184,6 +184,9 @@ local function display_inertia(value) return value / unit_factor(length_unit)^4 
 local function display_moment(value) return value / unit_factor(moment_unit) end
 local function display_force(value) return value / unit_factor(force_unit) end
 local torsion_input_step, torsion_M, torsion_results = 0, nil, nil
+-- Verwoelbung: eigener Modus unter [b] -> 7. Das dort eingegebene MT gilt nur in dieser Ansicht
+-- (bis Esc) und wird nicht an die Torsion der Schubspannungsrechnung uebergeben.
+local woelb = { step = 0, M = nil, G = 81000, results = nil, visible = false }
 local berechneSchubspannungsResultate
 local system_results = nil
 kernMode = 0
@@ -194,6 +197,7 @@ local kern_collect_points
 local find_closed_cells
 local berechneSchubmittelpunkt
 local shear_center_cache = nil   -- Schubmittelpunkt haengt nur von der Geometrie ab
+schub_immer_vertraeglich = false -- nur fuer Tests: q0 immer aus der Vertraeglichkeit (Gegenprobe zur Symmetrie)
 local schub_grund = nil          -- Begruendung, wenn Schub nicht berechnet wird
 local coordinatesForDisplay
 
@@ -1133,6 +1137,7 @@ function loescheAllesQS()
     sigma_input_step, sigma_N, sigma_My, sigma_Mz, sigma_results = 0, nil, nil, nil, nil
     shear_input_step, shear_Qa, shear_Qb, shear_results = 0, nil, nil, nil
     torsion_input_step, torsion_M, torsion_results = 0, nil, nil
+    woelb.step, woelb.M, woelb.results, woelb.visible = 0, nil, nil, false
     shear_profile_visible, shear_hover_index, shear_view_mode, shear_selector_open = false, nil, 0, false
     shear_external_input = false
     show_shear_center, show_shear_moment_table, shear_moment_table = false, false, nil
@@ -1168,6 +1173,7 @@ local function berechneSystem()
     qsMeldung = nil   -- Querschnitt geaendert: alte Meldung gilt nicht mehr
     sigma_results = nil
     shear_center_cache = nil
+    woelb.results, woelb.visible = nil, false   -- Geometrie geaendert: Verwoelbung neu rechnen
     local sumA, sumSyu, sumSzu = 0, 0, 0
     is_numeric_system = false
     
@@ -1341,8 +1347,10 @@ end
 --  * offene Profile: q(s) aus dem statischen Moment ab den freien Enden, mit I_yz-Kopplung
 --  * genau eine geschlossene Zelle, symmetrisch zur Achse parallel zur Querkraft:
 --    der konstante Zellschubfluss q0 folgt aus der Symmetrie (q ist antisymmetrisch)
---  * alles andere (mehrzellig, unsymmetrisch geschlossen, Querkraft quer zur einzigen
---    Symmetrieachse) ist statisch unbestimmt und wird mit Begruendung abgelehnt.
+--  * fehlt die Symmetrieachse parallel zur Querkraft (unsymmetrische Zelle, Querkraft quer zur
+--    einzigen Achse, Symmetrie nicht erkannt), folgt q0 aus der Vertraeglichkeit: die Zelle
+--    verdrillt sich unter einer Querkraft im Schubmittelpunkt nicht, ∮ q/(G t) ds = 0
+--  * mehrzellige Profile bleiben statisch unbestimmt und werden mit Begruendung abgelehnt.
 -- Qa, Qb: Querkraefte im internen KOS (u, v). Rueckgabe: maximum, samples, paths, fehler, info
 local function berechneDuenneSchubspannung(Qa, Qb)
     if not system_results or #duenn_elemente == 0 then return nil end
@@ -1356,12 +1364,11 @@ local function berechneDuenneSchubspannung(Qa, Qb)
     if zellen.cells >= 2 then
         return nil, nil, nil, "Mehrzelliges Profil: Schubfluss statisch unbestimmt.", info
     end
-    if zellen.cells == 1 and ((math.abs(Qa) > 1e-12 and not sym_h) or (math.abs(Qb) > 1e-12 and not sym_v)) then
-        local erkannt = (sym_v and sym_h) and "senkrecht und waagerecht"
+    if zellen.cells == 1 then
+        -- Fehlt die Symmetrieachse parallel zur Querkraft, kommt q0 nicht aus der Symmetrie,
+        -- sondern aus der Vertraeglichkeit (Schritt 4b). Fuer die Warnung wird gemerkt, was erkannt wurde.
+        info.erkannt = (sym_v and sym_h) and "senkrecht und waagerecht"
             or (sym_v and "nur senkrecht") or (sym_h and "nur waagerecht") or "keine"
-        return nil, nil, nil, "Geschlossene Zelle: der Umlaufschubfluss q0 folgt hier nur aus der Symmetrie, "
-            .. "fuer diese Querkraftrichtung fehlt sie (erkannte Symmetrieachsen durch den Schwerpunkt: "
-            .. erkannt .. "). Das Profil ist damit statisch unbestimmt.", info
     end
     local det = r.Iy * r.Iz - r.Iyz^2
     if det <= 1e-12 then return nil, nil, nil, "Traegheitsmomente singulaer.", info end
@@ -1399,6 +1406,7 @@ local function berechneDuenneSchubspannung(Qa, Qb)
         -- Mindestens 64 Teilintervalle pro Kante, unabhaengig von der Zoomstufe
         local integration_step = math.max(raster / 8, 0.025)
         local sample_count = math.max(64, math.ceil(length / integration_step))
+        if sample_count % 2 == 1 then sample_count = sample_count + 1 end   -- gerade: Simpson je Kante exakt
         for sample = 0, sample_count do
             local f = sample / sample_count
             local u = p1.u + f * du
@@ -1571,14 +1579,61 @@ local function berechneDuenneSchubspannung(Qa, Qb)
             end
             return false
         end
-        -- Sz gehoert zur Querkraft in a-Richtung (Symmetrieachse waagerecht), Sy zur b-Richtung
+        -- Umlaufintegral ∮ S/t ds ueber die Zelle (im Umlaufsinn) samt ∮ 1/t ds. Simpson je Kante:
+        -- S ist auf einer geraden Kante quadratisch, das Integral damit exakt. Die Stuetzstellen
+        -- einer Kante liegen in loop hintereinander (parameter 0 .. 1).
+        local function umlaufintegrale(key)
+            local zaehler, nenner = 0, 0
+            local i = 1
+            while i <= #loop do
+                local j = i
+                while j < #loop and loop[j + 1].edge_i == loop[i].edge_i and loop[j + 1].path_id == loop[i].path_id do
+                    j = j + 1
+                end
+                local m, h = j - i, loop[i].ds
+                if m >= 2 and m % 2 == 0 then
+                    local za, ne = 0, 0
+                    for k = 0, m do
+                        local g = (k == 0 or k == m) and 1 or ((k % 2 == 1) and 4 or 2)
+                        local sm = loop[i + k]
+                        za = za + g * sm[key] * sm.cell_sign / sm.thickness
+                        ne = ne + g / sm.thickness
+                    end
+                    zaehler, nenner = zaehler + za * h / 3, nenner + ne * h / 3
+                else
+                    for k = 0, m do
+                        local w = (k == 0 or k == m) and 0.5 or 1
+                        local sm = loop[i + k]
+                        zaehler = zaehler + w * sm[key] * sm.cell_sign / sm.thickness * h
+                        nenner = nenner + w / sm.thickness * h
+                    end
+                end
+                i = j + 1
+            end
+            return zaehler, nenner
+        end
+        -- 4b) Konstante aus der Vertraeglichkeit: unter einer Querkraft im Schubmittelpunkt
+        --     verdrillt sich die Zelle nicht, also ∮ q/(G t) ds = 0. Mit q = -Q (I S + I_yz S')/det
+        --     und regulaerer Matrix [[I_y, I_yz], [I_yz, I_z]] zerfaellt das in ∮ Sz/t ds = 0 und
+        --     ∮ Sy/t ds = 0: je eine Konstante fuer Sz und Sy, unabhaengig von Q und von der
+        --     I_yz-Kopplung. Damit stimmen auch die angezeigten S-Verlaeufe. Beim symmetrischen
+        --     Profil ergibt das dieselbe (antisymmetrische) Loesung wie die Spiegelung.
+        local function korrigiereVertraeglich(key)
+            local zaehler, nenner = umlaufintegrale(key)
+            if nenner <= 1e-12 then return false end
+            local s0 = -zaehler / nenner
+            for _, other in ipairs(loop) do other[key] = other[key] + other.cell_sign * s0 end
+            return true
+        end
+        -- Sz gehoert zur Querkraft in a-Richtung (Symmetrieachse waagerecht), Sy zur b-Richtung.
+        -- Symmetrie hat Vorrang; ohne Achse (oder ohne Spiegelpartner) die Vertraeglichkeit.
         local ok_a = sym_h and korrigiere("Sz", function(u, v) return u, 2 * r.zs - v end)
         local ok_b = sym_v and korrigiere("Sy", function(u, v) return 2 * r.ys - u, v end)
-        if math.abs(Qa) > 1e-12 and not ok_a then
-            return nil, nil, nil, "Symmetriepartner in der Zelle nicht gefunden.", info
-        end
-        if math.abs(Qb) > 1e-12 and not ok_b then
-            return nil, nil, nil, "Symmetriepartner in der Zelle nicht gefunden.", info
+        if schub_immer_vertraeglich then ok_a, ok_b = false, false end
+        local vert_a = (not ok_a) and korrigiereVertraeglich("Sz")
+        local vert_b = (not ok_b) and korrigiereVertraeglich("Sy")
+        if not (ok_a or vert_a) or not (ok_b or vert_b) then
+            return nil, nil, nil, "Umlaufintegral der Zelle nicht auswertbar.", info
         end
         -- Schubspannungen aus den korrigierten statischen Momenten neu bilden
         for _, sample in ipairs(samples) do
@@ -1588,7 +1643,8 @@ local function berechneDuenneSchubspannung(Qa, Qb)
             end
             sample.tau = sample.tau_a + sample.tau_b
         end
-        info.zelle_s_korrigiert = { a = ok_a and true or false, b = ok_b and true or false }
+        info.zelle_s_korrigiert = { a = true, b = true,
+            vertraeglich = { a = vert_a and true or false, b = vert_b and true or false } }
     end
 
     local maximum = {tau = 0, abs_tau = 0, u = r.ys, v = r.zs}
@@ -1610,11 +1666,26 @@ berechneSchubmittelpunkt = function()
     local function shear_torque(Qa, Qb)
         local maximum, samples = berechneDuenneSchubspannung(Qa, Qb)
         if not maximum then return nil end
+        -- Simpson je Kante: der Hebelarm ist auf einer geraden Kante linear, q quadratisch, das
+        -- Produkt kubisch -- damit ist das Moment exakt (Trapez liess den Schubmittelpunkt um ~1e-5 wandern)
         local moment = 0
-        for _, sample in ipairs(samples) do
-            local endpoint_weight = (sample.parameter <= 1e-9 or sample.parameter >= 1 - 1e-9) and 0.5 or 1
-            local force = sample.tau * sample.thickness * sample.ds * endpoint_weight
-            moment = moment - ((sample.u - r.ys) * sample.tangent_v - (sample.v - r.zs) * sample.tangent_u) * force
+        local i = 1
+        while i <= #samples do
+            local j = i
+            while j < #samples and samples[j + 1].path_id == samples[i].path_id
+                and samples[j + 1].edge_i == samples[i].edge_i and (samples[j + 1].parameter or 0) > (samples[j].parameter or 0) do
+                j = j + 1
+            end
+            local m, h = j - i, samples[i].ds
+            for k = 0, m do
+                local sample = samples[i + k]
+                local w
+                if m >= 2 and m % 2 == 0 then w = ((k == 0 or k == m) and 1 or ((k % 2 == 1) and 4 or 2)) * h / 3
+                else w = ((k == 0 or k == m) and 0.5 or 1) * h end
+                local force = sample.tau * sample.thickness * w
+                moment = moment - ((sample.u - r.ys) * sample.tangent_v - (sample.v - r.zs) * sample.tangent_u) * force
+            end
+            i = j + 1
         end
         return moment
     end
@@ -1785,6 +1856,192 @@ end
 -- Schubspannungen aus Querkraft. input_Qa/input_Qb sind im angezeigten KOS (Q_y, Q_z) eingegeben,
 -- eingetragene Kraefte liegen intern vor. Massiv: tau = Q S / (I b) (nur I_yz = 0),
 -- duennwandig: siehe berechneDuenneSchubspannung. Gemischt massiv/duennwandig: nicht berechnet.
+-- ===== Verwoelbung duennwandiger Profile (Formelsammlung Kap. 6) =====
+-- u_x(s) = Int [ MT/(2 G A_m h(s)) - r_perp * theta ] ds + c,   theta = MT/(G I_T)
+--  * Pol ist der Schubmittelpunkt (Drillruhepunkt). r_perp = (u-u_M) t_v - (v-v_M) t_u ist der
+--    vorzeichenbehaftete Abstand des Pols von der Kantentangente: positiv, wenn der Fahrstrahl
+--    vom Pol zum Laufpunkt in Laufrichtung im Sinn des positiven Torsionsmoments dreht -- also
+--    im selben Umlaufsinn, in dem der Bredt-Schubfluss fuer MT > 0 laeuft (ccw_dir = +1).
+--  * c aus Int u_x h ds = 0 ueber das ganze Profil (keine mittlere Laengsverschiebung, N = 0).
+--    Bei symmetrischen Profilen ist die Verwoelbung antisymmetrisch, u_x auf der Achse also
+--    automatisch null -- genau der Startpunkt der Handrechnung.
+--  * offene Profile: kein umlaufender Schubfluss, der Bredt-Term entfaellt, u_x = -theta Int r ds + c.
+--    Das ist Standardtheorie, steht aber nicht in der Formelsammlung -> Warnung beim Aufruf.
+--  * r_perp ist auf einer geraden Kante linear, u_x also quadratisch: beides wird geschlossen
+--    integriert, die Stuetzstellen dienen nur der Darstellung.
+local function berechneVerwoelbung(M, G)
+    if not system_results then return nil, "Kein Querschnitt vorhanden." end
+    if #duenn_elemente == 0 or #massiv_elemente > 0 then
+        return nil, "Verwoelbung nur fuer rein duennwandige Profile (offen oder einzellig geschlossen)."
+    end
+    if not G or G <= 0 then return nil, "Der Schubmodul G muss positiv sein." end
+    local r = system_results
+    local nodes, edges, nicht_gerade = duennGraph(r.ys, r.zs)
+    if nicht_gerade then return nil, "Verwoelbung nur fuer gerade duennwandige Elemente." end
+    if #edges == 0 then return nil, "Kein Profilgraph vorhanden." end
+    local zellen = duennZellen(nodes, edges)
+    if zellen.cells >= 2 then return nil, "Mehrzelliges Profil: Torsion statisch unbestimmt, keine Verwoelbung." end
+    local geschlossen = zellen.cells == 1
+    local It = geschlossen and zellen.It or (r.It or 0)
+    if It <= 1e-12 then return nil, "I_T = 0: keine Verwoelbung berechenbar." end
+    local pol = berechneSchubmittelpunkt()
+    if not (pol and pol.known) then return nil, "Schubmittelpunkt nicht bestimmbar." end
+    local theta = M / (G * It)
+    local qT = geschlossen and M / (2 * zellen.Am) or 0
+
+    -- Startknoten moeglichst auf einer Symmetrieachse (wie der Zellschnitt), sonst Knoten 1.
+    -- Die Konstante c macht das Ergebnis ohnehin unabhaengig vom Start.
+    local sym_v, sym_h = duennSymmetrie(nodes, edges, r.ys, r.zs)
+    local ext = 0
+    for _, n in ipairs(nodes) do ext = math.max(ext, math.abs(n.u - r.ys), math.abs(n.v - r.zs)) end
+    local tol = 1e-6 * math.max(ext, 1)
+    local start = 1
+    for i, n in ipairs(nodes) do
+        if (sym_v and math.abs(n.u - r.ys) <= tol) or (sym_h and math.abs(n.v - r.zs) <= tol) then start = i; break end
+    end
+
+    local u_knoten, besucht = {}, {}
+    local samples, paths = {}, {}
+    local schluss = 0        -- Probe: in der Zelle muss der Umlauf wieder schliessen
+    local step = math.max(raster / 8, 0.025)
+    local function ablaufen(startknoten)
+        u_knoten[startknoten] = u_knoten[startknoten] or 0
+        local schlange = { startknoten }
+        while #schlange > 0 do
+            local n = table.remove(schlange, 1)
+            for _, ei in ipairs(nodes[n].edges) do
+                local e = edges[ei]
+                if not besucht[ei] then
+                    besucht[ei] = true
+                    local vorwaerts = (e.n1 == n)
+                    local ziel = vorwaerts and e.n2 or e.n1
+                    local p1 = vorwaerts and e.p1 or e.p2
+                    local p2 = vorwaerts and e.p2 or e.p1
+                    local du, dv = p2.u - p1.u, p2.v - p1.v
+                    local L = math.sqrt(du^2 + dv^2)
+                    if L > 1e-9 then
+                        local tu, tv = du / L, dv / L
+                        local h = e.t
+                        local sign = 0
+                        if geschlossen and zellen.in_loop[ei] then sign = (zellen.ccw_dir[ei] or 1) * (vorwaerts and 1 or -1) end
+                        local bredt = sign * qT / (G * h)                      -- du/ds aus dem Bredt-Schubfluss
+                        local r1 = (p1.u - pol.u) * tv - (p1.v - pol.v) * tu   -- r_perp am Kantenanfang
+                        local r2 = (p2.u - pol.u) * tv - (p2.v - pol.v) * tu   -- r_perp am Kantenende (linear)
+                        local u0 = u_knoten[n]
+                        local function u_bei(sx) return u0 + bredt * sx - theta * (r1 * sx + (r2 - r1) * sx * sx / (2 * L)) end
+                        local u_ende = u_bei(L)
+                        if u_knoten[ziel] == nil then
+                            u_knoten[ziel] = u_ende
+                            table.insert(schlange, ziel)
+                        else
+                            schluss = math.max(schluss, math.abs(u_knoten[ziel] - u_ende))
+                        end
+                        -- Anzeige-Normale wie beim Schub aus der urspruenglichen Elementrichtung
+                        local elem = duenn_elemente[e.index]
+                        local o1, o2 = elem.points[1], elem.points[2]
+                        if o2.u < o1.u or (math.abs(o2.u - o1.u) <= 1e-9 and o2.v < o1.v) then o1, o2 = o2, o1 end
+                        local odu, odv = o2.u - o1.u, o2.v - o1.v
+                        local oL = math.sqrt(odu^2 + odv^2)
+                        local nu_, nv_ = (oL > 1e-9) and -odv / oL or 0, (oL > 1e-9) and odu / oL or 0
+                        local m = math.max(64, math.ceil(L / step))
+                        if m % 2 == 1 then m = m + 1 end
+                        local path = { id = #paths + 1, items = { { p1 = p1, p2 = p2, edge = e } } }
+                        table.insert(paths, path)
+                        for k = 0, m do
+                            local f = k / m
+                            table.insert(samples, { u = p1.u + f * du, v = p1.v + f * dv, ux = u_bei(f * L), s = f * L,
+                                parameter = f, ds = L / m, thickness = h, tangent_u = tu, tangent_v = tv,
+                                display_normal_u = nu_, display_normal_v = nv_, segment = e.index, edge_i = ei,
+                                path_id = path.id, r_perp = r1 + (r2 - r1) * f })
+                        end
+                    end
+                end
+            end
+        end
+    end
+    ablaufen(start)
+    for ei, e in ipairs(edges) do       -- nicht zusammenhaengende Teile: eigener Start
+        if not besucht[ei] then ablaufen(e.n1) end
+    end
+    -- Konstante c: mittlere Verwoelbung null. Simpson je Kante (u_x ist dort quadratisch: exakt).
+    local zaehler, nenner = 0, 0
+    local i = 1
+    while i <= #samples do
+        local j = i
+        while j < #samples and samples[j + 1].path_id == samples[i].path_id do j = j + 1 end
+        local m, hs, h = j - i, samples[i].ds, samples[i].thickness
+        for k = 0, m do
+            local g = (k == 0 or k == m) and 1 or ((k % 2 == 1) and 4 or 2)
+            zaehler = zaehler + g * samples[i + k].ux * h * hs / 3
+            nenner = nenner + g * h * hs / 3
+        end
+        i = j + 1
+    end
+    local c = (nenner > 1e-12) and (-zaehler / nenner) or 0
+    local maximum = { abs = 0, u = r.ys, v = r.zs, wert = 0 }
+    for _, sm in ipairs(samples) do
+        sm.ux = sm.ux + c
+        if math.abs(sm.ux) > maximum.abs then maximum = { abs = math.abs(sm.ux), u = sm.u, v = sm.v, wert = sm.ux } end
+    end
+    return { M = M, G = G, theta = theta, It = It, Am = zellen.Am or 0, closed = geschlossen, pol = pol,
+             samples = samples, paths = paths, max_abs = maximum.abs, max_u = maximum.u, max_v = maximum.v,
+             max_wert = maximum.wert, schluss = schluss, c = c, sym_v = sym_v, sym_h = sym_h }
+end
+
+local function openWoelbInput()
+    qsMeldung = nil
+    if not system_results then meldung("Kein Querschnitt vorhanden.", "Hinweis", true); return end
+    if #duenn_elemente == 0 or #massiv_elemente > 0 then
+        meldung("Verwoelbung nur fuer rein duennwandige Profile (offen oder einzellig geschlossen); fuer massive Querschnitte gibt es keine TM2-Formel.", "Verwoelbung nicht berechnet", true)
+        return
+    end
+    local _, _, cells = find_closed_cells()
+    if cells >= 2 then
+        meldung("Mehrzelliges Profil: Torsion statisch unbestimmt, keine Verwoelbung.", "Verwoelbung nicht berechnet", true)
+        return
+    end
+    woelb.step, woelb.results, woelb.visible = 1, nil, false
+    menuOpen, showResults, showTable = false, false, false
+    -- Vorbelegung: Torsionsmoment der eingetragenen Kraefte um den Schubmittelpunkt, sonst leer
+    local ft = berechneKraftTorsion()
+    inputText = ft and string.format("%.6g", display_moment(ft.M)) or ""
+    qsMeldung = nil
+    status = "Verwoelbung: Torsionsmoment MT in " .. moment_unit .. " eingeben, dann Enter."
+end
+
+local function enterWoelbInput()
+    local val = evaluate_input(inputText)
+    if not val then
+        meldung("Ungueltige Eingabe fuer die Verwoelbung.", "Eingabe", true)
+        inputText = ""
+        platform.window:invalidate()
+        return true
+    end
+    if woelb.step == 1 then
+        woelb.M = input_to_internal(val, moment_unit)
+        woelb.step, inputText = 2, string.format("%.6g", woelb.G or 81000)
+        status = "Schubmodul G in N/mm^2 eingeben, dann Enter."
+    else
+        woelb.G = val
+        woelb.step, inputText = 0, ""
+        local res, fehler = berechneVerwoelbung(woelb.M, woelb.G)
+        if res then
+            woelb.results, woelb.visible = res, true
+            shear_profile_visible, shear_selector_open, showResults = false, false, false
+            status = "Verwoelbung berechnet. E: Werte, Esc schliesst die Ansicht."
+            if not res.closed then
+                meldung("Offenes Profil: die Verwoelbung folgt aus u_x = -theta * Int(r ds) + c um den Schubmittelpunkt "
+                    .. "(der Bredt-Anteil entfaellt, es gibt keinen umlaufenden Schubfluss). Diese Formel steht nicht in "
+                    .. "der Formelsammlung, dort ist nur der geschlossene Fall angegeben.", "Warnung", true)
+            end
+        else
+            meldung(fehler or "Verwoelbung nicht berechenbar.", "Verwoelbung nicht berechnet", true)
+        end
+    end
+    platform.window:invalidate()
+    return true
+end
+
 berechneSchubspannungsResultate = function(input_Qa, input_Qb)
     schub_grund = nil
     if not system_results then return nil end
@@ -1839,12 +2096,22 @@ berechneSchubspannungsResultate = function(input_Qa, input_Qb)
                     .. "die Zelle nicht). Der Schnitt liegt an beliebiger Stelle; die Werte sind zwar ueber "
                     .. "die Symmetrie korrigiert, S beginnt aber nicht bei null."
             end
+            local vert = result.zelle_korrigiert and result.zelle_korrigiert.vertraeglich
             if not (result.sym_v or result.sym_h) then
                 ist_warnung = true
-                hinweise[#hinweise + 1] = "Geschlossene Zelle ohne erkannte Symmetrie: der Umlaufschubfluss q0 "
-                    .. "ist statisch unbestimmt. Die Verlaeufe (S und tau) gelten nur bis auf diesen konstanten "
-                    .. "Anteil, die Zelle wurde an beliebiger Stelle aufgeschnitten. Bei einem symmetrischen "
-                    .. "Profil muessen beide Haelften gleich dick und spiegelbildlich zum Schwerpunkt liegen."
+                hinweise[#hinweise + 1] = "Geschlossene Zelle ohne erkannte Symmetrie: ueber die Symmetrie ist der "
+                    .. "Umlaufschubfluss q0 hier nicht bestimmbar (statisch unbestimmt). Das Programm hat q0 deshalb "
+                    .. "aus der Vertraeglichkeit bestimmt (Umlaufintegral q/t ds = 0, Querkraft im Schubmittelpunkt) "
+                    .. "-- S und tau sind trotzdem richtig. Bei einem symmetrischen Profil muessen beide Haelften "
+                    .. "gleich dick und spiegelbildlich zum Schwerpunkt liegen."
+            elseif vert and ((vert.a and math.abs(Qa) > 1e-12) or (vert.b and math.abs(Qb) > 1e-12)) then
+                ist_warnung = true
+                local u_ist_a = (rotation == 0 or rotation == 180)
+                local achse = (vert.a and math.abs(Qa) > 1e-12) and (u_ist_a and a or b) or (u_ist_a and b or a)
+                hinweise[#hinweise + 1] = "Geschlossene Zelle: fuer die Querkraft parallel zur " .. achse
+                    .. "-Achse fehlt die Symmetrieachse (erkannt: " .. tostring(info and info.erkannt or "keine")
+                    .. "). q0 folgt fuer diese Richtung nicht aus der Symmetrie, sondern aus der Vertraeglichkeit "
+                    .. "(Umlaufintegral q/t ds = 0, Querkraft im Schubmittelpunkt) -- S und tau sind trotzdem richtig."
             end
         end
         -- Hauptachsen nicht parallel zu y/z (Winkel kein Vielfaches von 90 Grad): Hinweis auf schiefe Biegung
@@ -2249,6 +2516,21 @@ local function drawSpreadsheet(gc, w, h)
                 end
             end
         end
+        if woelb.results then
+            local wr = woelb.results
+            table.insert(lines, "--- Verwoelbung ---")
+            table.insert(lines, string.format("MT = %.4g [%s]", display_moment(wr.M), moment_unit))
+            table.insert(lines, string.format("G = %.4g [N/mm^2]", wr.G))
+            table.insert(lines, string.format("I_T = %.4g [%s]", display_inertia(wr.It), unit_label(4)))
+            if wr.closed then table.insert(lines, string.format("A_m = %.4g [%s]", display_area(wr.Am), unit_label(2))) end
+            table.insert(lines, string.format("theta = %.4g [1/%s]", wr.theta * unit_factor(length_unit), length_unit))
+            local mu, mv = coordinatesForDisplay(wr.max_u, wr.max_v)
+            table.insert(lines, string.format("u_x,max = %.4g [%s]", display_length(wr.max_abs), length_unit))
+            table.insert(lines, string.format("bei (%s,%s) = (%.4g,%.4g)", a, b, display_length(mu), display_length(mv)))
+            local pu, pv = coordinatesForDisplay(wr.pol.u, wr.pol.v)
+            table.insert(lines, string.format("Pol M = (%.4g, %.4g) [%s]", display_length(pu), display_length(pv), length_unit))
+            table.insert(lines, wr.closed and "geschlossen (Formelsammlung Kap. 6)" or "offen (Warnung: nicht in der Formelsammlung)")
+        end
         if torsion_results then
             table.insert(lines, "--- Torsion ---")
             table.insert(lines, string.format("MT = %.4g [%s]", display_moment(torsion_results.M), moment_unit))
@@ -2362,9 +2644,170 @@ local function drawTorsionInput(gc, w, h)
     gc:setFont("sansserif", "r", 8); gc:drawString("Enter bestaetigen, Esc abbrechen", left + 8, top + 68)
 end
 
+-- ===== Verlaufsdarstellung (Schub, spaeter auch Verwoelbung) =====
+-- Der Engpass war das Zeichnen, nicht die Rechnung: pro Frame wurden alle Stuetzstellen neu in
+-- Abschnitte einsortiert, jeder Abschnitt sortiert, der Wert dreimal je Punkt ausgewertet und
+-- jeder Punkt einzeln mit drawLine gezeichnet. Jetzt werden die Abschnitte (sortierte
+-- Stuetzstellen, Werte, Pixelversatz normal zur Wand) einmal aufgebaut und je Frame nur noch in
+-- Bildschirmpunkte umgerechnet, auf etwa einen Punkt je 1,5 px ausgeduennt und als eine
+-- Polylinie je Abschnitt gezeichnet. Min/Max und Endwerte kommen weiterhin aus allen
+-- Stuetzstellen; die Rechendichte ist unveraendert.
+local verlauf_cache = nil
+local VERLAUF_BREITE = 36          -- Pixel fuer den betragsgroessten Wert
+
+local function verlaufAbschnitte(quelle)
+    local schluessel = table.concat({ tostring(quelle.id), tostring(quelle.key), tostring(rotation),
+        tostring(quelle.hovered or "-") }, "|")
+    if verlauf_cache and verlauf_cache.schluessel == schluessel then return verlauf_cache end
+    local abschnitte, aktuell, aktuell_key = {}, nil, nil
+    for index, sample in ipairs(quelle.samples) do
+        if not quelle.hovered or sample.segment == quelle.hovered then
+            local k = tostring(sample.path_id or 1) .. ":" .. tostring(sample.segment or sample.profile or 1)
+            if not aktuell or aktuell_key ~= k then
+                aktuell, aktuell_key = {}, k
+                abschnitte[#abschnitte + 1] = aktuell
+            end
+            aktuell[#aktuell + 1] = { index = index, sample = sample, wert = quelle.wert(sample) }
+        end
+    end
+    local gesamt_max = 1e-9
+    for _, ab in ipairs(abschnitte) do
+        for _, e in ipairs(ab) do gesamt_max = math.max(gesamt_max, math.abs(e.wert)) end
+    end
+    local massiv_max = math.max(quelle.maximum or 0, 1e-9)
+    local hover_max, hover_max_eintrag = -math.huge, nil
+    for _, ab in ipairs(abschnitte) do
+        table.sort(ab, function(l, r)
+            return (l.sample.s or l.sample.parameter or l.index) < (r.sample.s or r.sample.parameter or r.index)
+        end)
+        ab.min, ab.max = nil, nil
+        for _, e in ipairs(ab) do
+            local sm = e.sample
+            -- Pixelversatz des Verlaufspunkts gegenueber der Wand (Bildschirm: x rechts, y unten)
+            if sm.profile == "massiv_b" then
+                e.fx, e.fy = (e.wert / massiv_max) * VERLAUF_BREITE, 0
+            elseif sm.profile == "massiv_a" then
+                e.fx, e.fy = 0, -(e.wert / massiv_max) * VERLAUF_BREITE
+            elseif sm.display_normal_u and sm.display_normal_v then
+                local f = e.wert / gesamt_max * VERLAUF_BREITE
+                e.fx, e.fy = sm.display_normal_u * f, -sm.display_normal_v * f
+            else
+                e.fx, e.fy = 0, 0
+            end
+            if not ab.min or e.wert < ab.min.wert then ab.min = e end
+            if not ab.max or e.wert > ab.max.wert then ab.max = e end
+            if quelle.hovered and e.wert > hover_max then hover_max, hover_max_eintrag = e.wert, e end
+        end
+    end
+    verlauf_cache = { schluessel = schluessel, abschnitte = abschnitte, hover_max = hover_max_eintrag }
+    return verlauf_cache
+end
+
+local function drawVerlauf(gc, quelle)
+    local cache = verlaufAbschnitte(quelle)
+    local farbe = quelle.farbe or { 45, 95, 175 }
+    gc:setColorRGB(20, 70, 150)
+    gc:setFont("sansserif", "b", 10)
+    gc:drawString(quelle.titel, 6, 5)
+    local function punkt(e) return ox + e.sample.u * scale + e.fx, oy - e.sample.v * scale + e.fy end
+    local function verbinder(e)
+        if not e or not (e.sample.display_normal_u and e.sample.display_normal_v) then return end
+        local x, y = punkt(e)
+        gc:setColorRGB(150, 150, 150); gc:setPen("thin", "smooth")
+        gc:drawLine(ox + e.sample.u * scale, oy - e.sample.v * scale, x, y)
+    end
+    local function wert(e, label, color)
+        if not e then return end
+        local x, y = punkt(e)
+        gc:setColorRGB(color[1], color[2], color[3])
+        gc:fillArc(x - 2, y - 2, 4, 4, 0, 360)
+        gc:setFont("sansserif", "r", 8)
+        gc:drawString((label ~= "" and (label .. " ") or "") .. formatLabel(quelle.anzeige(e.wert)), x + 4, y - 10)
+    end
+    for _, ab in ipairs(cache.abschnitte) do
+        local n = #ab
+        local pts, lx, ly = {}, nil, nil
+        for i, e in ipairs(ab) do
+            local x, y = punkt(e)
+            if i == 1 or i == n or (x - lx) ^ 2 + (y - ly) ^ 2 >= 2.25 then
+                pts[#pts + 1] = x; pts[#pts + 1] = y
+                lx, ly = x, y
+            end
+        end
+        gc:setColorRGB(farbe[1], farbe[2], farbe[3])
+        gc:setPen("thin", "smooth")
+        if #pts >= 4 then gc:drawPolyLine(pts) end
+        local erster, letzter = ab[1], ab[n]
+        verbinder(erster); verbinder(letzter)
+        wert(erster, "", { 40, 80, 150 })
+        if letzter ~= erster then wert(letzter, "", { 40, 80, 150 }) end
+        if quelle.hovered then
+            if ab.max == cache.hover_max and ab.max ~= erster and ab.max ~= letzter then wert(ab.max, "max", { 190, 60, 60 }) end
+        else
+            if ab.min and ab.min ~= erster and ab.min ~= letzter then wert(ab.min, "min", { 190, 60, 60 }) end
+            if ab.max and ab.max ~= erster and ab.max ~= letzter then wert(ab.max, "max", { 190, 60, 60 }) end
+        end
+    end
+end
+
+-- Laufrichtung der Integration (Pfeile) und Startmarken je Pfad. Die Pfeile zeigen die
+-- Orientierung der Laufvariablen, nicht die Richtung der Spannungskomponente.
+local function drawLaufrichtung(gc, paths, hovered_segment, korrigiert)
+    if not paths then return end
+    gc:setColorRGB(145, 55, 180)
+    gc:setPen("thin", "smooth")
+    for _, path in ipairs(paths) do
+        if path.start_kind and path.items[1] and path.items[1].p1 then
+            local start_point = path.items[1].p1
+            local start_x, start_y = toScreen(start_point.u, start_point.v)
+            gc:fillArc(start_x - 3, start_y - 3, 6, 6, 0, 360)
+            gc:setFont("sansserif", "b", 9)
+            -- "Start" heisst: hier beginnt die Laufvariable und S ist null (freies Ende).
+            -- In der geschlossenen Zelle wird nur aufgeschnitten; S = 0 liegt nach der
+            -- Symmetriekorrektur auf der Symmetrieachse. Ohne Symmetrie kommt q0 aus der
+            -- Vertraeglichkeit, S ist am Schnitt dann im Allgemeinen nicht null.
+            local text = "Start"
+            if path.start_kind == "cut_sym" then
+                text = "Start (Symmetrieachse)"
+            elseif path.start_kind == "cut" then
+                local k = korrigiert
+                if k and k.vertraeglich and (k.vertraeglich.a or k.vertraeglich.b) then
+                    text = "Schnitt (q0 aus Verträglichkeit)"
+                elseif k and (k.a or k.b) then
+                    text = "Schnitt"
+                else
+                    text = "Schnitt (q0 offen)"
+                end
+            end
+            gc:drawString(text, start_x + 5, start_y - 10)
+        end
+        for _, item in ipairs(path.items) do
+            if item.p1 and item.p2 and (not hovered_segment or item.edge.index == hovered_segment) then
+                local mx = (item.p1.u + item.p2.u) / 2
+                local mv = (item.p1.v + item.p2.v) / 2
+                local dx, dv = item.p2.u - item.p1.u, item.p2.v - item.p1.v
+                local length = math.sqrt(dx^2 + dv^2)
+                if length > 1e-9 then
+                    local ux, uv = dx / length, dv / length
+                    local tx, ty = toScreen(mx - ux * 0.35, mv - uv * 0.35)
+                    local px, py = toScreen(mx + ux * 0.35, mv + uv * 0.35)
+                    gc:drawLine(tx, ty, px, py)
+                    local screen_dx, screen_dy = px - tx, py - ty
+                    local screen_length = math.sqrt(screen_dx^2 + screen_dy^2)
+                    if screen_length > 1e-9 then
+                        local ax, ay = screen_dx / screen_length, screen_dy / screen_length
+                        local nx, ny = -ay, ax
+                        gc:drawLine(px, py, px - ax * 5 + nx * 3, py - ay * 5 + ny * 3)
+                        gc:drawLine(px, py, px - ax * 5 - nx * 3, py - ay * 5 - ny * 3)
+                    end
+                end
+            end
+        end
+    end
+end
+
 local function drawShearProfileLegacy(gc)
     if not shear_profile_visible or not shear_results or not shear_results.samples then return end
-    local maximum = math.max(shear_results.max_tau, 1e-9)
     local hovered_segment = hover_type == "duenn" and hover_idx or nil
     local axis_a, axis_b = axes()
     -- Reihenfolge: 1/2 Momentendichten, 3/4 statische Momente, 5/6 Schubspannungsanteile,
@@ -2380,10 +2823,6 @@ local function drawShearProfileLegacy(gc)
         or shear_view_mode == 9 and "Gesamtschubspannung [MPa]"
         or shear_view_mode == 10 and "Laufvariable s [" .. unit_label(1) .. "]"
         or "Schubspannungsverlauf"
-    gc:setColorRGB(20, 70, 150)
-    gc:setFont("sansserif", "b", 10)
-    gc:drawString(profile_name, 6, 5)
-    gc:setFont("sansserif", "r", 9)
     local function profile_value(sample)
         local display_sz, display_sy = coordinatesForDisplay(sample.Sz or 0, sample.Sy or 0)
         return shear_view_mode == 1 and displayedMomentDensity(sample)
@@ -2397,183 +2836,83 @@ local function drawShearProfileLegacy(gc)
             or shear_view_mode == 10 and (sample.s or 0)
             or sample.tau
     end
-    local function profile_display_value(sample)
-        local value = profile_value(sample)
+    local function profile_display_value(value)
         if shear_view_mode == 1 or shear_view_mode == 2 then return display_area(value) end
         if shear_view_mode == 3 or shear_view_mode == 4 then return display_volume(value) end
         if shear_view_mode == 10 then return display_length(value) end
         return value
     end
-    local sections = {}
-    local current_section = nil
-    local current_key = nil
-    for index, sample in ipairs(shear_results.samples) do
-        if not hovered_segment or sample.segment == hovered_segment then
-            local section_key = tostring(sample.path_id or 1) .. ":" .. tostring(sample.segment or sample.profile or 1)
-            if not current_section or current_key ~= section_key then
-                current_section = {}
-                table.insert(sections, current_section)
-                current_key = section_key
-            end
-            table.insert(current_section, {index = index, sample = sample})
-        end
-    end
-    local hovered_max_value, hovered_max_sample = -math.huge, nil
-    if hovered_segment then
-        for _, section in pairs(sections) do
-            for _, entry in ipairs(section) do
-                local value = profile_value(entry.sample)
-                if value > hovered_max_value then
-                    hovered_max_value, hovered_max_sample = value, entry.sample
-                end
-            end
-        end
-    end
-    local shared_section_max = 1e-9
-    for _, section in ipairs(sections) do
-        for _, entry in ipairs(section) do
-            shared_section_max = math.max(shared_section_max, math.abs(profile_value(entry.sample)))
-        end
-    end
-    for _, section in pairs(sections) do
-        table.sort(section, function(left, right)
-            return (left.sample.s or left.sample.parameter or left.index) < (right.sample.s or right.sample.parameter or right.index)
-        end)
-        local section_max = shared_section_max
-        local first_sample = section[1] and section[1].sample
-        local normal_u = first_sample and -(first_sample.tangent_v or 0) or 0
-        local normal_v = first_sample and (first_sample.tangent_u or 0) or 0
-        local diagram_width = 36 / math.max(scale, 1e-9)
-        local previous_x, previous_y = nil, nil
-        local min_value, max_value = math.huge, -math.huge
-        local min_sample, max_sample
-        for _, entry in ipairs(section) do
-            local sample = entry.sample
-            local value = profile_value(sample)
-            if value < min_value then min_value, min_sample = value, sample end
-            if value > max_value then max_value, max_sample = value, sample end
-            local display_u, display_v = sample.u, sample.v
-            if sample.profile == "massiv_b" then
-                display_u = sample.u + (value / maximum) * diagram_width
-            elseif sample.profile == "massiv_a" then
-                display_v = sample.v + (value / maximum) * diagram_width
-            elseif sample.display_normal_u and sample.display_normal_v then
-                local sample_normal_u = sample.display_normal_u
-                local sample_normal_v = sample.display_normal_v
-                display_u = sample.u + sample_normal_u * value / section_max * diagram_width
-                display_v = sample.v + sample_normal_v * value / section_max * diagram_width
-            end
-            local x, y = toScreen(display_u, display_v)
-            if previous_x then
-                gc:setColorRGB(45, 95, 175)
-                gc:setPen("thin", "smooth")
-                gc:drawLine(previous_x, previous_y, x, y)
-            end
-            previous_x, previous_y = x, y
-        end
-        local function draw_value(sample, label, color)
-            if not sample then return end
-            local value = profile_value(sample)
-            local display_u, display_v = sample.u, sample.v
-            if sample.profile == "massiv_b" then
-                display_u = sample.u + (value / maximum) * diagram_width
-            elseif sample.profile == "massiv_a" then
-                display_v = sample.v + (value / maximum) * diagram_width
-            elseif sample.display_normal_u and sample.display_normal_v then
-                local sample_normal_u = sample.display_normal_u
-                local sample_normal_v = sample.display_normal_v
-                display_u = sample.u + sample_normal_u * value / section_max * diagram_width
-                display_v = sample.v + sample_normal_v * value / section_max * diagram_width
-            end
-            local x, y = toScreen(display_u, display_v)
-            gc:setColorRGB(color[1], color[2], color[3])
-            gc:fillArc(x - 2, y - 2, 4, 4, 0, 360)
-            gc:setFont("sansserif", "r", 8)
-            local label_value = profile_display_value(sample)
-            local label_prefix = label ~= "" and label .. " " or ""
-            gc:drawString(label_prefix .. formatLabel(label_value), x + 4, y - 10)
-        end
-        local function draw_boundary_connector(sample)
-            if not sample or not sample.display_normal_u or not sample.display_normal_v then return end
-            local value = profile_value(sample)
-            local display_u = sample.u + sample.display_normal_u * value / section_max * diagram_width
-            local display_v = sample.v + sample.display_normal_v * value / section_max * diagram_width
-            local source_x, source_y = toScreen(sample.u, sample.v)
-            local target_x, target_y = toScreen(display_u, display_v)
-            gc:setColorRGB(150, 150, 150)
-            gc:setPen("thin", "smooth")
-            gc:drawLine(source_x, source_y, target_x, target_y)
-        end
-        draw_boundary_connector(section[1] and section[1].sample)
-        draw_boundary_connector(section[#section] and section[#section].sample)
-        draw_value(section[1] and section[1].sample, "", {40, 80, 150})
-        if section[#section] and section[#section].sample ~= section[1].sample then
-            draw_value(section[#section].sample, "", {40, 80, 150})
-        end
-        if hovered_segment then
-            if max_sample == hovered_max_sample and max_sample ~= section[1].sample and max_sample ~= section[#section].sample then
-                draw_value(max_sample, "max", {190, 60, 60})
-            end
-        else
-            if min_sample and max_sample and min_sample ~= section[1].sample and min_sample ~= section[#section].sample then draw_value(min_sample, "min", {190, 60, 60}) end
-            if max_sample and max_sample ~= section[1].sample and max_sample ~= section[#section].sample then draw_value(max_sample, "max", {190, 60, 60}) end
-        end
-    end
-
-    -- Die Pfeile zeigen die Orientierung der Laufvariablen, nicht die
-    -- Richtung der Spannungskomponente.
-    if shear_results.paths then
-        gc:setColorRGB(145, 55, 180)
-        gc:setPen("thin", "smooth")
-        for _, path in ipairs(shear_results.paths) do
-            if path.start_kind and path.items[1] and path.items[1].p1 then
-                local start_point = path.items[1].p1
-                local start_x, start_y = toScreen(start_point.u, start_point.v)
-                gc:fillArc(start_x - 3, start_y - 3, 6, 6, 0, 360)
-                gc:setFont("sansserif", "b", 9)
-                -- "Start" heisst: hier beginnt die Laufvariable und S ist null (freies Ende).
-                -- In der geschlossenen Zelle wird nur aufgeschnitten; S = 0 liegt nach der
-                -- Symmetriekorrektur auf der Symmetrieachse, ohne Symmetrie ist es offen.
-                local text = "Start"
-                if path.start_kind == "cut_sym" then
-                    text = "Start (Symmetrieachse)"
-                elseif path.start_kind == "cut" then
-                    local k = shear_results.zelle_korrigiert
-                    text = (k and (k.a or k.b)) and "Schnitt" or "Schnitt (q0 offen)"
-                end
-                gc:drawString(text, start_x + 5, start_y - 10)
-            end
-            for _, item in ipairs(path.items) do
-                if item.p1 and item.p2 and (not hovered_segment or item.edge.index == hovered_segment) then
-                    local mx = (item.p1.u + item.p2.u) / 2
-                    local mv = (item.p1.v + item.p2.v) / 2
-                    local dx, dv = item.p2.u - item.p1.u, item.p2.v - item.p1.v
-                    local length = math.sqrt(dx^2 + dv^2)
-                    if length > 1e-9 then
-                        local ux, uv = dx / length, dv / length
-                        local tail_u, tail_v = mx - ux * 0.35, mv - uv * 0.35
-                        local tip_u, tip_v = mx + ux * 0.35, mv + uv * 0.35
-                        local tx, ty = toScreen(tail_u, tail_v)
-                        local px, py = toScreen(tip_u, tip_v)
-                        gc:drawLine(tx, ty, px, py)
-                        local screen_dx, screen_dy = px - tx, py - ty
-                        local screen_length = math.sqrt(screen_dx^2 + screen_dy^2)
-                        if screen_length > 1e-9 then
-                            local ax, ay = screen_dx / screen_length, screen_dy / screen_length
-                            local nx, ny = -ay, ax
-                            gc:drawLine(px, py, px - ax * 5 + nx * 3, py - ay * 5 + ny * 3)
-                            gc:drawLine(px, py, px - ax * 5 - nx * 3, py - ay * 5 - ny * 3)
-                        end
-                    end
-                end
-            end
-        end
-    end
+    drawVerlauf(gc, {
+        id = shear_results,
+        key = tostring(shear_view_mode) .. "|" .. tostring(torsion_results) .. "|" .. tostring(shear_results.max_tau_total),
+        samples = shear_results.samples, hovered = hovered_segment, maximum = shear_results.max_tau,
+        wert = profile_value, anzeige = profile_display_value, titel = profile_name,
+    })
+    drawLaufrichtung(gc, shear_results.paths, hovered_segment, shear_results.zelle_korrigiert)
 end
 
 local function drawShearProfile(gc)
     if not shear_profile_visible or not shear_results or not shear_results.samples then return end
     drawShearProfileLegacy(gc)
+end
+
+local function drawWoelbInput(gc, w, h)
+    if woelb.step == 0 then return end
+    local left, top, width = 12, 28, math.min(280, w - 24)
+    local field_left, field_width = left + 96, width - 108
+    gc:setColorRGB(248, 248, 248); gc:fillRect(left, top, width, 118)
+    gc:setColorRGB(0, 0, 0); gc:drawRect(left, top, width, 118)
+    gc:setFont("sansserif", "b", 10); gc:drawString("Verwölbung", left + 8, top + 8)
+    gc:setFont("sansserif", "r", 9)
+    gc:drawString("MT [" .. moment_unit .. "]", left + 8, top + 36)
+    gc:drawString("G [N/mm^2]", left + 8, top + 70)
+    gc:drawRect(field_left, top + 28, field_width, 20)
+    gc:drawRect(field_left, top + 62, field_width, 20)
+    gc:drawString(woelb.step == 1 and (inputText .. "_") or string.format("%.6g", display_moment(woelb.M or 0)), field_left + 5, top + 33)
+    gc:drawString(woelb.step == 2 and (inputText .. "_") or string.format("%.6g", woelb.G or 81000), field_left + 5, top + 67)
+    gc:setFont("sansserif", "r", 8)
+    gc:drawString("Pol: Schubmittelpunkt. Enter bestaetigen, Esc abbrechen", left + 8, top + 98)
+end
+
+-- Verwoelbungsverlauf wie die Schubverlaeufe (normal zur Wand), dazu MT als Drehpfeil um den
+-- Pol -- das Moment wird nur in dieser Ansicht gezeichnet.
+local function drawWoelbProfile(gc)
+    if not woelb.visible or not woelb.results then return end
+    local wr = woelb.results
+    local hovered_segment = hover_type == "duenn" and hover_idx or nil
+    drawVerlauf(gc, {
+        id = wr, key = "woelb", samples = wr.samples, hovered = hovered_segment,
+        wert = function(sm) return sm.ux end, anzeige = function(v) return display_length(v) end,
+        titel = "Verwölbung u_x [" .. length_unit .. "]   MT = " .. formatLabel(display_moment(wr.M)) .. " " .. moment_unit
+            .. "   G = " .. formatLabel(wr.G) .. " N/mm^2",
+        farbe = { 30, 130, 90 },
+    })
+    local cx, cy = toScreen(wr.pol.u, wr.pol.v)
+    gc:setColorRGB(200, 60, 20); gc:setPen("medium", "smooth")
+    gc:fillArc(cx - 3, cy - 3, 6, 6, 0, 360)
+    local rad = 16
+    local sgn = (wr.M >= 0) and 1 or -1          -- positiv: gegen den Uhrzeigersinn, wie der Bredt-Schubfluss
+    local pts = {}
+    local a0, a1 = math.rad(-60), math.rad(240)
+    for k = 0, 20 do
+        local a = a0 + (a1 - a0) * k / 20
+        pts[#pts + 1] = cx + rad * math.cos(a)
+        pts[#pts + 1] = cy - sgn * rad * math.sin(a)
+    end
+    gc:drawPolyLine(pts)
+    local ex, ey, qx, qy = pts[#pts - 1], pts[#pts], pts[#pts - 3], pts[#pts - 2]
+    local dx, dy = ex - qx, ey - qy
+    local L = math.sqrt(dx * dx + dy * dy)
+    if L > 1e-9 then
+        dx, dy = dx / L, dy / L
+        gc:fillPolygon({ ex, ey, ex - 7 * dx + 3 * dy, ey - 7 * dy - 3 * dx, ex - 7 * dx - 3 * dy, ey - 7 * dy + 3 * dx })
+    end
+    gc:setPen("thin", "smooth")
+    gc:setFont("sansserif", "b", 9)
+    gc:drawString("MT = " .. formatLabel(display_moment(wr.M)) .. " " .. moment_unit, cx + rad + 4, cy - 6)
+    gc:setFont("sansserif", "r", 8); gc:setColorRGB(60, 60, 60)
+    gc:drawString(wr.closed and "geschlossen: Bredt-Anteil - r*theta (Formelsammlung Kap. 6), Pol = Schubmittelpunkt"
+        or "offen: u = -theta*Int(r ds) + c um den Schubmittelpunkt (nicht in der Formelsammlung)", 6, platform.window:height() - 12)
 end
 
 local function drawShearSelector(gc, w, h)
@@ -3132,7 +3471,7 @@ local function buildMenuItems()
                 "2. FTM-Bezug (" .. (ftm_bezug == "kos" and "KOS-Ursprung" or "Schwerpunkt") .. ")",
                 "3. < Zurueck"}
     elseif menuPage == 5 then
-        return {"1. Querschnittswerte", "2. Einzelwerte-Tabelle", "3. σx-Berechnung", "4. Kernflaeche", "5. Schubspannung", "6. Schubmittelpunkt", "7. Schliessen"}
+        return {"1. Querschnittswerte", "2. Einzelwerte-Tabelle", "3. σx-Berechnung", "4. Kernflaeche", "5. Schubspannung", "6. Schubmittelpunkt", "7. Verwölbung", "8. Schliessen"}
     elseif menuPage == 8 then
         return {"1. Äussere Belastungen hinzufügen", "2. Schliessen"}
     elseif menuPage == 6 then
@@ -3805,6 +4144,11 @@ function on.paint(gc)
         drawTorsionInput(gc, w, h)
         return
     end
+    if woelb.step > 0 then
+        gc:setColorRGB(255, 255, 255); gc:fillRect(0, 0, w, h)
+        drawWoelbInput(gc, w, h)
+        return
+    end
     gc:setColorRGB(255, 255, 255)
     gc:fillRect(0, 0, w, h)
     
@@ -3916,6 +4260,7 @@ function on.paint(gc)
     end
 
     drawShearProfile(gc)
+    drawWoelbProfile(gc)
 
     if show_shear_center and system_results and #duenn_elemente > 0 then
         local center = berechneSchubmittelpunkt()
@@ -3932,7 +4277,7 @@ function on.paint(gc)
     if sigma_results then drawSigmaOverlay(gc, w, h) end
     
     -- Draw Kraefte nur in der normalen Querschnittsansicht.
-    if not shear_profile_visible then for i, kraft in ipairs(kraefte) do
+    if not shear_profile_visible and not woelb.visible then for i, kraft in ipairs(kraefte) do
         local is_sel = (selected_type == "kraft" and selected_idx == i)
         local is_hov = (hover_type == "kraft" and hover_idx == i)
         gc:setColorRGB(is_sel and 255 or (is_hov and 150 or 0), 0, is_sel and 0 or (is_hov and 250 or 255)) 
@@ -4035,17 +4380,8 @@ function on.mouseMove(x, y)
     if menuOpen or mode ~= "idle" then return end
     local u, v = fromScreen(x, y)
 
-    if shear_profile_visible and shear_results and shear_results.samples then
-        local nearest, nearest_distance = nil, 10 / math.max(scale, 1e-9)
-        for index, sample in ipairs(shear_results.samples) do
-            local distance = math.sqrt((u - sample.u)^2 + (v - sample.v)^2)
-            if distance < nearest_distance then nearest, nearest_distance = index, distance end
-        end
-        if nearest ~= shear_hover_index then
-            shear_hover_index = nearest
-            platform.window:invalidate()
-        end
-    end
+    -- Die fruehere Suche nach der naechsten Stuetzstelle bei jeder Mausbewegung entfaellt:
+    -- shear_hover_index wurde nirgends gezeichnet, loeste aber pro Bewegung einen ganzen Frame aus.
     
     if kernMode > 0 and system_results then
         local r = system_results
@@ -4165,8 +4501,9 @@ local function zoomCenter(factor)
     scale = new_scale
 end
 
--- Verlauf einer Richtung, fuer die die geschlossene Zelle keine Symmetrieachse hat, ist nur bis
--- auf den Umlaufanteil q0 bestimmt. Die Anzeige waere dann falsch, also warnen.
+-- Verlauf einer Richtung, fuer die die geschlossene Zelle keine Symmetrieachse hat: q0 kam dort
+-- aus der Vertraeglichkeit statt aus der Symmetrie. Die Warnung bleibt (der Nutzer soll wissen,
+-- dass die Symmetrie fehlt), sagt aber, dass S und tau trotzdem stimmen.
 --   Ansicht 3 (S_a) und 6 (tau_b) gehoeren zur Querkraft in b-Richtung  -> senkrechte Achse (sym_v)
 --   Ansicht 4 (S_b) und 5 (tau_a) gehoeren zur Querkraft in a-Richtung  -> waagerechte Achse (sym_h)
 local function pruefeVerlaufSymmetrie(mode)
@@ -4182,9 +4519,9 @@ local function pruefeVerlaufSymmetrie(mode)
     local groesse = (mode == 3 and ("S" .. a)) or (mode == 4 and ("S" .. b))
         or (mode == 5 and ("tau_" .. a)) or ("tau_" .. b)
     meldung(groesse .. " setzt bei einer geschlossenen Zelle die Symmetrie zur " .. achse
-        .. "-Achse voraus; die ist hier nicht vorhanden. Der Umlaufschubfluss q0 bleibt fuer diese "
-        .. "Richtung unbestimmt, der gezeigte Verlauf ist deshalb sehr wahrscheinlich falsch "
-        .. "(er gilt nur bis auf einen konstanten Anteil in der Zelle).", "Warnung", true)
+        .. "-Achse voraus; die ist hier nicht vorhanden. Der Umlaufschubfluss q0 wurde fuer diese "
+        .. "Richtung deshalb aus der Vertraeglichkeit bestimmt (Umlaufintegral q/t ds = 0, Querkraft im "
+        .. "Schubmittelpunkt) -- der gezeigte Verlauf von S und tau ist damit trotzdem richtig.", "Warnung", true)
 end
 
 function on.charIn(c)
@@ -4195,7 +4532,7 @@ function on.charIn(c)
         platform.window:invalidate()
         return
     end
-    if shear_input_step > 0 or torsion_input_step > 0 then
+    if shear_input_step > 0 or torsion_input_step > 0 or woelb.step > 0 then
         if c:match("[%w%.,%-%+%*/%(%)]") then inputText = inputText .. c end
         platform.window:invalidate()
         return
@@ -4236,7 +4573,7 @@ function on.charIn(c)
 
     if menuOpen and menuPage ~= 3 then
         local menu_number = tonumber(c)
-        local menu_count = menuPage == 1 and 9 or menuPage == 2 and 5 or menuPage == 5 and 7 or menuPage == 6 and 4 or menuPage == 7 and (#kraefte > 0 and 4 or 3) or menuPage == 8 and 2 or menuPage == 9 and 3 or menuPage == 4 and 10 or 6
+        local menu_count = menuPage == 1 and 9 or menuPage == 2 and 5 or menuPage == 5 and 8 or menuPage == 6 and 4 or menuPage == 7 and (#kraefte > 0 and 4 or 3) or menuPage == 8 and 2 or menuPage == 9 and 3 or menuPage == 4 and 10 or 6
         if menu_number and menu_number >= 1 and menu_number <= menu_count then
             menuRow = menu_number
             on.enterKey()
@@ -4268,7 +4605,9 @@ function on.charIn(c)
         menuOpen = false
         showResults = sigma_results ~= nil and not showTable
     elseif c == "v" then
-        if shear_results then
+        if woelb.visible then
+            meldung("V gehoert zur Schubspannungsansicht. Esc schliesst die Verwoelbung.", "Hinweis")
+        elseif shear_results then
             shear_selector_open = true
             status = "Schubverlauf waehlen: 0 bis 9. Esc schliesst."
         else
@@ -4338,7 +4677,7 @@ function on.arrowKey(k)
         local n = 1
         if menuPage == 1 then n = 9
         elseif menuPage == 2 then n = 5
-        elseif menuPage == 5 then n = 7
+        elseif menuPage == 5 then n = 8
         elseif menuPage == 6 then n = 4
         elseif menuPage == 7 then n = #kraefte > 0 and 4 or 3
         elseif menuPage == 8 then n = 2
@@ -4463,7 +4802,8 @@ local function enterMenuAction()
             show_shear_center = not show_shear_center
             menuOpen = false
             status = show_shear_center and "Schubmittelpunkt angezeigt. T: Momententabelle." or "Schubmittelpunkt ausgeblendet."
-        elseif menuRow == 7 then menuOpen = false end
+        elseif menuRow == 7 then openWoelbInput()
+        elseif menuRow == 8 then menuOpen = false end
     elseif menuPage == 8 then
         if menuRow == 1 then
             shear_external_input = true
@@ -4538,6 +4878,7 @@ function on.enterKey()
     if sigma_input_step > 0 then enterSigmaInput(); return end
     if shear_input_step > 0 then enterShearInput(); return end
     if torsion_input_step > 0 then enterTorsionInput(); platform.window:invalidate(); return end
+    if woelb.step > 0 then enterWoelbInput(); return end
     -- Wie im Tragwerksskript: Hovern genuegt, vorher anklicken ist nicht noetig.
     -- Liegt der Zeiger auf einem Objekt, gilt dieses; sonst das zuletzt ausgewaehlte.
     if not menuOpen and mode == "idle" and (hover_idx or selected_idx) then
@@ -4575,6 +4916,14 @@ function on.escapeKey()
         platform.window:invalidate()
         return
     end
+    if woelb.step > 0 or woelb.visible then
+        -- Verwoelbung schliessen: das dort eingegebene MT gilt nur in dieser Ansicht
+        woelb.step, woelb.visible, woelb.results = 0, false, nil
+        inputText = ""
+        status = "Verwoelbung geschlossen."
+        platform.window:invalidate()
+        return
+    end
     escape_clear_pending = true
     inputMode, inputText = false, ""
     sigma_input_step, sigma_N, sigma_My, sigma_Mz = 0, nil, nil, nil
@@ -4582,6 +4931,7 @@ function on.escapeKey()
     shear_external_input = false
     show_shear_center, show_shear_moment_table, shear_moment_table = false, false, nil
     torsion_input_step, torsion_M, torsion_results = 0, nil, nil
+    woelb.step, woelb.M, woelb.results, woelb.visible = 0, nil, nil, false
     shear_profile_visible, shear_hover_index, shear_view_mode, shear_selector_open = false, nil, 0, false
     sigma_results = nil
     sigma_oblique = false
@@ -4603,7 +4953,7 @@ function on.backspaceKey()
         on.clearKey()
         return
     end
-    if shear_input_step > 0 or torsion_input_step > 0 then
+    if shear_input_step > 0 or torsion_input_step > 0 or woelb.step > 0 or sigma_input_step > 0 then
         inputText = inputText:sub(1, -2)
     elseif inputMode then
         inputText = inputText:sub(1, -2)
