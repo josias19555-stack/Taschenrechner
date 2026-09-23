@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.28 (MiKTeX 25.12) (preloaded format=pdflatex 2026.9.20)  23 SEP 2026 15:53
+This is pdfTeX, Version 3.141592653-2.6-1.40.28 (MiKTeX 25.12) (preloaded format=pdflatex 2026.9.20)  23 SEP 2026 16:50
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -818,78 +818,79 @@ Overfull \hbox (5.56567pt too wide) in alignment at lines 624--630
  []
 
 [15] [16] [17]
-Overfull \hbox (5.56567pt too wide) in alignment at lines 752--755
+Overfull \hbox (5.56567pt too wide) in alignment at lines 762--765
  [] [] 
  []
 
 
-Overfull \hbox (5.56567pt too wide) in alignment at lines 755--764
+Overfull \hbox (5.56567pt too wide) in alignment at lines 765--774
  [] [] 
  []
 
 [18] [19] [20]
-Overfull \hbox (0.95183pt too wide) in alignment at lines 905--908
+Overfull \hbox (0.95183pt too wide) in alignment at lines 915--918
  [] [] 
  []
 
 
-Underfull \hbox (badness 6758) in paragraph at lines 910--910
+Underfull \hbox (badness 6758) in paragraph at lines 920--920
 []|\T1/cmr/m/n/10.95 Schub: Haupt-ach-sen nicht par-al-lel
  []
 
 
-Overfull \hbox (0.95183pt too wide) in alignment at lines 908--940
+Overfull \hbox (0.95183pt too wide) in alignment at lines 918--950
  [] [] 
  []
 
 ignored error: Infinite glue shrinkage found in box being split [21] [22]
-Overfull \hbox (5.56567pt too wide) in alignment at lines 1001--1004
+Overfull \hbox (5.56567pt too wide) in alignment at lines 1011--1014
  [] [] 
  []
 
 
-Overfull \hbox (5.56567pt too wide) in alignment at lines 1004--1019
+Overfull \hbox (5.56567pt too wide) in alignment at lines 1014--1029
  [] [] 
  []
 
 [23] [24]
-Overfull \hbox (5.56567pt too wide) in alignment at lines 1138--1141
+Overfull \hbox (5.56567pt too wide) in alignment at lines 1148--1151
  [] [] 
  []
 
 
-Overfull \hbox (5.56567pt too wide) in alignment at lines 1141--1159
+Overfull \hbox (5.56567pt too wide) in alignment at lines 1151--1169
  [] [] 
  []
 
-ignored error: Infinite glue shrinkage found in box being split [25]
-Overfull \hbox (5.56567pt too wide) in alignment at lines 1163--1166
+[25]
+Overfull \hbox (5.56567pt too wide) in alignment at lines 1173--1176
  [] [] 
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1178--1178
+Underfull \hbox (badness 10000) in paragraph at lines 1188--1188
 []|\T1/cmss/bx/n/10.95 Backspace\T1/cmr/m/n/10.95 ,
  []
 
 
-Overfull \hbox (5.56567pt too wide) in alignment at lines 1166--1180
+Overfull \hbox (5.56567pt too wide) in alignment at lines 1176--1190
  [] [] 
  []
 
 
-Overfull \hbox (5.56567pt too wide) in alignment at lines 1184--1187
+Overfull \hbox (5.56567pt too wide) in alignment at lines 1194--1197
  [] [] 
  []
 
 
-Overfull \hbox (5.56567pt too wide) in alignment at lines 1187--1199
+Overfull \hbox (5.56567pt too wide) in alignment at lines 1197--1209
  [] [] 
  []
 
+[26]
 LaTeX Font Info:    Font shape `T1/cmtt/bx/n' in size <10.95> not available
-(Font)              Font shape `T1/cmtt/m/n' tried instead on input line 1205.
-[26] [27] (Anleitung.aux)
+(Font)              Font shape `T1/cmtt/m/n' tried instead on input line 1215.
+ [27] (Anleitung.aux)
  ***********
 LaTeX2e <2025-11-01>
 L3 programming layer <2025-12-24>
@@ -900,7 +901,7 @@ Package rerunfilecheck Info: File `Anleitung.out' has not changed.
 Here is how much of TeX's memory you used:
  13162 strings out of 467871
  203884 string characters out of 5418376
- 659397 words of memory out of 5000000
+ 658397 words of memory out of 5000000
  41748 multiletter control sequences out of 15000+600000
  647745 words of font info for 92 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
@@ -929,7 +930,7 @@ ams/MiKTeX/fonts/type1/public/amsfonts/cm/cmr10.pfb><C:/Users/benja/AppData/Loc
 al/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmr8.pfb><C:/Users/benja/AppD
 ata/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmsy10.pfb><C:/Users/b
 enja/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmsy8.pfb>
-Output written on Anleitung.pdf (27 pages, 423730 bytes).
+Output written on Anleitung.pdf (27 pages, 424646 bytes).
 PDF statistics:
  1067 PDF objects out of 1200 (max. 8388607)
  115 named destinations out of 1000 (max. 500000)

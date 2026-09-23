@@ -72,6 +72,34 @@ Diese Datei dokumentiert alle funktionalen Features des Programms, ihre Möglich
 - Bei nahezu verschwindender Gesamtfläche werden keine sinnvollen Systemwerte erzeugt.
 - Die Torsionskonstante eines offenen Profils ist eine dünnwandige Näherung und keine allgemeine Saint-Venant-Lösung für beliebig dicke oder komplexe Querschnitte.
 
+### 3a. Querschnittswerte manuell überschreiben (Optionen, Seite 3)
+In Klausuren sind die angegebenen Werte für $A$, $I_y$, $I_z$, $I_{yz}$ oft nicht die exakten Werte
+der Skizze – gerechnet werden soll aber mit den angegebenen. Deshalb gibt es im Optionsmenü (`o`,
+mit Pfeil links/rechts auf Seite 3 „Querschnittswerte“) diese Punkte:
+
+1. `A setzen`, 2. `I_y,S setzen`, 3. `I_z,S setzen`, 4. `I_yz,S setzen` – jeweils mit dem aktuellen
+   Wert und dem Zusatz „manuell“, wenn er überschrieben ist; Eingabe im angezeigten KOS, in der
+   eingestellten Längeneinheit, bezogen auf den **Schwerpunkt** (die Lage des Schwerpunkts bleibt
+   die aus der Geometrie),
+5. `Berechnete Werte wiederherstellen`, 6. `< Zurueck`.
+
+**Wirkung:** Die Werte ersetzen am Ende jeder Neuberechnung (`berechneSystem`) die berechneten, und
+alles Abgeleitete wird daraus neu gebildet: $I_1$, $I_2$, Hauptachsenwinkel, Widerstandsmomente,
+Trägheitsradien. Da alle Rechnungen auf diese Werte zugreifen, gelten sie für $\sigma_x$ (auch die
+Gleichungen in der Tabelle), Schubspannung (die statischen Momente bleiben geometrisch),
+Schubmittelpunkt, Kernfläche und Torsion aus Kräften. Das Ergebnisfeld markiert überschriebene
+Werte mit „(manuell)“, die σx-Tabelle nennt sie in der ersten Zeile, die Einzelwerte-Tabelle weist
+darauf hin, dass sie die Werte aus der Geometrie zeigt.
+
+**Zurücksetzen:** Die manuellen Werte gelten, bis sich **der Querschnitt selbst** ändert (Element
+hinzugefügt, gelöscht oder bearbeitet, Dicke, Loch). Erkannt wird das über eine Signatur aus
+Elementtypen, Dicken, Markierungen und allen Punkten relativ zum ersten Punkt – KOS verschieben
+oder drehen, Kräfte setzen und Optionen ändern lassen sie stehen. Nach einer echten Änderung kommt
+einmal der Hinweis „Querschnitt geändert: … gerechnet wird wieder mit den berechneten Werten“.
+
+**Prüfung der Eingabe:** $A$, $I_y$, $I_z$ müssen positiv sein und $I_y I_z - I_{yz}^2 > 0$ (sonst
+wäre der Querschnitt nicht biegesteif); andernfalls wird die Eingabe mit Begründung abgelehnt.
+
 ## 4. Kräfte platzieren
 **Möglichkeiten:**
 - Einzelkräfte lassen sich mit einem Klick visuell auf dem Querschnitt platzieren.
@@ -216,7 +244,7 @@ Diese Datei dokumentiert alle funktionalen Features des Programms, ihre Möglich
 - `t`: Einzelwertetabelle öffnen.
 - `v`: Schubverlaufs-Auswahl öffnen; Ziffern `0` bis `9` wählen die Darstellung.
 - `k`: Kernflächenmodus weiterschalten.
-- `o`: Optionen öffnen. Seite 2 (`Weitere Optionen`, mit Pfeil links/rechts) enthält `KOS in Schwerpunkt verschieben`, `KOS entlang y verschieben`, `KOS entlang z verschieben` und `FTM-Bezug`: dieser Schalter legt fest, ob die angezeigten Flächenträgheitsmomente auf den **Schwerpunkt** (Standard) oder auf den **Ursprung des gezeichneten KOS** bezogen sind. Er wirkt auf die Ergebnisliste (`I_y,S` bzw. `I_y (KOS)`) und auf die Einzelwerte-Tabelle (Steiner-Anteile und Gesamtwerte, Überschrift nennt den Bezug).
+- `o`: Optionen öffnen; Pfeil links/rechts blättert zwischen Seite 1 (`Optionen`), Seite 2 (`Weitere Optionen`) und Seite 3 (`Querschnittswerte`, manuelles Überschreiben von A, I_y, I_z, I_yz, siehe 3a). Seite 2 enthält `KOS in Schwerpunkt verschieben`, `KOS entlang y verschieben`, `KOS entlang z verschieben` und `FTM-Bezug`: dieser Schalter legt fest, ob die angezeigten Flächenträgheitsmomente auf den **Schwerpunkt** (Standard) oder auf den **Ursprung des gezeichneten KOS** bezogen sind. Er wirkt auf die Ergebnisliste (`I_y,S` bzw. `I_y (KOS)`) und auf die Einzelwerte-Tabelle (Steiner-Anteile und Gesamtwerte, Überschrift nennt den Bezug).
 - `h`: Geometrie automatisch einpassen.
 - `+`/`-`: Zoom ändern.
 - `Esc`: Aktuelle Eingabe oder Ansicht abbrechen. Ist eine Meldungsbox offen, schließt das erste `Esc` nur die Box.

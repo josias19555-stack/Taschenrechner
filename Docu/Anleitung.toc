@@ -30,22 +30,22 @@
 \contentsline {section}{\numberline {18}Querschnittswerte}{17}{section.18}%
 \contentsline {section}{\numberline {19}Normalspannung $\sigma _x$}{17}{section.19}%
 \contentsline {section}{\numberline {20}Schubspannung und Schubmittelpunkt}{18}{section.20}%
-\contentsline {subsection}{\numberline {20.1}Geschlossene Zellen: warum die Symmetrie so wichtig ist}{18}{subsection.20.1}%
+\contentsline {subsection}{\numberline {20.1}Geschlossene Zellen: warum die Symmetrie so wichtig ist}{19}{subsection.20.1}%
 \contentsline {subsection}{\numberline {20.2}Ohne Symmetrieachse: die Verträglichkeit}{19}{subsection.20.2}%
-\contentsline {section}{\numberline {21}Torsion}{19}{section.21}%
+\contentsline {section}{\numberline {21}Torsion}{20}{section.21}%
 \contentsline {section}{\numberline {22}Verwölbung}{20}{section.22}%
 \contentsline {section}{\numberline {23}Kernfläche}{21}{section.23}%
 \contentsline {section}{\numberline {24}Meldungen im Querschnittsskript}{21}{section.24}%
 \contentsline {section}{\numberline {25}Was das Querschnittsskript nicht kann}{22}{section.25}%
 \contentsline {section}{\numberline {26}Wie gerechnet wird}{22}{section.26}%
 \contentsline {part}{III\hspace {1em}Spannungskreis}{22}{part.3}%
-\contentsline {section}{\numberline {27}Die Idee: Eingabe über Schnitte}{22}{section.27}%
+\contentsline {section}{\numberline {27}Die Idee: Eingabe über Schnitte}{23}{section.27}%
 \contentsline {section}{\numberline {28}Bedienung}{23}{section.28}%
-\contentsline {section}{\numberline {29}Die beiden Bilder}{23}{section.29}%
+\contentsline {section}{\numberline {29}Die beiden Bilder}{24}{section.29}%
 \contentsline {section}{\numberline {30}Wann ist der Zustand bestimmt?}{24}{section.30}%
 \contentsline {section}{\numberline {31}Grenzen und Tricks}{25}{section.31}%
 \contentsline {part}{IV\hspace {1em}Anhang}{25}{part.4}%
-\contentsline {section}{\numberline {A}Tastenkürzel Tragwerksskript}{25}{appendix.A}%
+\contentsline {section}{\numberline {A}Tastenkürzel Tragwerksskript}{26}{appendix.A}%
 \contentsline {section}{\numberline {B}Tastenkürzel Querschnittsskript}{26}{appendix.B}%
 \contentsline {section}{\numberline {C}Tastenkürzel Spannungskreis}{26}{appendix.C}%
 \contentsline {section}{\numberline {D}Häufige Stolpersteine}{27}{appendix.D}%

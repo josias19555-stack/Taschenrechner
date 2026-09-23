@@ -1502,4 +1502,100 @@ fall('40 sigma-Tabelle ohne Ueberlappung', function()
     Q.sigmaTabelleZeigen(false)
 end)
 
+fall('41 Querschnittswerte ueberschreiben', function()
+    T.abschnitt('A, I_y, I_z, I_yz manuell: alle Rechnungen nehmen sie, bis sich der Querschnitt aendert')
+    -- Rechteck 40 (y) x 60 (z) im Schwerpunkt, rotation 180 (angezeigte Werte = interne)
+    T.massiv({ type = 'rect', points = { P(-20, -30), P(20, 30) } })
+    local r = T.rechne()
+    zahl('berechnet: A = 2400', r.A, 2400)
+    zahl('berechnet: I_y = 720000', r.Iy, 720000)
+    -- Seitenwechsel im Obermenue
+    Q.menu(4, 1); on.arrowKey('right'); on.arrowKey('right')
+    local _, seite = Q.menuStatus()
+    wahr('Optionen -> rechts, rechts: Seite Querschnittswerte', seite == 10, seite)
+    local e = Q.menuTexte()
+    wahr('sechs Punkte', #e == 6, #e)
+    wahr('Zeile 2 nennt I_y,S mit aktuellem Wert', e[2]:find('I_y,S', 1, true) ~= nil and e[2]:find('720000', 1, true) ~= nil, e[2])
+    on.arrowKey('right'); _, seite = Q.menuStatus()
+    wahr('noch einmal rechts: wieder Optionen', seite == 4, seite)
+    on.arrowKey('left'); _, seite = Q.menuStatus()
+    wahr('links: wieder Querschnittswerte', seite == 10, seite)
+
+    local function setzeWert(zeile, wert) Q.meldungWeg(); Q.menu(10, zeile); on.enterKey(); Q.tippe(wert) end
+    setzeWert(1, '2000'); setzeWert(2, '1000000')
+    r = Q.R()
+    zahl('A manuell = 2000', r.A, 2000)
+    zahl('I_y manuell = 1e6', r.Iy, 1e6)
+    zahl('I_z bleibt berechnet', r.Iz, 320000)
+    zahl('I_1 neu gebildet', r.I1, 1e6)
+    zahl('I_2 neu gebildet', r.I2, 320000)
+    zahl('W_y neu = I_y / 30', r.Wu, 1e6 / 30)
+    wahr('Menue markiert manuell', (Q.menuTexte()[1] or ''):find('manuell', 1, true) ~= nil, Q.menuTexte()[1])
+
+    -- sigma nutzt die Werte
+    local sr = Q.sigma(1000, 1e6, 0)
+    zahl('sigma: N/A mit A = 2000', sr.normal, 0.5)
+    zahl('sigma_max = N/A + My/I_y * 30', sr.sigma_max, 0.5 + 1e6 * 30 / 1e6)
+    -- Schub (massiv): tau_max = Q S / (I_y b) mit I_y = 1e6, S aus der Geometrie
+    local res = Q.schub(0, 1000)
+    wahr('Schub berechnet', res ~= nil, Q.status())
+    if res then zahl('tau_max = 1000 * 18000 / (1e6 * 40)', res.max_tau, 1000 * 18000 / (1e6 * 40), 1e-3) end
+    -- Ergebnisfeld und sigma-Tabelle zeigen, was manuell ist
+    local ef, markiert = T.ergebnisfeld(), 0
+    for _, zeile in ipairs(ef) do if zeile:find('(manuell)', 1, true) then markiert = markiert + 1 end end
+    zahl('Ergebnisfeld: A und I_y als manuell markiert', markiert, 2)
+    Q.sigma(1000, 1e6, 0); Q.sigmaTabelleZeigen(true)
+    T.texte, T.pos = {}, {}; Q.paint(T.gc)
+    local hinweis = false
+    for _, tx in ipairs(T.texte) do if tx:find('Manuelle Werte: A, I_y', 1, true) then hinweis = true end end
+    wahr('sigma-Tabelle nennt die manuellen Werte', hinweis)
+    Q.sigmaTabelleZeigen(false)
+
+    -- KOS verschieben, KOS drehen, Kraft setzen: Querschnitt unveraendert, Werte bleiben
+    Q.menu(9, 2); on.enterKey(); Q.tippe('5')
+    zahl('nach KOS-Verschiebung: A bleibt 2000', Q.R().A, 2000)
+    Q.setRotation(90); T.rechne()
+    zahl('nach KOS-Drehung: A bleibt 2000', Q.R().A, 2000)
+    Q.menu(10, 1)
+    e = Q.menuTexte()
+    wahr('Drehung 90: angezeigtes I_z ist das manuelle I_y', e[3]:find('manuell', 1, true) ~= nil and e[2]:find('manuell', 1, true) == nil,
+        e[2] .. ' / ' .. e[3])
+    Q.setRotation(180); T.rechne()
+    Q.kraft({ u = 0, v = 0, fa = 0, fb = 0, fc = 100 }); T.rechne()
+    zahl('nach Kraft: A bleibt 2000', Q.R().A, 2000)
+    torsion_xi = 1.12; T.rechne(); torsion_xi = 1
+    zahl('nach Optionsaenderung: I_y bleibt 1e6', Q.R().Iy, 1e6)
+
+    -- ungueltige Eingaben
+    setzeWert(1, '-5')
+    wahr('negatives A abgelehnt', Q.R().A == 2000 and Q.meldung() and Q.meldung().fehler, Q.R().A)
+    setzeWert(4, '2000000')
+    wahr('I_yz mit I_y I_z - I_yz^2 <= 0 abgelehnt', Q.R().Iyz == 0 and Q.meldung() and Q.meldung().fehler, Q.R().Iyz)
+    setzeWert(4, '100000')
+    zahl('I_yz = 1e5 angenommen', Q.R().Iyz, 1e5)
+    zahl('Hauptachsenwinkel folgt', Q.R().alpha, 0.5 * math.atan2(2e5, 1e6 - 320000), 1e-12)
+
+    -- berechnete Werte wiederherstellen
+    Q.menu(10, 5); on.enterKey()
+    zahl('wiederhergestellt: A = 2400', Q.R().A, 2400)
+    zahl('wiederhergestellt: I_yz = 0', Q.R().Iyz, 0)
+
+    -- Aenderung am Querschnitt: manuelle Werte fallen weg, mit Hinweis
+    setzeWert(1, '2000')
+    zahl('(A wieder manuell)', Q.R().A, 2000)
+    local pkt = Q.M()[1].points[2]
+    pkt.v = pkt.v + 10                      -- Rechteck 10 hoeher
+    T.rechne()
+    zahl('Querschnitt geaendert: A wieder berechnet (40 x 70)', Q.R().A, 2800)
+    local m = Q.meldung()
+    wahr('  Hinweis darauf', m ~= nil and tostring(m.text):find('Querschnitt geaendert', 1, true) ~= nil, m and m.text)
+    T.rechne()
+    wahr('  Hinweis kommt nur einmal', Q.meldung() == nil)
+    -- alles loeschen setzt ebenfalls zurueck
+    setzeWert(1, '2000')
+    Q.clear()
+    T.massiv({ type = 'rect', points = { P(-20, -30), P(20, 40) } })
+    zahl('nach Loeschen und gleichem Neuzeichnen: berechnet', T.rechne().A, 2800)
+end)
+
 T.ende('Querschnitt')

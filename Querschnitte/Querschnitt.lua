@@ -136,6 +136,9 @@ local function meldung(text, titel, fehler)
 end
 -- Hinweise, die der Nutzer nicht uebersehen soll (Funktionen weiter unten, nach den Anzeigehilfen)
 local qsHinweis = { dicke_gezeigt = false }
+-- Manuell ueberschriebene Querschnittswerte (Schwerpunktwerte im internen KOS, nil = berechnet).
+-- sig ist die Geometrie-Signatur, zu der sie gehoeren; aendert sich der Querschnitt, fallen sie weg.
+local qsWerte = { A = nil, Iy = nil, Iz = nil, Iyz = nil, sig = nil }
 local escape_clear_pending = false
 local sigma_input_step = 0
 local sigma_N, sigma_My, sigma_Mz = nil, nil, nil
@@ -1220,9 +1223,90 @@ function qsHinweis.pruefeDicke()
         .. "Zeiger auf dem Element und Enter.", display_length(default_t), length_unit))
 end
 
+function qsWerte.aktiv()
+    return qsWerte.A ~= nil or qsWerte.Iy ~= nil or qsWerte.Iz ~= nil or qsWerte.Iyz ~= nil
+end
+
+-- Signatur des Querschnitts: Elementtypen, Dicken, Loch-/Numerikmarken und alle Punkte relativ zum
+-- ersten Punkt. KOS verschieben (alle Punkte gleich), KOS drehen, Kraefte setzen oder Optionen
+-- aendern lassen sie unveraendert -- nur eine echte Aenderung am Querschnitt nicht.
+function qsWerte.signatur()
+    local teile, u0, v0 = {}, nil, nil
+    local function pkt(pt)
+        if not u0 then u0, v0 = pt.u, pt.v end
+        teile[#teile + 1] = string.format("%.9g,%.9g", pt.u - u0, pt.v - v0)
+    end
+    for _, e in ipairs(massiv_elemente) do
+        teile[#teile + 1] = "M" .. tostring(e.type) .. (e.is_hole and "L" or "") .. (e.is_numeric and "N" or "") .. tostring(e.t or "")
+        for _, pt in ipairs(e.points or {}) do pkt(pt) end
+    end
+    for _, e in ipairs(duenn_elemente) do
+        teile[#teile + 1] = "D" .. tostring(e.type) .. tostring(e.t or default_t)
+        for _, pt in ipairs(e.points or {}) do pkt(pt) end
+    end
+    return table.concat(teile, ";")
+end
+
+-- Zu Beginn jeder Neuberechnung: hat sich der Querschnitt geaendert, gelten wieder die berechneten Werte
+function qsWerte.pruefe()
+    local sig = qsWerte.signatur()
+    if qsWerte.aktiv() and qsWerte.sig ~= sig then
+        qsWerte.A, qsWerte.Iy, qsWerte.Iz, qsWerte.Iyz = nil, nil, nil, nil
+        qsWerte.verworfen = true
+    end
+    qsWerte.sig = sig
+end
+
+-- Am Ende der Neuberechnung: manuelle Werte einsetzen und alles daraus Abgeleitete neu bilden
+function qsWerte.anwenden()
+    local r = system_results
+    if not r then return end
+    r.geo = { A = r.A, Iy = r.Iy, Iz = r.Iz, Iyz = r.Iyz }
+    if qsWerte.aktiv() then
+        r.A = qsWerte.A or r.A
+        r.Iy = qsWerte.Iy or r.Iy
+        r.Iz = qsWerte.Iz or r.Iz
+        r.Iyz = qsWerte.Iyz or r.Iyz
+        r.IyS, r.IzS, r.IyzS = r.Iy, r.Iz, r.Iyz
+        local m = (r.Iy + r.Iz) / 2
+        local d = math.sqrt(((r.Iy - r.Iz) / 2) ^ 2 + r.Iyz ^ 2)
+        r.I1, r.I2 = m + d, m - d
+        r.alpha = (d > 1e-12 * (math.abs(m) + 1)) and 0.5 * math.atan2(2 * r.Iyz, r.Iy - r.Iz) or 0
+        r.Wu = ((r.e_v or 0) > 1e-9) and (r.Iy / r.e_v) or 0
+        r.Wv = ((r.e_u or 0) > 1e-9) and (r.Iz / r.e_u) or 0
+        r.manuell = true
+    end
+    if qsWerte.verworfen then
+        qsWerte.verworfen = false
+        meldung("Querschnitt geaendert: die manuell eingegebenen Querschnittswerte gelten nicht mehr, "
+            .. "gerechnet wird wieder mit den berechneten Werten.", "Hinweis")
+    end
+end
+
+-- Welche angezeigten Groessen sind manuell? (bei KOS-Drehung 90/270 tauschen I_y und I_z)
+function qsWerte.anzeige()
+    -- ausdruecklich mit if: "tausch and qsWerte.Iz or qsWerte.Iy" liefert Iy, wenn Iz nil ist
+    local fa, fb
+    if rotation == 90 or rotation == 270 then fa, fb = qsWerte.Iz, qsWerte.Iy else fa, fb = qsWerte.Iy, qsWerte.Iz end
+    return qsWerte.A ~= nil, fa ~= nil, fb ~= nil, qsWerte.Iyz ~= nil
+end
+
+-- Liste der manuellen Groessen fuer Hinweise, z. B. "A, I_y"
+function qsWerte.namen()
+    local a, b = axes()
+    local fA, fa, fb, fab = qsWerte.anzeige()
+    local l = {}
+    if fA then l[#l + 1] = "A" end
+    if fa then l[#l + 1] = "I_" .. a end
+    if fb then l[#l + 1] = "I_" .. b end
+    if fab then l[#l + 1] = "I_" .. a .. b end
+    return table.concat(l, ", ")
+end
+
 function loescheAllesQS()
     qsLoeschFrage = false
     qsHinweis.dicke_gezeigt = false
+    qsWerte.A, qsWerte.Iy, qsWerte.Iz, qsWerte.Iyz, qsWerte.verworfen = nil, nil, nil, nil, false
     escape_clear_pending = false
     massiv_elemente, duenn_elemente, kraefte, pending = {}, {}, {}, {}
     overlap_pending_elem = nil
@@ -1268,6 +1352,7 @@ end
 
 local function berechneSystem()
     qsMeldung = nil   -- Querschnitt geaendert: alte Meldung gilt nicht mehr
+    qsWerte.pruefe()
     if #massiv_elemente + #duenn_elemente == 0 then qsHinweis.dicke_gezeigt = false end
     sigma_results = nil
     shear_center_cache = nil
@@ -1393,8 +1478,10 @@ local function berechneSystem()
         IyS = IyS, IzS = IzS, IyzS = IyzS,
         Wu = Wu, Wv = Wv,
         I1 = I1, I2 = I2, alpha = alpha_star,
-        It = It_open, It_closed = It_closed, Am = Am
+        It = It_open, It_closed = It_closed, Am = Am,
+        e_u = e_u, e_v = e_v
     }
+    qsWerte.anwenden()
     -- Spiegelsymmetrie der Mittellinien (entscheidet, ob der Schubfluss einer geschlossenen
     -- Zelle statisch bestimmt ist); wird im Ergebnisfeld angezeigt.
     if #duenn_elemente > 0 and It_closed > 1e-9 then   -- nur bei geschlossener Zelle noetig
@@ -2568,13 +2655,15 @@ local function drawSpreadsheet(gc, w, h)
         local bezug_kurz = bezug_kos and " (KOS)" or ",S"
         local W_a, W_b = r.Wu, r.Wv
         if rotation == 90 or rotation == 270 then W_a, W_b = r.Wv, r.Wu end
+        local mA, ma, mb, mab = qsWerte.anzeige()
+        local function mk(f) return f and "  (manuell)" or "" end
         local lines = {
-            string.format("A = %.4g [%s]", display_area(r.A), unit_label(2)),
+            string.format("A = %.4g [%s]", display_area(r.A), unit_label(2)) .. mk(mA),
             string.format("%s_s = %.4g [%s]", a, display_length(display_ys), unit_label(1)),
             string.format("%s_s = %.4g [%s]", b, display_length(display_zs), unit_label(1)),
-            string.format("I_%s%s = %.4g [%s]", a, bezug_kurz, display_inertia(iy_anz), unit_label(4)),
-            string.format("I_%s%s = %.4g [%s]", b, bezug_kurz, display_inertia(iz_anz), unit_label(4)),
-            string.format("I_%s%s%s = %.4g [%s]", a, b, bezug_kurz, display_inertia(iyz_anz), unit_label(4)),
+            string.format("I_%s%s = %.4g [%s]", a, bezug_kurz, display_inertia(iy_anz), unit_label(4)) .. mk(ma),
+            string.format("I_%s%s = %.4g [%s]", b, bezug_kurz, display_inertia(iz_anz), unit_label(4)) .. mk(mb),
+            string.format("I_%s%s%s = %.4g [%s]", a, b, bezug_kurz, display_inertia(iyz_anz), unit_label(4)) .. mk(mab),
             string.format("i_%s = %.4g [%s]", a, display_length(math.sqrt(math.abs(IyS_d / r.A))), unit_label(1)),
             string.format("i_%s = %.4g [%s]", b, display_length(math.sqrt(math.abs(IzS_d / r.A))), unit_label(1)),
             string.format("W_%s = %.4g [%s]", a, display_volume(W_a), unit_label(3)),
@@ -3214,6 +3303,7 @@ local function drawSigmaResultsTable(gc, w, h)
         table.insert(rows, 10, {"M" .. moment_b .. " aus Querkraeften [" .. moment_unit .. "]", string.format("%.6g %s", display_moment(qMz_d), moment_unit)})
     end
     for _, zeile in ipairs(sigmaEingabe.zusatzzeilen(sigma_results)) do rows[#rows + 1] = zeile end
+    if qsWerte.aktiv() then table.insert(rows, 1, { kopf = "Manuelle Werte: " .. qsWerte.namen() }) end
     local height = (2 + #rows) * row_height + 8
     -- Wertespalte hinter die breiteste Beschriftung setzen (Schrift 8); die breitesten Werte muessen
     -- aber noch daneben passen. Was dann immer noch zu breit ist, wird kleiner geschrieben.
@@ -3659,6 +3749,25 @@ local function buildMenuItems()
         local a, b = axes()
         local format_name = zahlenFormat == 1 and "Wurzel/Bruch" or zahlenFormat == 2 and "Bruch" or "Dezimal"
         return {"1. Raster aendern (Aktuell: "..string.format("%.4g %s", display_length(raster), length_unit)..")", "2. Standarddicke t (Aktuell: "..string.format("%.4g %s", display_length(default_t), length_unit)..")", "3. KOS Ebene ("..a..b..")", "4. KOS drehen", "5. KOS Groesse (Aktuell: "..kos_size..")", "6. Zahlenformat ("..format_name..")", "7. Kraft-Einheit ("..force_unit..")", "8. Laengen-Einheit ("..length_unit..")", "9. Moment-Einheit ("..moment_unit..")", "10. ξ Profilbeiwert (Aktuell: "..string.format("%.4g", torsion_xi)..")"}
+    elseif menuPage == 10 then
+        local a, b = axes()
+        local r = system_results
+        local fA, fa, fb, fab = qsWerte.anzeige()
+        local tA, ta, tb, tab = "-", "-", "-", "-"
+        if r then
+            local Ia, Ib, Iab = inertiaForDisplay(r.Iy, r.Iz, r.Iyz)
+            tA = string.format("%.6g %s", display_area(r.A), unit_label(2))
+            ta = string.format("%.6g %s", display_inertia(Ia), unit_label(4))
+            tb = string.format("%.6g %s", display_inertia(Ib), unit_label(4))
+            tab = string.format("%.6g %s", display_inertia(Iab), unit_label(4))
+        end
+        local function m(f) return f and ", manuell" or "" end
+        return {"1. A setzen (Aktuell: " .. tA .. m(fA) .. ")",
+                "2. I_" .. a .. ",S setzen (Aktuell: " .. ta .. m(fa) .. ")",
+                "3. I_" .. b .. ",S setzen (Aktuell: " .. tb .. m(fb) .. ")",
+                "4. I_" .. a .. b .. ",S setzen (Aktuell: " .. tab .. m(fab) .. ")",
+                "5. Berechnete Werte wiederherstellen",
+                "6. < Zurueck"}
     elseif menuPage == 9 then
         local a, b = axes()
         return {"1. KOS in Schwerpunkt verschieben",
@@ -3718,7 +3827,7 @@ local function drawMenu(gc, w, h)
     gc:setColorRGB(248, 248, 248); gc:fillRect(left, 5, width, h - 10)
     gc:setColorRGB(0, 0, 0); gc:drawRect(left, 5, width, h - 10)
     gc:setFont("sansserif", "b", 9)
-    local title = "Menue (" .. (menuPage == 1 and "Massiv" or menuPage == 2 and "Duennwand" or menuPage == 3 and "Editieren" or menuPage == 5 and "Berechnungen" or menuPage == 6 and "Kernflaeche" or menuPage == 7 and "σx" or menuPage == 8 and "Schubspannung" or menuPage == 9 and "Weitere Optionen" or "Optionen") .. ")"
+    local title = "Menue (" .. (menuPage == 1 and "Massiv" or menuPage == 2 and "Duennwand" or menuPage == 3 and "Editieren" or menuPage == 5 and "Berechnungen" or menuPage == 6 and "Kernflaeche" or menuPage == 7 and "σx" or menuPage == 8 and "Schubspannung" or menuPage == 9 and "Weitere Optionen" or menuPage == 10 and "Querschnittswerte" or "Optionen") .. ")"
     gc:drawString(title, left + 5, 10)
     gc:setFont("sansserif", "r", 9)
     for i, row in ipairs(buildMenuItems()) do
@@ -3793,6 +3902,11 @@ local function drawTable(gc, w, h)
     gc:setFont("sansserif", "b", 9)
     gc:drawString("Tabellarische uebersicht Einzelelemente (Bezug: "
         .. (bezug_kos and "KOS-Ursprung" or "Schwerpunkt") .. ")", 10, 5)
+    if qsWerte.aktiv() then
+        gc:setFont("sansserif", "r", 8); gc:setColorRGB(200, 90, 0)
+        gc:drawString("Manuell: " .. qsWerte.namen() .. " -- die Tabelle zeigt die Werte aus der Geometrie", 10, 16)
+        gc:setColorRGB(0, 0, 0); gc:setFont("sansserif", "b", 9)
+    end
     
     gc:clipRect("set", 10, 25, w - 20, h - 35)
     
@@ -4802,7 +4916,7 @@ function on.charIn(c)
 
     if menuOpen and menuPage ~= 3 then
         local menu_number = tonumber(c)
-        local menu_count = menuPage == 1 and 9 or menuPage == 2 and 5 or menuPage == 5 and 8 or menuPage == 6 and 4 or menuPage == 7 and (#kraefte > 0 and 4 or 3) or menuPage == 8 and 2 or menuPage == 9 and 5 or menuPage == 4 and 10 or 6
+        local menu_count = menuPage == 1 and 9 or menuPage == 2 and 5 or menuPage == 5 and 8 or menuPage == 6 and 4 or menuPage == 7 and (#kraefte > 0 and 4 or 3) or menuPage == 8 and 2 or menuPage == 9 and 5 or menuPage == 10 and 6 or menuPage == 4 and 10 or 6
         if menu_number and menu_number >= 1 and menu_number <= menu_count then
             menuRow = menu_number
             on.enterKey()
@@ -4905,9 +5019,12 @@ function on.arrowKey(k)
         return
     end
     if menuOpen and not inputMode then
-        if menuPage == 4 or menuPage == 9 then
+        if menuPage == 4 or menuPage == 9 or menuPage == 10 then
             if k == "left" or k == "right" then
-                menuPage = menuPage == 4 and 9 or 4
+                -- Optionen, Weitere Optionen, Querschnittswerte im Kreis
+                local folge = { [4] = 9, [9] = 10, [10] = 4 }
+                local zurueck = { [4] = 10, [9] = 4, [10] = 9 }
+                menuPage = (k == "right") and folge[menuPage] or zurueck[menuPage]
                 menuRow = 1
                 platform.window:invalidate()
                 return
@@ -4921,6 +5038,7 @@ function on.arrowKey(k)
         elseif menuPage == 7 then n = #kraefte > 0 and 4 or 3
         elseif menuPage == 8 then n = 2
         elseif menuPage == 9 then n = 5
+        elseif menuPage == 10 then n = 6
         elseif menuPage == 4 then n = 10
         elseif menuPage == 3 then
             local elem = (selected_type == "massiv") and massiv_elemente[selected_idx] or (selected_type == "duenn" and duenn_elemente[selected_idx] or kraefte[selected_idx])
@@ -4992,6 +5110,28 @@ local function enterMenuInput()
             torsion_xi = math.max(0, val)
             berechneSystem()
             status = "ξ gesetzt auf " .. torsion_xi
+        elseif menuPage == 10 and menuRow >= 1 and menuRow <= 4 and system_results then
+            -- Eingaben im angezeigten KOS und in der Laengeneinheit der Anzeige, bezogen auf den Schwerpunkt
+            local f = unit_factor(length_unit)
+            local r = system_results
+            local tausch = (rotation == 90 or rotation == 270)
+            local neu = {}
+            if menuRow == 1 then neu.A = val * f ^ 2
+            elseif menuRow == 2 then neu[tausch and "Iz" or "Iy"] = val * f ^ 4
+            elseif menuRow == 3 then neu[tausch and "Iy" or "Iz"] = val * f ^ 4
+            else neu.Iyz = (tausch and -val or val) * f ^ 4 end
+            local A_ = neu.A or r.A
+            local Iy_, Iz_, Iyz_ = neu.Iy or r.Iy, neu.Iz or r.Iz, neu.Iyz or r.Iyz
+            if A_ <= 0 or Iy_ <= 0 or Iz_ <= 0 then
+                meldung("A, I_y und I_z muessen positiv sein.", "Eingabe", true)
+            elseif Iy_ * Iz_ - Iyz_ ^ 2 <= 1e-12 * Iy_ * Iz_ then
+                meldung("So nicht moeglich: I_y * I_z - I_yz^2 muss positiv sein (sonst ist der Querschnitt nicht biegesteif).", "Eingabe", true)
+            else
+                for k, v in pairs(neu) do qsWerte[k] = v end
+                berechneSystem()
+                shear_results, shear_profile_visible, shear_selector_open = nil, false, false
+                status = "Manuelle Querschnittswerte: " .. qsWerte.namen()
+            end
         elseif menuPage == 9 and (menuRow == 2 or menuRow == 3) then
             -- Verschiebung entlang der angezeigten Achse, intern umgerechnet (KOS-Drehung)
             local d = input_to_internal(val, length_unit)
@@ -5085,6 +5225,16 @@ local function enterMenuAction()
         elseif menuRow == 9 then moment_unit = cycle_unit(moment_unit, {"Nm", "Ncm", "Nmm", "kNm", "kNcm", "kNmm"})
         elseif menuRow == 10 then inputMode, inputText = true, ""
         end
+    elseif menuPage == 10 then
+        if menuRow >= 1 and menuRow <= 4 then
+            if not system_results then meldung("Kein Querschnitt vorhanden.", "Hinweis", true)
+            else inputMode, inputText = true, "" end
+        elseif menuRow == 5 then
+            qsWerte.A, qsWerte.Iy, qsWerte.Iz, qsWerte.Iyz = nil, nil, nil, nil
+            berechneSystem()
+            shear_results, shear_profile_visible, shear_selector_open = nil, false, false
+            status = "Berechnete Querschnittswerte wiederhergestellt."
+        elseif menuRow == 6 then menuPage, menuRow = 4, 1 end
     elseif menuPage == 9 then
         if menuRow == 1 then
             verschiebeKOSZumSchwerpunkt()

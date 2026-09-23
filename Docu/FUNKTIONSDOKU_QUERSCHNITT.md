@@ -360,6 +360,10 @@ werden nur mehrzellige Profile und die Torsion massiver Querschnitte.
 
 ## 9. Menü- & Interaktionslogik
 
+### `qsWerte` (Tabelle) mit `aktiv()`, `signatur()`, `pruefe()`, `anwenden()`, `anzeige()`, `namen()`
+- **Zweck:** Manuell ueberschriebene Schwerpunktwerte `A`, `Iy`, `Iz`, `Iyz` im internen KOS (Eingabe im Obermenue Seite 3 = `menuPage 10`, Umrechnung aus dem angezeigten KOS: bei Drehung 90/270 tauschen `Iy`/`Iz`, `Iyz` wechselt das Vorzeichen). `pruefe()` laeuft am Anfang von `berechneSystem`: weicht `signatur()` (Typen, Dicken, Marken, Punkte relativ zum ersten Punkt) von der gemerkten ab, fallen die Werte weg (einmaliger Hinweis). `anwenden()` laeuft nach dem Aufbau von `system_results`: setzt `A`, `Iy/IyS`, `Iz/IzS`, `Iyz/IyzS`, bildet `I1`, `I2`, `alpha`, `Wu`, `Wv` (mit den gespeicherten Randabstaenden `e_u`, `e_v`) neu, merkt die geometrischen Werte in `r.geo`. `anzeige()` liefert die Marken fuer die angezeigten Groessen, `namen()` die Liste fuer Hinweise.
+- **Grenzen:** Der Schwerpunkt, die statischen Momente und `I_T` bleiben geometrisch. Eingaben muessen `A, I_y, I_z > 0` und `I_y I_z - I_yz^2 > 0` erfuellen.
+
 ### `ftm_bezug` (Obermenue Seite 2, Zeile 4 `FTM-Bezug`)
 - **Zweck:** `"schwerpunkt"` (Standard) oder `"kos"`. Steuert die Ergebnisliste (`I_y,S` bzw. `I_y (KOS)` aus `IyS_d` bzw. `IyS_d + A*z_s^2`) und die Einzelwerte-Tabelle (Steiner-Anteile `delta = Element - Bezug`, Gesamtwerte, Ueberschrift). Umschalten ueber `menuPage 9, Zeile 2`.
 
