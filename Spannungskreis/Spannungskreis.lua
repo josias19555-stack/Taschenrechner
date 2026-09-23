@@ -85,6 +85,7 @@ local function zelle(sch, z)
     if z == 1 then return sch.a, sch.a_in elseif z == 2 then return sch.s, sch.s_in else return sch.t, sch.t_in end
 end
 local function setzeZelle(sch, z, v)
+    sch.wahl = nil      -- neue Eingabe am Schnitt: gewaehlte Winkelloesung gilt nicht mehr
     if z == 1 then sch.a, sch.a_in = v, (v ~= nil)
     elseif z == 2 then sch.s, sch.s_in = v, (v ~= nil)
     else sch.t, sch.t_in = v, (v ~= nil) end
@@ -327,6 +328,8 @@ local function rechne()
         elseif not leererSchnitt(sch) then
             local a, a2, warum = winkelAus(sch, L)
             if a then
+                -- zwei Loesungen: mit Tab gewaehlte zweite Loesung vorne, die andere klein dahinter
+                if a2 and sch.wahl == 2 then a, a2 = a2, a end
                 sch.a, sch.a2 = a, a2
                 local s, t = spannungen(a, L)
                 if not sch.s_in then sch.s = s end
@@ -486,6 +489,8 @@ local function zeichneTabelle(gc)
     setFarbe(gc, FARBE_BER); gc:drawString("grün: berechnet", x, y)
     x = x + gc:getStringWidth("grün: berechnet") + 10
     local hilfe = "Pfeile: Zelle   Enter: ändern"
+    local cur = schnitte[spalte]
+    if zeile == 1 and cur and cur.a2 and not cur.a_in then hilfe = "Tab: andere Lösung" end
     if x + gc:getStringWidth(hilfe) > W - 4 then hilfe = "Enter: ändern" end
     if x + gc:getStringWidth(hilfe) <= W - 4 then
         gc:setColorRGB(120, 120, 120); gc:drawString(hilfe, x, y)
@@ -607,36 +612,56 @@ local function schneide(poly, nx, ny, d)
     return out
 end
 
--- Vieleck, dessen Kanten die Schnitte sind: Schnitt aller Halbebenen n_i.x <= r.
--- Decken die Normalen nicht den ganzen Kreis ab, kommen die Gegenseiten dazu, damit die
--- Scheibe geschlossen ist (zwei senkrechte Schnitte ergeben so das uebliche Rechteck).
+-- Vieleck, dessen Kanten die Schnitte sind: Schnitt aller Halbebenen n_i.x <= r (alle Kanten
+-- beruehren den Inkreis mit Radius r). Gezeichnet werden nur die eingegebenen Schnitte. Schliessen
+-- sie die Scheibe nicht -- zwei benachbarte Normalen liegen SCHEIBE_LUECKE Grad oder weiter
+-- auseinander, die Scheibe waere offen oder eine extrem spitze Nadel --, wird der x- bzw.
+-- y-Schnitt ergaenzt, und zwar nur die Seite, deren Normale mitten in der groessten Luecke liegt.
+local SCHEIBE_LUECKE = 160
+
 local function scheibenPolygon(r)
-    local ebenen = {}
+    local liste, winkel = {}, {}
+    local function vorhanden(b)
+        for _, w in ipairs(winkel) do
+            if math.abs(((b - w) + 180) % 360 - 180) < 1e-6 then return true end
+        end
+        return false
+    end
+    local function dazu(b, eintrag)
+        b = b % 360
+        if vorhanden(b) then return end
+        local a = bogen(b)
+        eintrag.nx, eintrag.ny, eintrag.beta = math.cos(a), math.sin(a), b
+        liste[#liste + 1] = eintrag
+        winkel[#winkel + 1] = b
+    end
     for i, sch in ipairs(schnitte) do
-        if sch.a and not leererSchnitt(sch) then
-            local a = bogen(sch.a)
-            ebenen[#ebenen + 1] = { nx = math.cos(a), ny = math.sin(a), i = i, seite = 1 }
+        if sch.a and not leererSchnitt(sch) then dazu(sch.a, { i = i }) end
+    end
+    if #liste == 0 then return nil, nil end
+    for _ = 1, 4 do
+        local w = {}
+        for k, v in ipairs(winkel) do w[k] = v end
+        table.sort(w)
+        local luecke, von, bis = -1, nil, nil
+        for k = 1, #w do
+            local a, b = w[k], (k < #w) and w[k + 1] or (w[1] + 360)
+            if b - a > luecke then luecke, von, bis = b - a, a, b end
         end
-    end
-    if #ebenen == 0 then return nil, nil end
-    local function baue(liste)
-        local poly = { { -6 * r, -6 * r }, { 6 * r, -6 * r }, { 6 * r, 6 * r }, { -6 * r, 6 * r } }
-        for _, e in ipairs(liste) do poly = schneide(poly, e.nx, e.ny, r) end
-        return poly
-    end
-    local liste = {}
-    for _, e in ipairs(ebenen) do liste[#liste + 1] = e end
-    local poly = baue(liste)
-    local weit = false
-    for _, p in ipairs(poly) do
-        if math.sqrt(p[1] ^ 2 + p[2] ^ 2) > 2.5 * r then weit = true end
-    end
-    if weit then
-        for _, e in ipairs(ebenen) do
-            liste[#liste + 1] = { nx = -e.nx, ny = -e.ny, i = e.i, seite = -1 }
+        if luecke < SCHEIBE_LUECKE then break end
+        local mitte, beste, wahl = von + luecke / 2, math.huge, nil
+        for _, b in ipairs({ 0, 90, 180, 270, 360, 450, 540, 630 }) do
+            if b > von + 1e-6 and b < bis - 1e-6 and not vorhanden(b % 360) and math.abs(b - mitte) < beste - 1e-9 then
+                beste, wahl = math.abs(b - mitte), b
+            end
         end
-        poly = baue(liste)
+        if not wahl then break end
+        local b = wahl % 360
+        dazu(b, { achse = (b == 0 or b == 180) and "x" or "y" })
     end
+    local g = 50 * r
+    local poly = { { -g, -g }, { g, -g }, { g, g }, { -g, g } }
+    for _, e in ipairs(liste) do poly = schneide(poly, e.nx, e.ny, r) end
     return poly, liste
 end
 
@@ -648,24 +673,40 @@ local function zeichneScheibe(gc)
         return
     end
     local cx, cy = W / 2, (H + 18) / 2 + 4
-    local r = math.min(W, H - 18) * 0.17
-    local poly, ebenen = scheibenPolygon(r)
+    local r = math.min(W, H - 18) * 0.17          -- Pixel je Einheit bei einer gedrungenen Scheibe
+    local poly, ebenen = scheibenPolygon(1)       -- Inkreisradius 1, danach auf den Bildschirm skaliert
     if not poly or #poly < 3 then
         gc:setColorRGB(200, 0, 0); gc:setFont("sansserif", "r", 9)
         gc:drawString("Zu wenige Schnitte fuer eine Scheibe", 10, 40)
         return
     end
-    -- Koordinatensystem wie im Querschnitt: x zeigt nach unten, y nach rechts.
-    -- Ein Punkt (x, y) landet also bei (cx + y, cy + x), eine Richtung (vx, vy) entsprechend.
-    local function sx(p) return cx + p[2] end
-    local function sy(p) return cy + p[1] end
+    -- Koordinatensystem wie im Querschnitt: x zeigt nach unten, y nach rechts. Laengliche Vielecke
+    -- werden verkleinert, bis sie zwischen die Beschriftungen passen (Breite W-140, Hoehe 2r), und um
+    -- die Mitte ihres umschreibenden Rechtecks zentriert.
+    local xmin, xmax, ymin, ymax = math.huge, -math.huge, math.huge, -math.huge
+    for _, p in ipairs(poly) do
+        xmin, xmax = math.min(xmin, p[1]), math.max(xmax, p[1])
+        ymin, ymax = math.min(ymin, p[2]), math.max(ymax, p[2])
+    end
+    local sk = math.min(r, (W - 140) / math.max(ymax - ymin, 1e-9), 2 * r / math.max(xmax - xmin, 1e-9))
+    local cx0, cy0 = cx - sk * (ymin + ymax) / 2, cy - sk * (xmin + xmax) / 2
+    local function sx(p) return cx0 + p[2] * sk end
+    local function sy(p) return cy0 + p[1] * sk end
     local function ziel(px, py, vx, vy, laenge) return px + vy * laenge, py + vx * laenge end
 
+    -- Spannungen je Ebene: eingegebene Schnitte aus der Tabelle, ergaenzte x-/y-Schnitte aus dem Zustand
+    local ergaenzt = false
+    for _, e in ipairs(ebenen) do
+        if e.i then
+            e.sig, e.tau = schnitte[e.i].s or 0, schnitte[e.i].t or 0
+        else
+            e.sig, e.tau = spannungen(e.beta, loesung)
+            ergaenzt = true
+        end
+    end
     -- Skalierung der Pfeile
     local gross = 0
-    for _, sch in ipairs(schnitte) do
-        gross = math.max(gross, math.abs(sch.s or 0), math.abs(sch.t or 0))
-    end
+    for _, e in ipairs(ebenen) do gross = math.max(gross, math.abs(e.sig), math.abs(e.tau)) end
     if gross < 1e-9 then gross = 1 end
     local pmax = r * 0.85
 
@@ -680,9 +721,9 @@ local function zeichneScheibe(gc)
     end
     -- Achsenkreuz
     gc:setColorRGB(0, 150, 0)
-    gc:drawLine(cx, cy, cx + 22, cy); gc:drawLine(cx, cy, cx, cy + 22)
+    gc:drawLine(cx0, cy0, cx0 + 22, cy0); gc:drawLine(cx0, cy0, cx0, cy0 + 22)
     gc:setFont("sansserif", "r", 8)
-    gc:drawString("y", cx + 24, cy - 6); gc:drawString("x", cx - 3, cy + 22)
+    gc:drawString("y", cx0 + 24, cy0 - 6); gc:drawString("x", cx0 - 3, cy0 + 22)
 
     -- je Kante die Spannungen
     gc:setFont("sansserif", "r", 7)
@@ -692,20 +733,19 @@ local function zeichneScheibe(gc)
         local mx, my = (p[1] + q[1]) / 2, (p[2] + q[2]) / 2
         local zu = nil
         for _, e in ipairs(ebenen or {}) do
-            if math.abs(e.nx * mx + e.ny * my - r) < 1e-6 * math.max(1, r) then zu = e; break end
+            if math.abs(e.nx * mx + e.ny * my - 1) < 1e-6 then zu = e; break end
         end
         if zu then
-            local sch = schnitte[zu.i]
+            local sch = { s = zu.sig, t = zu.tau }       -- Werte der Kante (Schnitt oder ergaenzte Achse)
             -- Jede Kante zeichnet mit IHRER aeusseren Normalen n und Tangente t (n um +90 Grad).
             -- Die Rueckseite eines Schnitts hat die Normale -n und damit auch die Tangente -t; der
             -- Spannungsvektor dort ist -(σ n + τ t) = σ (-n) + τ (-t). Bezogen auf die eigene Normale
             -- und Tangente hat sie also dieselben Werte σ und τ: Zug zeigt auf beiden Seiten von der
             -- Scheibe weg, τ auf gegenueberliegenden Kanten in entgegengesetzte Richtungen.
-            local vz = zu.seite                             -- nur fuer die Beschriftung "R"
             local nx, ny = zu.nx, zu.ny                    -- aeussere Normale der Kante
             local tx, ty = -ny, nx                          -- Tangente (Normale um +90 Grad)
             local px, py = sx({ mx, my }), sy({ mx, my })
-            local eintrag = { i = zu.i, seite = vz, px = px, py = py, s = sch.s or 0, t = sch.t or 0 }
+            local eintrag = { i = zu.i, achse = zu.achse, beta = zu.beta, px = px, py = py, s = sch.s or 0, t = sch.t or 0 }
             eintrag.nx, eintrag.ny = ziel(0, 0, nx, ny, 1)  -- aeussere Normale auf dem Bildschirm
             -- Normalspannung laengs der Normalen (Zug nach aussen, Druck auf die Kante zu)
             local ls = (sch.s or 0) / gross * pmax
@@ -735,14 +775,16 @@ local function zeichneScheibe(gc)
             bx = math.max(24, math.min(W - 24, bx))
             by = math.max(26, math.min(H - 18, by))
             gc:setFont("sansserif", "b", 7); gc:setColorRGB(0, 0, 0)
-            zentriert(gc, "S" .. zu.i .. " (" .. fmt(sch.a, 1) .. "°)" .. (vz < 0 and " R" or ""), bx, by - 16)
+            local name = zu.i and ("S" .. zu.i .. " (" .. fmt(schnitte[zu.i].a, 1) .. "°)") or (zu.achse .. "-Schnitt")
+            zentriert(gc, name, bx, by - 16)
             gc:setFont("sansserif", "r", 7)
             setFarbe(gc, FARBE_SIGMA); zentriert(gc, "σ=" .. fmt(sch.s, 1), bx, by - 7)
             setFarbe(gc, FARBE_TAU); zentriert(gc, "τ=" .. fmt(sch.t, 1), bx, by + 2)
         end
     end
     gc:setFont("sansserif", "r", 7); gc:setColorRGB(60, 60, 60)
-    gc:drawString("rot: σ   blau: τ   R = Rückseite desselben Schnitts", 4, H - 10)
+    gc:drawString(ergaenzt and "rot: σ   blau: τ   x-/y-Schnitt: ergänzt zum Schließen"
+        or "rot: σ   blau: τ", 4, H - 10)
 end
 
 -- ===================== Mohrscher Kreis =====================
@@ -996,6 +1038,20 @@ function on.backspaceKey()
     end
     platform.window:invalidate()
 end
+
+-- Tab (und Shift+Tab): steht der Cursor auf einem berechneten Winkel mit zwei Loesungen, wird zur
+-- anderen gewechselt. Die berechneten σ bzw. τ des Schnitts, Scheibe und Kreis folgen der Wahl.
+function on.tabKey()
+    if loeschFrage or editiere or modus ~= "tabelle" then return end
+    local sch = schnitte[spalte]
+    if zeile == 1 and sch and sch.a2 and not sch.a_in then
+        sch.wahl = (sch.wahl == 2) and 1 or 2
+        rechne()
+        meldung = nil
+        platform.window:invalidate()
+    end
+end
+function on.backtabKey() on.tabKey() end
 
 function on.arrowKey(k)
     if loeschFrage then return end

@@ -1009,6 +1009,7 @@ das gar nicht bestimmt ist.
     $\alpha \rightarrow \sigma \rightarrow \tau \rightarrow$ nächster Schnitt \\
   \taste{Backspace} & beim Ändern ein Zeichen löschen, sonst die Zelle leeren (der Wert wird dann
     wieder berechnet) \\
+  \taste{Tab} & auf einem berechneten Winkel mit zwei Lösungen: zur anderen Lösung wechseln \\
   \taste{b} & rechnen \\
   \taste{s} & Spannungsscheibe \\
   \taste{k} & Mohrscher Spannungskreis \\
@@ -1027,12 +1028,15 @@ $\alpha = 0$ liegt damit unten. Die Scheibe ist ein \textbf{Vieleck mit einer Ka
 Schnitt} -- also genau die Figur, die ihr in der Aufgabe seht. An jeder Kante hängt ein roter
 Pfeil für die Normalspannung (nach außen bei Zug, auf die Kante zu bei Druck) und ein blauer für
 die Schubspannung längs der Kante, dazu die Beschriftung mit $\alpha$, $\sigma$ und $\tau$
-außerhalb der Kante. Decken eure Schnitte nicht den ganzen Umfang ab -- bei zwei senkrechten
-Schnitten zum Beispiel --, ergänzt das Programm die Rückseiten, damit die Scheibe geschlossen
-ist; diese Kanten sind mit \code{R} gekennzeichnet und tragen dieselben Werte $\sigma$ und $	au$.
-Gezeichnet wird so, wie ihr es von Hand macht: Zug zeigt immer von der Scheibe weg, auf beiden
+außerhalb der Kante. Die Scheibe hat \textbf{genau so viele Kanten, wie ihr Schnitte eingegeben
+habt} -- ein Trapez aus vier Schnitten bleibt ein Trapez. Nur wenn eure Schnitte die Scheibe nicht
+schließen (bei zwei Schnitten zum Beispiel), ergänzt das Programm den $x$- oder $y$-Schnitt, und
+zwar nur die Seite, die zum Schließen gebraucht wird: Aus 0° und 90° wird so das übliche Rechteck,
+aus 30° und 120° ein Dreieck mit dem $y$-Schnitt. Diese Kanten heißen \code{x-Schnitt} bzw.\
+\code{y-Schnitt}, ihre Spannungen kommen aus dem Zustand. Längliche Scheiben werden verkleinert,
+bis sie ins Bild passen. Gezeichnet wird so, wie ihr es von Hand macht: Zug zeigt immer von der Scheibe weg, auf beiden
 gegenüberliegenden Seiten, und die Schubpfeile gegenüberliegender Kanten zeigen in
-entgegengesetzte Richtungen -- bei positivem $	au_{xy}$ laufen sie paarweise auf dieselben Ecken zu.
+entgegengesetzte Richtungen -- bei positivem $\tau_{xy}$ laufen sie paarweise auf dieselben Ecken zu.
 
 \textbf{Mohrscher Kreis (\taste{k}):} $\sigma$ nach rechts, $\tau$ nach oben, der Kreis um
 $(\sigma_m, 0)$ mit Radius $R$. Die $\tau$-Achse steht dort, wo sie hingehört, nämlich bei
@@ -1099,7 +1103,10 @@ Kreis der Wert nicht passt.
 \end{longtable}
 
 mit $\varphi = \operatorname{atan2}(R_s, R_c)$. Bei zwei Lösungen steht die zweite klein hinter
-dem Winkel in der Tabelle. Liegt euer Wert gar nicht auf dem Kreis (also
+dem Winkel in der Tabelle. Mit \taste{Tab} auf diesem Feld wechselt ihr zur anderen Lösung; die
+berechnete Spannung des Schnitts, die Scheibe und der Kreis ziehen mit. Das braucht ihr, wenn die
+Aufgabe über eine Zusatzangabe (z.\,B.\ die Richtung der Schubspannung) festlegt, welche der beiden
+Lösungen gemeint ist. Liegt euer Wert gar nicht auf dem Kreis (also
 $|\sigma - \sigma_m| > R$), sagt euch das Programm das für diesen Schnitt.
 
 \section{Grenzen und Tricks}
@@ -1186,6 +1193,7 @@ Winkel zu $\tau_{max}$). Für alles, was nach Schnitten gefragt ist, ist das neu
   \taste{Del}, \taste{Clear} & alles löschen (Rückfrage: \taste{Enter} löscht, \taste{Esc} bricht ab) \\
   \taste{Enter} & Zelle öffnen bzw.\ übernehmen \\
   \taste{Backspace} & Zeichen löschen bzw.\ Zelle leeren \\
+  \taste{Tab} & andere Winkellösung (bei zwei Lösungen) \\
   \taste{Esc} & Eingabe abbrechen, sonst zurück zur Tabelle \\
   \bottomrule
 \end{longtable}

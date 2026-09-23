@@ -24,7 +24,11 @@ sind die drei Größen:
 - Eingaben dürfen Ausdrücke sein (`10*2`, `sqrt(2)`, `1,5`); mit CAS wird `approx(...)` benutzt,
   ohne CAS ein Lua-Ausdruck.
 - Gibt es für einen berechneten Winkel zwei Lösungen, steht die zweite klein hinter dem Wert
-  (`|117.0`).
+  (`|117.0`). Steht der Cursor auf diesem α-Feld, wechselt **Tab** (oder Shift+Tab) zur anderen
+  Lösung; die Legende zeigt dann „Tab: andere Lösung“. Die berechnete Spannung des Schnitts
+  (τ, wenn σ gegeben war, bzw. σ, wenn τ gegeben war), die Spannungsscheibe und der Kreis folgen
+  der Wahl. Sie bleibt beim Neurechnen erhalten und fällt zurück, sobald an diesem Schnitt etwas
+  eingegeben wird.
 - Alle Beschriftungen passen sich der Bildschirmbreite an: Hinweis-, Status- und Ergebniszeilen
   werden bei Bedarf gekürzt, die Zeilenbeschriftung links notfalls kleiner gesetzt. Nichts läuft
   über den Rand, und das markierte Eingabefeld liegt genau auf der Zeile, die links beschriftet
@@ -42,6 +46,7 @@ nutzt den Platz bis zum unteren Rand.
 | Ziffer, `.`, `-`, `+`, `(` | beginnt sofort eine neue Eingabe in der Zelle |
 | `Enter` | Zelle zum Ändern öffnen (mit dem alten Wert vorbelegt) bzw. übernehmen; danach geht es $\alpha \to \sigma \to \tau \to$ nächster Schnitt |
 | `Backspace` | beim Ändern ein Zeichen löschen, sonst die Zelle leeren (Wert wird wieder berechnet) |
+| `Tab`, Shift+`Tab` | auf einem berechneten Winkel mit zwei Lösungen: zur anderen Lösung wechseln |
 | `b` | rechnen |
 | `s` | Spannungsscheibe |
 | `k` | Mohrscher Spannungskreis |
@@ -60,24 +65,32 @@ Richtung entsprechend; ein Schnitt mit $\alpha = 0$ hat seine Normale nach unten
 an der Unterkante. Ein wachsendes $\alpha$ dreht auf dem Bildschirm weiter gegen den
 Uhrzeigersinn, passt also zur Zählweise in der Tabelle.
 
-Die Scheibe ist ein **Vieleck mit einer Kante je Schnitt** –
-gebildet als Schnitt der Halbebenen $\vec n_i \cdot \vec x \le r$. Decken die Normalen nicht den
-ganzen Umfang ab (z. B. nur zwei Schnitte), kommen die Rückseiten $-\vec n_i$ dazu, damit die
-Scheibe geschlossen ist; zwei senkrechte Schnitte ergeben so das übliche Rechteck, die
-Rückseitenkante ist mit `R` gekennzeichnet. An **jeder** Kante werden Normalspannung (rot, längs
+Die Scheibe ist ein **Vieleck mit genau einer Kante je eingegebenem Schnitt** – gebildet als
+Schnitt der Halbebenen $\vec n_i \cdot \vec x \le 1$ (alle Kanten berühren den Inkreis). Rückseiten
+der Schnitte werden **nicht** mehr automatisch dazugezeichnet. Nur wenn die eingegebenen Schnitte
+die Scheibe nicht schließen – zwei benachbarte Normalen liegen $160^\circ$ oder weiter auseinander,
+die Scheibe wäre offen oder eine extrem spitze Nadel –, wird der **x- bzw. y-Schnitt** ergänzt, und
+zwar nur die Seite, deren Normale mitten in der größten Lücke liegt; das wiederholt sich, bis die
+Scheibe geschlossen ist. Beispiele: vier Schnitte rundum oder ein Trapez (0°, 130°, 180°, 250°)
+→ nichts ergänzt; zwei Schnitte 0°/90° → x-Schnitt bei 180° und y-Schnitt bei 270° (Rechteck);
+30°/120° → nur der y-Schnitt bei 270° (Dreieck); ein einzelner Schnitt → Gegenseite und beide
+y-Seiten. Ergänzte Kanten heißen `x-Schnitt` bzw. `y-Schnitt`, ihre Spannungen kommen aus dem
+Zustand ($\sigma(\beta)$, $\tau(\beta)$ für die Normalenrichtung $\beta$), und die Legende sagt
+„x-/y-Schnitt: ergänzt zum Schließen“. Das Vieleck wird so skaliert und zentriert, dass auch
+längliche Formen zwischen die Beschriftungen passen (höchstens so groß wie ein Quadrat bisher).
+An **jeder** Kante werden Normalspannung (rot, längs
 der Normalen; Zug nach außen, Druck auf die Kante zu) und Schubspannung (blau, längs der Kante)
 gezeichnet, dazu die Beschriftung `S_i (α)`, `σ=…`, `τ=…` außerhalb der Kante. Kleine Werte
 bekommen eine Mindestpfeillänge, damit nichts unsichtbar bleibt.
 
-Jede Kante zeichnet mit ihrer **eigenen** äußeren Normalen $ec n$ und Tangente $ec t$ ($ec n$
-um $+90^\circ$ gedreht). Die Rückseite hat $-ec n$ und $-ec t$; ihr Spannungsvektor ist
-$-(\sigmaec n + 	auec t) = \sigma(-ec n) + 	au(-ec t)$, bezogen auf die eigene Normale und
-Tangente also mit **denselben** Werten $\sigma$, $	au$. Folge: Zug zeigt auf beiden Seiten von der
+Jede Kante zeichnet mit ihrer **eigenen** äußeren Normalen $\vec n$ und Tangente $\vec t$ ($\vec n$
+um $+90^\circ$ gedreht). Eine gegenüberliegende Kante hat $-\vec n$ und $-\vec t$; ihr Spannungsvektor ist
+$-(\sigma\vec n + \tau\vec t) = \sigma(-\vec n) + \tau(-\vec t)$, bezogen auf die eigene Normale und
+Tangente also mit **denselben** Werten $\sigma$, $\tau$. Folge: Zug zeigt auf beiden Seiten von der
 Scheibe weg, Druck auf beiden Seiten auf die Scheibe zu, und die Schubpfeile gegenüberliegender
-Kanten zeigen in entgegengesetzte Richtungen (bei $	au_{xy} > 0$ laufen die Pfeile der
-$+x$- und der $+y$-Fläche auf dieselbe Ecke zu). Früher wurden die Rückseiten zusätzlich mit $-1$
-multipliziert, wodurch Zug dort nach innen zeigte und $	au$ parallel zur Vorderseite lief; Test 18
-prüft die Richtungen an jeder Kante gegen ihre Normale und paarweise.
+Kanten zeigen in entgegengesetzte Richtungen (bei $\tau_{xy} > 0$ laufen die Pfeile der
+$+x$- und der $+y$-Fläche auf dieselbe Ecke zu). Test 18 prüft die Richtungen an jeder Kante
+gegen ihre Normale und für alle gegenüberliegenden Kantenpaare, Test 9 die Kantenauswahl.
 
 **Mohrscher Kreis (`k`):** $\sigma$ waagerecht, $\tau$ senkrecht nach oben, Kreis um
 $(\sigma_m, 0)$ mit Radius $R$; Hauptspannungen und Mittelpunkt sind markiert, jeder Schnitt ist

@@ -254,22 +254,54 @@ fall('8 Werte nachtraeglich aendern', function()
 end)
 
 fall('9 Vieleck der Spannungsscheibe', function()
-    abschnitt('eine Kante je Schnitt; ohne volle Umfassung kommen die Rueckseiten dazu')
-    setze({ { 0, 10, 0 }, { 90, 20, 0 }, { 180, 10, 0 }, { 270, 20, 0 } })
-    S.rechne()
-    local poly, ebenen = S.polygon(40)
-    wahr('Polygon entsteht', poly ~= nil and #poly >= 3, poly and #poly)
-    wahr('vier Kanten fuer vier Schnitte', #poly == 4, #poly)
-    wahr('keine Rueckseiten noetig', #ebenen == 4, #ebenen)
-    -- zwei senkrechte Schnitte: Rechteck mit Vorder- und Rueckseite
-    setze({ { 0, 20, 10 }, { 90, -5, nil } })
-    S.rechne()
-    local poly2, ebenen2 = S.polygon(40)
-    wahr('Rechteck aus zwei Schnitten', #poly2 == 4, #poly2)
-    wahr('Rueckseiten ergaenzt', #ebenen2 == 4, #ebenen2)
-    local seiten = 0
-    for _, e in ipairs(ebenen2) do if e.seite == -1 then seiten = seiten + 1 end end
-    wahr('zwei Rueckseiten', seiten == 2, seiten)
+    abschnitt('nur die eingegebenen Schnitte; x-/y-Schnitt nur, wenn die Scheibe sonst offen bliebe')
+    local function ergaenzt(ebenen)
+        local l = {}
+        for _, e in ipairs(ebenen) do if e.achse then l[#l + 1] = string.format('%s%.0f', e.achse, e.beta) end end
+        table.sort(l)
+        return table.concat(l, ',')
+    end
+    -- vier Schnitte rundum: vier Kanten, nichts ergaenzt
+    setze({ { 0, 10, 0 }, { 90, 20, 0 }, { 180, 10, 0 }, { 270, 20, 0 } }); S.rechne()
+    local poly, ebenen = S.polygon(1)
+    wahr('vier Schnitte: vier Kanten', #poly == 4, #poly)
+    wahr('  nichts ergaenzt', #ebenen == 4 and ergaenzt(ebenen) == '', ergaenzt(ebenen))
+    -- Trapez wie in der Aufgabe: Schnitte bei 0, 130, 180, 250 Grad -- geschlossen, keine Rueckseiten
+    setze({ { 0, 20, 10 }, { 130, 5, nil }, { 180, nil, nil }, { 250, nil, nil } }); S.rechne()
+    poly, ebenen = S.polygon(1)
+    wahr('Trapez: vier Kanten', #poly == 4, #poly)
+    wahr('  nur die eingegebenen Schnitte', #ebenen == 4 and ergaenzt(ebenen) == '', ergaenzt(ebenen))
+    -- zwei senkrechte Schnitte: offen, ergaenzt werden genau die beiden Gegenseiten
+    setze({ { 0, 20, 10 }, { 90, -5, nil } }); S.rechne()
+    poly, ebenen = S.polygon(1)
+    wahr('0/90 Grad: Rechteck', #poly == 4, #poly)
+    wahr('  ergaenzt: x-Schnitt bei 180, y-Schnitt bei 270', ergaenzt(ebenen) == 'x180,y270', ergaenzt(ebenen))
+    -- zwei schiefe Schnitte: eine Ergaenzung reicht (Dreieck)
+    setze({ { 30, 20, 10 }, { 120, -5, nil } }); S.rechne()
+    poly, ebenen = S.polygon(1)
+    wahr('30/120 Grad: Dreieck', #poly == 3, #poly)
+    wahr('  nur der y-Schnitt bei 270 ergaenzt', ergaenzt(ebenen) == 'y270', ergaenzt(ebenen))
+    -- ein einzelner Schnitt: Gegenseite und beide y-Seiten
+    setze({ { 0, 20, 10 } })
+    poly, ebenen = S.polygon(1)
+    wahr('ein Schnitt: Rechteck', #poly == 4, #poly)
+    wahr('  ergaenzt: x180, y90, y270', ergaenzt(ebenen) == 'x180,y270,y90', ergaenzt(ebenen))
+    -- jede Ebene liefert eine Kante (alle beruehren den Inkreis)
+    setze({ { 0, 20, 10 }, { 130, 5, nil }, { 180, nil, nil }, { 250, nil, nil } }); S.rechne()
+    male('scheibe')
+    wahr('Trapez gezeichnet: vier Kanten mit Pfeilen', #S.pfeile() == 4, #S.pfeile())
+    local txt = male('scheibe')
+    wahr('  keine Ergaenzung in der Legende', txt:find('ergänzt', 1, true) == nil)
+    local rand = 0
+    for _, e in ipairs(texte) do rand = math.max(rand, e.x + e.w - 318) end
+    wahr('  laengliche Scheibe passt auf den Bildschirm', rand <= 0, rand)
+    local raus = 0
+    for _, l in ipairs(linien) do
+        for _, pt in ipairs({ { l.x1, l.y1 }, { l.x2, l.y2 } }) do
+            if pt[1] < 0 or pt[1] > 318 or pt[2] < 18 or pt[2] > 212 then raus = raus + 1 end
+        end
+    end
+    wahr('  Kanten und Pfeile liegen ganz im Bild', raus == 0, raus)
 end)
 
 fall('10 Ansichten zeichnen', function()
@@ -630,7 +662,7 @@ fall('18 Pfeilrichtungen an gegenueberliegenden Kanten', function()
         wahr(name .. ': vier Kanten gezeichnet', #P == 4, #P)
         local function dot(a, b) return a[1] * b[1] + a[2] * b[2] end
         for _, e in ipairs(P) do
-            local kante = name .. ': S' .. e.i .. (e.seite < 0 and ' R' or '')
+            local kante = name .. ': ' .. (e.i and ('S' .. e.i) or (e.achse .. '-Schnitt')) .. string.format(' (%.0f)', e.beta)
             local n = { e.nx, e.ny }
             -- Normalspannung: nach aussen genau dann, wenn Zug
             if math.abs(e.s) > 1e-9 then
@@ -646,17 +678,17 @@ fall('18 Pfeilrichtungen an gegenueberliegenden Kanten', function()
                     string.format('t=%.2f  d.t=%.1f', e.t, dot(d, tang)))
             end
         end
-        -- Paare Vorder-/Rueckseite: sigma und tau jeweils entgegengesetzt
+        -- Gegenueberliegende Kanten (Normalen um 180 Grad verschieden): sigma und tau entgegengesetzt
         for _, a in ipairs(P) do
             for _, b in ipairs(P) do
-                if a.i == b.i and a.seite > 0 and b.seite < 0 then
+                if a.beta < b.beta and math.abs(b.beta - a.beta - 180) < 1e-6 then
                     local da = { a.sigma[3] - a.sigma[1], a.sigma[4] - a.sigma[2] }
                     local db = { b.sigma[3] - b.sigma[1], b.sigma[4] - b.sigma[2] }
-                    wahr(name .. ': S' .. a.i .. ' und Rueckseite: sigma-Pfeile entgegengesetzt', dot(da, db) < 0)
+                    wahr(name .. string.format(': %.0f und %.0f Grad: sigma-Pfeile entgegengesetzt', a.beta, b.beta), dot(da, db) < 0)
                     if a.tau and b.tau then
                         local ta = { a.tau[3] - a.tau[1], a.tau[4] - a.tau[2] }
                         local tb = { b.tau[3] - b.tau[1], b.tau[4] - b.tau[2] }
-                        wahr(name .. ': S' .. a.i .. ' und Rueckseite: tau-Pfeile entgegengesetzt', dot(ta, tb) < 0)
+                        wahr(name .. string.format(': %.0f und %.0f Grad: tau-Pfeile entgegengesetzt', a.beta, b.beta), dot(ta, tb) < 0)
                     end
                 end
             end
@@ -669,10 +701,10 @@ fall('18 Pfeilrichtungen an gegenueberliegenden Kanten', function()
     -- klassisches Bild bei tau_xy > 0: auf der +x-Flaeche (unten, x zeigt nach unten) zeigt tau nach +y
     -- (rechts), auf der +y-Flaeche (rechts) nach +x (unten) -- beide auf die Ecke unten rechts zu
     for _, e in ipairs(P) do
-        if e.seite > 0 and e.i == 1 then
+        if e.i == 1 then
             wahr('+x-Flaeche liegt unten', e.ny > 0.9, e.ny)
             wahr('  tau zeigt nach rechts (+y)', e.tau[3] - e.tau[1] > 0)
-        elseif e.seite > 0 and e.i == 2 then
+        elseif e.i == 2 then
             wahr('+y-Flaeche liegt rechts', e.nx > 0.9, e.nx)
             wahr('  tau zeigt nach unten (+x)', e.tau[4] - e.tau[2] > 0)
         end
@@ -687,7 +719,60 @@ fall('18 Pfeilrichtungen an gegenueberliegenden Kanten', function()
         local d = { e.sigma[3] - e.sigma[1], e.sigma[4] - e.sigma[2] }
         if math.abs(e.s) > 1e-9 and ((d[1] * e.nx + d[2] * e.ny) > 0) ~= (e.s > 0) then ok = false end
     end
-    wahr('Dreieck: an jeder Kante zeigt Zug weg und Druck hin', ok)
+    wahr('Vieleck mit Ergaenzung: an jeder Kante zeigt Zug weg und Druck hin', ok)
+end)
+
+fall('19 Tab wechselt die Winkelloesung', function()
+    abschnitt('Winkel mit zwei Loesungen: Tab im Feld α wechselt, σ/τ des Schnitts folgen')
+    -- sigma_x = 20, sigma_y = -5, tau_xy = 10; S3 nur mit sigma = sigma(30 Grad), Winkel offen
+    local s30 = select(1, (function()
+        setze({ { 0, 20, 10 }, { 90, -5, nil } }); S.rechne()
+        return S.spannungen(30, S.loesung())
+    end)())
+    setze({ { 0, 20, 10 }, { 90, -5, nil }, { nil, s30, nil } }); S.rechne()
+    local sch = S.schnitte()[3]
+    wahr('zwei Loesungen vorhanden', sch.a ~= nil and sch.a2 ~= nil, tostring(sch.a) .. ' / ' .. tostring(sch.a2))
+    local a1, a2, t1 = sch.a, sch.a2, sch.t
+    -- Cursor auf S3, Zeile α
+    on.arrowKey('right'); on.arrowKey('right')
+    local sp, ze = S.cursor()
+    wahr('Cursor auf S3 / α', sp == 3 and ze == 1, sp .. '/' .. ze)
+    local txt = male('tabelle')
+    wahr('Legende nennt Tab', txt:find('Tab: andere Lösung', 1, true) ~= nil)
+    on.tabKey()
+    sch = S.schnitte()[3]
+    zahl('Tab: jetzt die andere Loesung vorne', sch.a, a2, 1e-12)
+    zahl('  die erste steht klein dahinter', sch.a2, a1, 1e-12)
+    local s_neu, t_neu = S.spannungen(sch.a, S.loesung())
+    zahl('  sigma bleibt die Eingabe', sch.s, s30, 1e-12)
+    zahl('  tau folgt der gewaehlten Loesung', sch.t, t_neu, 1e-12)
+    wahr('  tau hat sich geaendert', math.abs(sch.t - t1) > 1e-6, sch.t .. ' / ' .. t1)
+    zahl('  sigma der Loesung stimmt', s_neu, s30, 1e-9)
+    -- Wahl bleibt beim Neurechnen erhalten
+    S.rechne()
+    zahl('Wahl bleibt beim Neurechnen', S.schnitte()[3].a, a2, 1e-12)
+    -- Scheibe und Kreis nehmen den gewaehlten Winkel
+    male('scheibe')
+    local ok = false
+    for _, e in ipairs(texte) do
+        if e.t:find('S3 (' .. string.format('%.1f', a2), 1, true) then ok = true end
+    end
+    wahr('Scheibe beschriftet S3 mit dem gewaehlten Winkel', ok)
+    S.setModus('tabelle')
+    -- Shift+Tab bzw. nochmal Tab: zurueck
+    on.backtabKey()
+    zahl('Shift+Tab: wieder die erste Loesung', S.schnitte()[3].a, a1, 1e-12)
+    -- Tab ausserhalb eines solchen Feldes: keine Wirkung
+    on.arrowKey('left')
+    local vorher = S.schnitte()[3].a
+    on.tabKey()
+    zahl('Tab auf S2 / α: nichts passiert', S.schnitte()[3].a, vorher, 1e-12)
+    -- Eingabe am Schnitt setzt die Wahl zurueck
+    on.arrowKey('right'); on.tabKey()
+    zahl('  (wieder zweite Loesung gewaehlt)', S.schnitte()[3].a, a2, 1e-12)
+    on.arrowKey('down')                    -- Zeile σ von S3
+    tippeZelle(string.format('%.10g', s30))
+    zahl('neue Eingabe an S3: wieder die erste Loesung', S.schnitte()[3].a, a1, 1e-9)
 end)
 
 write(string.format('\nErgebnis Spannungskreis: %d Pruefungen, %d Fehler\n', M.total, M.fails))
