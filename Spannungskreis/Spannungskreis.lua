@@ -13,6 +13,12 @@
 --   Beide Gleichungen sind in (σm, Rc, Rs) linear, solange der Winkel bekannt ist: drei
 --   unabhaengige Angaben bestimmen den Zustand (Gauss mit Rangkontrolle). Fehlende Winkel folgen
 --   geschlossen aus σ = σm + R*cos(2α-φ), τ = -R*sin(2α-φ) mit R = |(Rc,Rs)|, φ = atan2(Rs,Rc).
+--   Ein Schnitt OHNE Winkel, aber mit σ und τ ist ein Punkt auf dem Kreis:
+--      (σ - σm)^2 + τ^2 = Rc^2 + Rs^2          (eine Gleichung, der Winkel ist die zweite Unbekannte)
+--   Die Differenz zweier solcher Gleichungen ist linear in σm, es bleibt hoechstens eine
+--   quadratische. Hat das lineare System Rang 2, ist sie eine Gleichung zweiten Grades im freien
+--   Parameter: eine Loesung (auch wenn der quadratische Anteil wegfaellt) oder zwei. Zwei Loesungen
+--   heissen: der Zustand ist nicht eindeutig -- dann wird nichts gezeichnet, beide werden gezeigt.
 --
 -- Tasten: [b] rechnen  [s] Spannungsscheibe  [k] Mohrscher Kreis  [t] Tabelle
 --         Pfeile: Zelle waehlen   Enter: Zelle aendern   Backspace: Zelle leeren
@@ -33,6 +39,7 @@ local kreisWinkel = nil      -- Marke im Kreisbild (Winkel in Grad), mit den Pfe
 local loesung = nil
 local rang = 0
 local widerspruch = false
+local mehrdeutig = nil       -- zwei moegliche Zustaende (Kreispunkt, quadratische Gleichung)
 
 local FARBE_EIN = { 0, 0, 0 }
 local FARBE_BER = { 0, 130, 0 }
@@ -87,7 +94,20 @@ end
 
 -- ===================== Rechnung =====================
 
-local function gleichungen()
+-- Punkte auf dem Kreis: Schnitte ohne Winkel mit σ und τ
+local function kreispunkte()
+    local P = {}
+    for _, sch in ipairs(schnitte) do
+        if not (sch.a_in and sch.a) and sch.s_in and sch.t_in and sch.s and sch.t then
+            P[#P + 1] = { s = sch.s, t = sch.t }
+        end
+    end
+    return P
+end
+
+-- Lineare Gleichungen in (σm, Rc, Rs): Schnitte mit Winkel, dazu die Differenzen der Kreispunkte
+-- zum ersten Punkt (die quadratischen Anteile heben sich weg, uebrig bleibt eine Gleichung in σm)
+local function gleichungen(P)
     local A, b = {}, {}
     for _, sch in ipairs(schnitte) do
         if sch.a_in and sch.a then
@@ -96,12 +116,19 @@ local function gleichungen()
             if sch.t_in and sch.t then A[#A + 1] = { 0, -math.sin(z), math.cos(z) }; b[#b + 1] = sch.t end
         end
     end
+    for k = 2, #(P or {}) do
+        local p1, pk = P[1], P[k]
+        local f = math.max(1, math.abs(p1.s), math.abs(pk.s), math.abs(p1.t), math.abs(pk.t))
+        A[#A + 1] = { 2 * (pk.s - p1.s) / f, 0, 0 }
+        b[#b + 1] = (pk.s ^ 2 + pk.t ^ 2 - p1.s ^ 2 - p1.t ^ 2) / f
+    end
     return A, b
 end
 
+-- Gauss-Jordan mit Rangkontrolle. Rueckgabe: { rang, wider, x (Rang 3) oder x0 + t*d (Rang 2) }
 local function loeseLGS(A, b)
     local n = #A
-    if n == 0 then return nil, 0, false end
+    if n == 0 then return { rang = 0, wider = false } end
     local M, skala = {}, 1e-9
     for r = 1, n do
         M[r] = { A[r][1], A[r][2], A[r][3], b[r] }
@@ -116,7 +143,7 @@ local function loeseLGS(A, b)
             for r = 1, n do
                 if r ~= zn and M[r][sp] ~= 0 then
                     local f = M[r][sp] / M[zn][sp]
-                    for c = sp, 4 do M[r][c] = M[r][c] - f * M[zn][c] end
+                    for c = 1, 4 do M[r][c] = M[r][c] - f * M[zn][c] end
                 end
             end
             pivot[sp] = zn
@@ -126,10 +153,28 @@ local function loeseLGS(A, b)
     local r_ang = zn - 1
     local wider = false
     for r = r_ang + 1, n do if math.abs(M[r][4]) > 1e-6 * skala then wider = true end end
-    if r_ang < 3 then return nil, r_ang, wider end
-    local x = {}
-    for sp = 1, 3 do local z = pivot[sp]; x[sp] = M[z][4] / M[z][sp] end
-    return x, 3, wider
+    local erg = { rang = r_ang, wider = wider }
+    if r_ang == 3 then
+        erg.x = {}
+        for sp = 1, 3 do local z = pivot[sp]; erg.x[sp] = M[z][4] / M[z][sp] end
+    elseif r_ang == 2 then
+        -- eine freie Spalte: Loesungsgerade x0 + t*d, d auf Laenge 1 gebracht
+        local frei
+        for sp = 1, 3 do if not pivot[sp] then frei = sp end end
+        local x0, d = { 0, 0, 0 }, { 0, 0, 0 }
+        d[frei] = 1
+        for sp = 1, 3 do
+            local z = pivot[sp]
+            if z then
+                x0[sp] = M[z][4] / M[z][sp]
+                d[sp] = -M[z][frei] / M[z][sp]
+            end
+        end
+        local l = math.sqrt(d[1] ^ 2 + d[2] ^ 2 + d[3] ^ 2)
+        for i = 1, 3 do d[i] = d[i] / l end
+        erg.x0, erg.d = x0, d
+    end
+    return erg
 end
 
 local function spannungen(a_grad, L)
@@ -162,18 +207,8 @@ local function winkelAus(sch, L)
     return nil, nil, "keine Angabe"
 end
 
-local function rechne()
-    loesung, widerspruch = nil, false
-    for _, sch in ipairs(schnitte) do
-        sch.hinweis, sch.a2 = nil, nil
-        if not sch.a_in then sch.a = nil end
-        if not sch.s_in then sch.s = nil end
-        if not sch.t_in then sch.t = nil end
-    end
-    local A, b = gleichungen()
-    local x, r, wider = loeseLGS(A, b)
-    rang, widerspruch = r or 0, wider and true or false
-    if not x then return false end
+-- Kennwerte eines Zustands aus (σm, Rc, Rs)
+local function baueLoesung(x)
     local L = { sig_m = x[1], rc = x[2], rs = x[3] }
     L.r = math.sqrt(L.rc * L.rc + L.rs * L.rs)
     L.phi = math.atan2(L.rs, L.rc)
@@ -182,6 +217,106 @@ local function rechne()
     while L.a1 < 0 do L.a1 = L.a1 + 180 end
     while L.a1 >= 180 do L.a1 = L.a1 - 180 end
     L.sx, L.sy, L.txy = L.sig_m + L.rc, L.sig_m - L.rc, L.rs
+    return L
+end
+
+local function rechne()
+    loesung, widerspruch, mehrdeutig = nil, false, nil
+    for _, sch in ipairs(schnitte) do
+        sch.hinweis, sch.a2 = nil, nil
+        if not sch.a_in then sch.a = nil end
+        if not sch.s_in then sch.s = nil end
+        if not sch.t_in then sch.t = nil end
+    end
+    local P = kreispunkte()
+    local A, b = gleichungen(P)
+    local lg = loeseLGS(A, b)
+    rang, widerspruch = lg.rang, lg.wider and true or false
+
+    -- Groessenordnung der Eingaben fuer die Toleranzen
+    local skala = 1
+    for _, sch in ipairs(schnitte) do
+        skala = math.max(skala, math.abs(sch.s_in and sch.s or 0), math.abs(sch.t_in and sch.t or 0))
+    end
+
+    local kandidaten = {}
+    if #P == 0 then
+        if lg.x then kandidaten = { lg.x } end
+    else
+        -- verbleibende quadratische Gleichung des ersten Kreispunkts
+        local p = P[1]
+        local function g(x) return (p.s - x[1]) ^ 2 + p.t ^ 2 - x[2] ^ 2 - x[3] ^ 2 end
+        if lg.x then
+            rang = 3
+            if math.abs(g(lg.x)) > 1e-7 * skala ^ 2 then widerspruch = true end
+            kandidaten = { lg.x }
+        elseif lg.d then
+            -- g(x0 + t d) = qa t^2 + qb t + qc
+            local x0, d = lg.x0, lg.d
+            local e = p.s - x0[1]
+            local qa = d[1] ^ 2 - d[2] ^ 2 - d[3] ^ 2
+            local qb = -2 * e * d[1] - 2 * x0[2] * d[2] - 2 * x0[3] * d[3]
+            local qc = e ^ 2 + p.t ^ 2 - x0[2] ^ 2 - x0[3] ^ 2
+            local function punkt(t) return { x0[1] + t * d[1], x0[2] + t * d[2], x0[3] + t * d[3] } end
+            if math.abs(qa) <= 1e-9 then
+                -- quadratischer Anteil faellt weg (z. B. Hauptrichtung und ein σ bekannt): eine Loesung
+                if math.abs(qb) > 1e-9 * skala then
+                    rang = 3
+                    kandidaten = { punkt(-qc / qb) }
+                elseif math.abs(qc) > 1e-7 * skala ^ 2 then
+                    rang, widerspruch = 3, true
+                end
+            else
+                rang = 3
+                local disk = qb * qb - 4 * qa * qc
+                local tol = 1e-9 * (qb * qb + math.abs(4 * qa * qc)) + 1e-12 * skala ^ 2
+                if disk < -tol then
+                    widerspruch = true
+                elseif disk <= tol then
+                    kandidaten = { punkt(-qb / (2 * qa)) }
+                else
+                    local w = math.sqrt(disk)
+                    kandidaten = { punkt((-qb + w) / (2 * qa)), punkt((-qb - w) / (2 * qa)) }
+                end
+            end
+        else
+            rang = math.min(2, lg.rang + 1)     -- der Kreispunkt zaehlt als eine Angabe
+        end
+    end
+
+    -- Schnitte ohne Winkel mit nur σ oder nur τ geben Ungleichungen: der Wert muss auf den Kreis
+    -- passen. Damit laesst sich einer von zwei moeglichen Zustaenden ausschliessen.
+    if #kandidaten == 2 then
+        local passend = {}
+        for _, x in ipairs(kandidaten) do
+            local R = math.sqrt(x[2] ^ 2 + x[3] ^ 2)
+            local ok = true
+            for _, sch in ipairs(schnitte) do
+                if not (sch.a_in and sch.a) then
+                    local tol = 1e-9 * skala
+                    if sch.s_in and sch.s and not sch.t_in and math.abs(sch.s - x[1]) > R + tol then ok = false end
+                    if sch.t_in and sch.t and not sch.s_in and math.abs(sch.t) > R + tol then ok = false end
+                end
+            end
+            if ok then passend[#passend + 1] = x end
+        end
+        if #passend == 0 then widerspruch = true end
+        kandidaten = passend
+        -- praktisch gleiche Loesungen zusammenfassen
+        if #kandidaten == 2 then
+            local a, c = kandidaten[1], kandidaten[2]
+            if math.abs(a[1] - c[1]) + math.abs(a[2] - c[2]) + math.abs(a[3] - c[3]) <= 1e-9 * skala then
+                kandidaten = { a }
+            end
+        end
+    end
+    if #kandidaten == 2 then
+        mehrdeutig = { baueLoesung(kandidaten[1]), baueLoesung(kandidaten[2]) }
+        return false
+    end
+    if #kandidaten == 0 then return false end
+
+    local L = baueLoesung(kandidaten[1])
     loesung = L
     for _, sch in ipairs(schnitte) do
         if sch.a_in and sch.a then
@@ -209,7 +344,7 @@ local function allesLoeschen()
     schnitte = { neuerSchnitt() }
     modus, spalte, zeile, editiere, text = "tabelle", 1, 1, false, ""
     loesung, rang, widerspruch, scroll, meldung = nil, 0, false, 0, nil
-    loeschFrage, kreisWinkel = false, nil
+    loeschFrage, kreisWinkel, mehrdeutig = false, nil, nil
 end
 
 -- ===================== Zeichenhilfen =====================
@@ -364,6 +499,13 @@ local function zeichneTabelle(gc)
             "Eingaben widersprechen sich — [s]/[k] gesperrt",
             "Eingaben widersprechen sich",
         }, W - 8), 4, y)
+    elseif mehrdeutig then
+        gc:setColorRGB(180, 100, 0)
+        gc:drawString(passend(gc, {
+            "zwei Zustände möglich — noch 1 Angabe zum Unterscheiden",
+            "zwei Zustände möglich — 1 Angabe mehr nötig",
+            "zwei Zustände möglich",
+        }, W - 8), 4, y)
     elseif loesung then
         setFarbe(gc, FARBE_BER)
         gc:drawString(passend(gc, {
@@ -414,6 +556,26 @@ local function zeichneTabelle(gc)
             local s = passend(gc, z, W - 12)
             passendeSchrift(gc, s, W - 12, "r", 10)
             gc:drawString(s, 6, y + 2 + i * dy)
+        end
+    end
+    if mehrdeutig and not loesung then
+        gc:setColorRGB(0, 0, 0); gc:setFont("sansserif", "b", 10)
+        gc:drawString("Zwei mögliche Zustände  ([s]/[k] gesperrt)", 4, y)
+        local zeilen = {}
+        for i, M in ipairs(mehrdeutig) do
+            zeilen[#zeilen + 1] = {
+                i .. ":  σ₁ = " .. fmt(M.sig1) .. "   σ₂ = " .. fmt(M.sig2) .. "   α₁ = " .. fmt(M.a1, 1) .. "°",
+                i .. ": σ₁=" .. fmt(M.sig1) .. " σ₂=" .. fmt(M.sig2) .. " α₁=" .. fmt(M.a1, 1) .. "°" }
+            zeilen[#zeilen + 1] = {
+                "    σx = " .. fmt(M.sx) .. "   σy = " .. fmt(M.sy) .. "   τxy = " .. fmt(M.txy),
+                "   σx=" .. fmt(M.sx) .. " σy=" .. fmt(M.sy) .. " τxy=" .. fmt(M.txy) }
+        end
+        local dy = math.max(13, math.min(18, (unten - (y + th)) / #zeilen))
+        for i, z in ipairs(zeilen) do
+            gc:setFont("sansserif", "r", 10)
+            local t = passend(gc, z, W - 12)
+            passendeSchrift(gc, t, W - 12, "r", 10)
+            gc:drawString(t, 6, y + 2 + i * dy)
         end
     end
     if hinweis then

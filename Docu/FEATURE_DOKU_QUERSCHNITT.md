@@ -92,10 +92,16 @@ Diese Datei dokumentiert alle funktionalen Features des Programms, ihre Möglich
 - Grafische Visualisierung der Spannungsverteilung als farbige Verlaufsschicht (Isolinien) direkt über dem Querschnitt.
 - Darstellung der Nullspannungsgerade.
 - Ausgabe einer Ergebnistabelle mit Minimal- und Maximalspannungen.
-- Manuelle Eingabe von $N$, $M_y$ und optional $M_z$ über eine mehrstufige Eingabemaske.
+- Manuelle Eingabe von $N$, $M_y$, optional $M_z$ und – bei eingezeichneten Querkräften – $\Delta x$ über eine mehrstufige Eingabemaske.
 - Direkte Berechnung ausschließlich aus den platzierten Kräften über die Option "σx aus Kräften".
 - Berücksichtigung des Deviationsmoments $I_{yz}$ bei schiefer Biegung.
 - Anzeige der verwendeten manuellen und aus Kräften resultierenden Schnittgrößen getrennt in der Ergebnistabelle.
+- **Erweiterte Ergebnistabelle** (mit den Pfeiltasten hoch/runter scrollbar, begrenzt auf den Inhalt; die $\sigma_x$-Verteilung steht darunter und wandert mit):
+  - Hauptachsensystem: Winkel $\varphi^*$ (von $y$ nach $\eta$), $I_\eta = I_1$, $I_\zeta = I_2$ und die **Momente um die Hauptachsen** $M_\eta = M_y\cos\varphi + M_z\sin\varphi$, $M_\zeta = -M_y\sin\varphi + M_z\cos\varphi$ (Formelsammlung 1.3).
+  - **Biegenormalspannung in MPa** als lineare Gleichung im angezeigten KOS, $\sigma_x = c_0 + c_y\,y + c_z\,z$ ($y, z$ vom KOS-Ursprung in der aktuellen Längeneinheit; liegt der Ursprung nicht im Schwerpunkt, steht $y_S, z_S$ darunter), und im HAS, $\sigma_x = N/A + c_\eta\,\eta + c_\zeta\,\zeta$ mit dem Hinweis auf die Form $N/A + (M_\eta/I_\eta)\zeta - (M_\zeta/I_\zeta)\eta$.
+  - **Neutrale Faser** ($\sigma_x = 0$) in beiden Systemen als $z = m\,y + n$ bzw. $\zeta = m\,\eta + n$ (bei senkrechter Faser $y = n$ bzw. $\eta = n$; ohne Biegung „keine“).
+  - Grundlage ist dieselbe Spannungsebene, die auch Nulllinie und Extremwerte liefert; die HAS-Form entsteht durch Drehung des Gradienten. Test 37 prüft in allen vier KOS-Drehungen, dass die Koeffizienten mit $M_\eta/I_\eta$ und $-M_\zeta/I_\zeta$ übereinstimmen und die Gleichungen an den Extrempunkten $\sigma_{max}$ bzw. $\sigma_{min}$ liefern.
+- **Versatz entlang der Stabachse ($\Delta x$ im $yz$-KOS):** Haben eingezeichnete Kräfte eine Komponente in der Querschnittsebene (Querkräfte), fragt die Eingabemaske zusätzlich den Abstand $\Delta x$ zwischen dem betrachteten Schnitt und der Kraftebene ab (bei „σx aus Kräften“ nur diesen). Die Querkräfte erzeugen dann $M_y = -\Delta x\,F_z$ und $M_z = \Delta x\,F_y$, überlagert mit den eingegebenen Momenten und den Momenten der exzentrischen Normalkräfte. Das Ergebnis hängt nur vom **Abstand** ab, nicht davon, auf welcher Seite des Schnitts die Kräfte angreifen: für den positiven Teil gilt $\vec M = \vec r \times \vec F$ mit $r_x = +a$, für den negativen $\vec M = -\vec r \times \vec F$ mit $r_x = -a$ – der Querkraftanteil ist in beiden Fällen $M_y = -a F_z$, $M_z = a F_y$. Deshalb rechnet das Programm mit $|\Delta x|$; ein vorzeichenbehaftetes $x$ eingesetzt wäre auf einer Seite falsch. Die Ergebnistabelle zeigt $\Delta x$ und die Momente aus Querkräften in eigenen Zeilen. Die Maske passt mit vier Feldern und Hinweiszeile auf den Bildschirm.
 
 **Grenzen:**
 - Berechnungen basieren auf den integralen Querschnittswerten der Gesamtform, spezielle lokale Effekte (z.B. Spannungssingularitäten an scharfen Innenecken) werden nach der elementaren Balkentheorie vernachlässigt.
@@ -163,10 +169,12 @@ Diese Datei dokumentiert alle funktionalen Features des Programms, ihre Möglich
 ## 8. Interaktives Koordinatensystem (KOS)
 **Möglichkeiten:**
 - Das Raster (Fangradius für Klicks) ist numerisch frei definierbar.
+- **Fangpunkte:** Die Punkte, die Flächen und Elemente definieren, wirken wie zusätzliche Rasterpunkte – Eckpunkte von Rechteck, Dreieck und Polygon (beim Rechteck auch die beiden abgeleiteten Ecken), Mittel- und Randpunkte von Kreisen, Sektoren und Bögen, Endpunkte dünnwandiger Linien und dicker Linien sowie die schon geklickten Punkte des Elements, das gerade entsteht. Ein Klick landet auf dem nächsten Kandidaten, gleich ob Raster- oder Fangpunkt. So lassen sich auch Punkte treffen, die nach exakter Koordinateneingabe oder einer KOS-Verschiebung nicht mehr auf dem Raster liegen.
 - Das KOS kann durchgeschaltet werden (Projektionen xy, yz, xz) und in 90°-Schritten rotiert werden.
 - Alle Achsenbeschriftungen (z.B. in Tabellen, Menüs oder Kraft-Labels) passen sich dynamisch der aktuellen KOS-Wahl an.
 - Die visuelle Größe des KOS-Kreuzes auf dem Bildschirm ist einstellbar.
 - Das KOS kann zum Schwerpunkt verschoben werden; alle gemeinsamen Geometrie- und Kraftpunkte werden dabei nur einmal verschoben.
+- Das KOS kann außerdem um einen eingegebenen Betrag **entlang der angezeigten Achsen** verschoben werden (Optionen Seite 2, Punkte 2 und 3, Eingabe in der aktuellen Längeneinheit). Positive Werte verschieben den Ursprung in positive Achsrichtung; die Koordinaten aller Punkte und Kräfte ändern sich um den negativen Betrag. Die Ansicht wird dabei mitgeführt: der Querschnitt bleibt auf dem Bildschirm stehen, sichtbar wandert das KOS (mit ihm das Raster). Die KOS-Drehung wird berücksichtigt.
 - Die Drehung betrifft die Anzeigeorientierung in 90°-Schritten und wird bei Koordinaten, Beschriftungen, Kraftkomponenten und Momenten konsistent berücksichtigt.
 - Das Raster dient sowohl zum Fangen von Eingabepunkten als auch als Einflussgröße für bestimmte numerische Integrationen.
 
@@ -208,7 +216,7 @@ Diese Datei dokumentiert alle funktionalen Features des Programms, ihre Möglich
 - `t`: Einzelwertetabelle öffnen.
 - `v`: Schubverlaufs-Auswahl öffnen; Ziffern `0` bis `9` wählen die Darstellung.
 - `k`: Kernflächenmodus weiterschalten.
-- `o`: Optionen öffnen. Seite 2 (`Weitere Optionen`) enthält `KOS in Schwerpunkt verschieben` und `FTM-Bezug`: dieser Schalter legt fest, ob die angezeigten Flächenträgheitsmomente auf den **Schwerpunkt** (Standard) oder auf den **Ursprung des gezeichneten KOS** bezogen sind. Er wirkt auf die Ergebnisliste (`I_y,S` bzw. `I_y (KOS)`) und auf die Einzelwerte-Tabelle (Steiner-Anteile und Gesamtwerte, Überschrift nennt den Bezug).
+- `o`: Optionen öffnen. Seite 2 (`Weitere Optionen`, mit Pfeil links/rechts) enthält `KOS in Schwerpunkt verschieben`, `KOS entlang y verschieben`, `KOS entlang z verschieben` und `FTM-Bezug`: dieser Schalter legt fest, ob die angezeigten Flächenträgheitsmomente auf den **Schwerpunkt** (Standard) oder auf den **Ursprung des gezeichneten KOS** bezogen sind. Er wirkt auf die Ergebnisliste (`I_y,S` bzw. `I_y (KOS)`) und auf die Einzelwerte-Tabelle (Steiner-Anteile und Gesamtwerte, Überschrift nennt den Bezug).
 - `h`: Geometrie automatisch einpassen.
 - `+`/`-`: Zoom ändern.
 - `Esc`: Aktuelle Eingabe oder Ansicht abbrechen. Ist eine Meldungsbox offen, schließt das erste `Esc` nur die Box.

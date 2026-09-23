@@ -89,19 +89,32 @@ _G.__Q = {
   paint = function(gc) showResults = false; on.paint(gc) end,
   toScreen = function(u, v) return toScreen(u, v) end,
   -- Verwoelbung
-  verwoelbung = function(M_, G_) return berechneVerwoelbung(M_, G_) end,
+  verwoelbung = function(M_, G_) return woelb.berechne(M_, G_) end,
   woelb = function() return woelb end,
   woelbEingabe = function(M_, G_)
-    openWoelbInput()
+    woelb.oeffnen()
     if woelb.step == 0 then return nil end
-    inputText = tostring(M_); enterWoelbInput()
-    inputText = tostring(G_); enterWoelbInput()
+    inputText = tostring(M_); woelb.eingabe()
+    inputText = tostring(G_); woelb.eingabe()
     return woelb.results
   end,
   torsionResults = function() return torsion_results end,
   immerVertraeglich = function(f) schub_immer_vertraeglich = f and true or false end,
   inputText = function() return inputText end,
   fmt = function(v) return formatLabel(v) end,
+  fange = function(u, v) return fange(u, v) end,
+  pending = function() return pending end,
+  modus = function() return mode end,
+  ursprung = function() return ox, oy, scale end,
+  sigmaFelder = function() return sigmaEingabe.felder end,
+  sigmaStep = function() return sigma_input_step end,
+  sigmaErgebnis = function() return sigma_results end,
+  sigmaKennwerte = function() return sigmaEingabe.kennwerte(sigma_results) end,
+  sigmaZusatz = function() return sigmaEingabe.zusatzzeilen(sigma_results) end,
+  sigmaTabelleZeigen = function(an) showTable = an and true or false end,
+  sigmaScroll = function() return sigma_scroll_y end,
+  tippe = function(text) for i = 1, #text do on.charIn(text:sub(i, i)) end; on.enterKey() end,
+  sigmaTabelle = function(gc) drawSigmaResultsTable(gc, 318, 2000) end,
 }
 ]]
 assert(loadstring(code .. export, '=' .. pfad))()

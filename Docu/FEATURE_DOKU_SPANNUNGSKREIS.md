@@ -104,6 +104,35 @@ Rang 3. Parallele Schnitte oder wiederholte Angaben erhöhen den Rang nicht.
 Sind mehr Angaben vorhanden als nötig, werden die überzähligen Zeilen geprüft: passen sie nicht,
 erscheint **Eingaben widersprechen sich** und die Ansichten bleiben gesperrt.
 
+### Schnitte ohne Winkel
+
+Ein Schnitt **ohne Winkel, aber mit $\sigma$ und $\tau$** ist ein Punkt, der auf dem Kreis liegen
+muss:
+
+$$(\sigma - \sigma_m)^2 + \tau^2 = R_c^2 + R_s^2 .$$
+
+Das ist **eine** Angabe (der Winkel ist die zweite Unbekannte) und sie ist quadratisch. Die
+Differenz zweier solcher Gleichungen ist linear in $\sigma_m$ (die Quadrate heben sich weg) und
+kommt ins lineare System; übrig bleibt höchstens eine quadratische Gleichung:
+
+- **Rang 3** aus den linearen Angaben: der Punkt wird nur geprüft (Widerspruch, wenn er nicht auf
+  dem Kreis liegt – das war vorher unbemerkt geblieben).
+- **Rang 2:** Die Lösungen liegen auf einer Geraden $x_0 + t\,d$; die Kreisgleichung wird zu
+  $a t^2 + b t + c = 0$ mit $a = d_{\sigma_m}^2 - d_{R_c}^2 - d_{R_s}^2$. Fällt $a$ weg, gibt es
+  genau eine Lösung – so bei *Klausur Aufgabe 5* (Hauptrichtung $x$ als $\alpha = 0$, $\tau = 0$;
+  $\sigma_y = 10$; Schnitt $(35, 20)$ ohne Winkel $\Rightarrow \sigma_I = 51$, $\sigma_{II} = 10$,
+  $\varphi_{x-\xi} = -38{,}66^\circ$). Sonst gibt es **zwei** Zustände (Diskriminante $> 0$), einen
+  (Diskriminante $= 0$) oder einen Widerspruch (Diskriminante $< 0$).
+- **Rang $\le 1$:** Der Punkt zählt als eine Angabe; zwei Punkte legen Mittelpunkt und Radius fest,
+  aber nie die Richtung – dafür braucht es eine Angabe mit Winkel.
+
+**Zwei mögliche Zustände** (z. B. $\sigma_x$, $\sigma_y$ und ein Punkt ohne Winkel: das Vorzeichen
+von $\tau_{xy}$ bleibt offen) gelten als *nicht eindeutig*: `s` und `k` bleiben gesperrt, die
+Statuszeile sagt „zwei Zustände möglich“, und der Ergebnisblock zeigt beide mit $\sigma_1$,
+$\sigma_2$, $\alpha_1$, $\sigma_x$, $\sigma_y$, $\tau_{xy}$. Eine weitere Angabe entscheidet. Schnitte
+ohne Winkel mit **nur** $\sigma$ oder **nur** $\tau$ sind keine Gleichung, aber eine Bedingung
+($|\sigma - \sigma_m| \le R$ bzw. $|\tau| \le R$): passt ein Zustand nicht dazu, fällt er weg.
+
 ## 5. Unbekannte Winkel
 
 Steht der Zustand fest, folgt ein fehlender Winkel geschlossen aus
@@ -121,9 +150,12 @@ unter der Tabelle. Ein CAS wird an keiner Stelle gebraucht.
 
 ## 6. Grenzen
 
-- Schnitte **ohne** Winkel tragen nichts zur Bestimmung bei; sie werden erst ausgewertet, wenn
-  der Zustand aus anderen Angaben feststeht. Sind nur die Winkel *zwischen* Schnitten bekannt:
+- Schnitte ohne Winkel bestimmen nie die **Richtung** des Zustands (nur Mittelpunkt und Radius);
+  mindestens eine Angabe mit Winkel ist nötig. Sind nur die Winkel *zwischen* Schnitten bekannt:
   den ersten Schnitt auf $0^\circ$ setzen, die anderen relativ dazu.
+- Eine Hauptrichtung gibt man als Schnitt mit diesem Winkel und $\tau = 0$ ein. Welche der beiden
+  Hauptspannungen dort wirkt, folgt aus der Rechnung – die Angabe „das ist $\sigma_I$“ lässt sich
+  nicht eintragen.
 - Ebener Spannungszustand, keine räumlichen Zustände, kein Verformungskreis.
 - Einen ganzen Schnitt löscht man, indem man seine drei Zellen leert (`Backspace`); `Del` beginnt
   komplett neu.

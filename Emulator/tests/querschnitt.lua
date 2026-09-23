@@ -533,13 +533,13 @@ fall('20 FTM-Bezug im Menue', function()
     Q.ftmBezug('schwerpunkt')
     Q.menu(9, 1)
     local eintraege = Q.menuTexte()
-    T.wahr('Menueeintrag zeigt den aktuellen Bezug', (eintraege[2] or ''):find('Schwerpunkt', 1, true) ~= nil, eintraege[2])
-    T.wahr('Rueckweg ist Zeile 3', (eintraege[3] or ''):find('Zurueck', 1, true) ~= nil, eintraege[3])
-    -- Zeile 2 waehlen und mit Enter umschalten
-    Q.menu(9, 2)
+    T.wahr('Menueeintrag zeigt den aktuellen Bezug', (eintraege[4] or ''):find('Schwerpunkt', 1, true) ~= nil, eintraege[4])
+    T.wahr('Rueckweg ist Zeile 5', (eintraege[5] or ''):find('Zurueck', 1, true) ~= nil, eintraege[5])
+    -- Zeile 4 waehlen und mit Enter umschalten
+    Q.menu(9, 4)
     on.enterKey()
     T.wahr('Bezug jetzt KOS-Ursprung', Q.ftmBezug() == 'kos', Q.ftmBezug())
-    T.wahr('Menuetext folgt', (Q.menuTexte()[2] or ''):find('KOS-Ursprung', 1, true) ~= nil, Q.menuTexte()[2])
+    T.wahr('Menuetext folgt', (Q.menuTexte()[4] or ''):find('KOS-Ursprung', 1, true) ~= nil, Q.menuTexte()[4])
     -- Tabelle: Steiner-Anteil bezieht sich jetzt auf den KOS-Ursprung
     T.texte, T.pos = {}, {}
     Q.tabelle(T.gc)
@@ -551,7 +551,7 @@ fall('20 FTM-Bezug im Menue', function()
     T.wahr('Tabellenkopf nennt den Bezug KOS', hat_kos, table.concat(T.texte, ' | '):sub(1, 120))
     T.wahr('Steiner-Anteil z^2*A = 2400*30^2', hat_wert)
     -- zurueckschalten: Steiner zum Schwerpunkt ist 0
-    Q.menu(9, 2); on.enterKey()
+    Q.menu(9, 4); on.enterKey()
     T.wahr('wieder Schwerpunkt', Q.ftmBezug() == 'schwerpunkt', Q.ftmBezug())
     T.texte, T.pos = {}, {}
     Q.tabelle(T.gc)
@@ -1075,6 +1075,295 @@ fall('33 Verwoelbung: Menue, Dialog, Esc', function()
     m = Q.meldung()
     wahr('massiv: Fehlermeldung', m ~= nil and m.fehler == true and tostring(m.text):find('duennwandige', 1, true) ~= nil,
         m and m.text)
+end)
+
+fall('34 Fangpunkte', function()
+    T.abschnitt('Punkte der Elemente wirken wie zusaetzliche Rasterpunkte (Raster 1)')
+    -- Rechteck mit Ecken abseits des Rasters
+    T.massiv({ type = 'rect', points = { P(0.3, 0.2), P(2.7, 1.6) } })
+    T.duenn(P(4.4, 0.3), P(4.4, 3.6), 1)
+    T.rechne()
+    local function gleich(u, v, su, sv) return math.abs(u - su) < 1e-12 and math.abs(v - sv) < 1e-12 end
+    local u, v = Q.fange(0.35, 0.25)
+    wahr('Klick nahe (0.3, 0.2) landet auf der Rechteckecke', gleich(u, v, 0.3, 0.2), u .. ', ' .. v)
+    u, v = Q.fange(2.65, 0.25)
+    wahr('auch die abgeleitete Ecke (2.7, 0.2) faengt', gleich(u, v, 2.7, 0.2), u .. ', ' .. v)
+    u, v = Q.fange(0.3, 1.5)
+    wahr('und die Ecke (0.3, 1.6)', gleich(u, v, 0.3, 1.6), u .. ', ' .. v)
+    u, v = Q.fange(4.35, 3.5)
+    wahr('Endpunkt eines duennwandigen Elements (4.4, 3.6)', gleich(u, v, 4.4, 3.6), u .. ', ' .. v)
+    u, v = Q.fange(1.05, 0.95)
+    wahr('naeher am Rasterpunkt: Raster gewinnt (1, 1)', gleich(u, v, 1, 1), u .. ', ' .. v)
+    -- wie auf dem Rechner: Linienzug waehlen und klicken
+    Q.menu(2, 1); on.charIn('1')
+    wahr('Linienzug-Modus aktiv', Q.modus() == 'duenn_linie', Q.modus())
+    local x, y = Q.toScreen(2.62, 1.55)
+    on.mouseUp(x, y)
+    local pd = Q.pending()
+    wahr('erster Klick liegt exakt auf (2.7, 1.6)', pd[1] and gleich(pd[1].u, pd[1].v, 2.7, 1.6),
+        pd[1] and (pd[1].u .. ', ' .. pd[1].v))
+    x, y = Q.toScreen(6.1, 1.9)
+    on.mouseUp(x, y)
+    wahr('zweiter Klick auf dem Raster (6, 2)', pd[2] and gleich(pd[2].u, pd[2].v, 6, 2),
+        pd[2] and (pd[2].u .. ', ' .. pd[2].v))
+    x, y = Q.toScreen(2.75, 1.5)
+    on.mouseUp(x, y)
+    wahr('schon geklickte Punkte fangen ebenfalls', pd[3] and gleich(pd[3].u, pd[3].v, 2.7, 1.6),
+        pd[3] and (pd[3].u .. ', ' .. pd[3].v))
+    on.escapeKey()
+end)
+
+fall('35 KOS entlang der Achsen verschieben', function()
+    T.abschnitt('Obermenue Seite 2: KOS entlang y bzw. z verschieben, Querschnitt bleibt stehen')
+    -- angezeigtes KOS bei rotation 180: y links, z unten; Rechteck 40 x 60 mit Ecke im Ursprung
+    T.massiv({ type = 'rect', points = { P(0, 0), P(-40, -60) } })
+    local r = T.rechne()
+    Q.menu(9, 1)
+    local e = Q.menuTexte()
+    wahr('Zeile 2: KOS entlang y', (e[2] or ''):find('entlang y', 1, true) ~= nil, e[2])
+    wahr('Zeile 3: KOS entlang z', (e[3] or ''):find('entlang z', 1, true) ~= nil, e[3])
+    local pkt = Q.M()[1].points[2]
+    local y0, z0 = Q.cfd(pkt.u, pkt.v)
+    local sx0, sy0 = Q.toScreen(pkt.u, pkt.v)
+    local ox0, oy0, sk = Q.ursprung()
+    local ys0, zs0 = Q.cfd(r.ys, r.zs)
+    -- um +5 entlang y
+    Q.menu(9, 2); on.enterKey()
+    on.charIn('5'); on.enterKey()
+    local y1, z1 = Q.cfd(pkt.u, pkt.v)
+    zahl('Punkt: y um 5 kleiner', y1, y0 - 5, 1e-12)
+    zahl('Punkt: z unveraendert', z1, z0, 1e-12)
+    local sx1, sy1 = Q.toScreen(pkt.u, pkt.v)
+    zahl('Querschnitt bleibt auf dem Bildschirm stehen (x)', sx1, sx0, 1e-9)
+    zahl('Querschnitt bleibt auf dem Bildschirm stehen (y)', sy1, sy0, 1e-9)
+    local ox1, oy1 = Q.ursprung()
+    zahl('KOS-Ursprung wandert 5 Einheiten nach links (y zeigt nach links)', ox1, ox0 - 5 * sk, 1e-9)
+    local r1 = Q.R()
+    local ys1, zs1 = Q.cfd(r1.ys, r1.zs)
+    zahl('Schwerpunkt: y_s um 5 kleiner', ys1, ys0 - 5, 1e-12)
+    zahl('Schwerpunkt: z_s unveraendert', zs1, zs0, 1e-12)
+    -- um -2 entlang z
+    Q.menu(9, 3); on.enterKey()
+    on.charIn('-'); on.charIn('2'); on.enterKey()
+    local y2, z2 = Q.cfd(pkt.u, pkt.v)
+    zahl('Punkt: z um 2 groesser', z2, z0 + 2, 1e-12)
+    zahl('Punkt: y bleibt', y2, y0 - 5, 1e-12)
+    local _, oy2 = Q.ursprung()
+    zahl('KOS-Ursprung wandert 2 Einheiten nach oben (z zeigt nach unten)', oy2, oy0 - 2 * sk, 1e-9)
+    -- Laengeneinheit: Eingabe in cm
+    Q.menu(4, 8); on.enterKey()          -- Laengeneinheit mm -> m
+    Q.menu(4, 8); on.enterKey()          -- m -> dm
+    Q.menu(4, 8); on.enterKey()          -- dm -> cm
+    Q.menu(9, 2); on.enterKey()
+    on.charIn('1'); on.enterKey()
+    local y3 = Q.cfd(pkt.u, pkt.v)
+    zahl('Eingabe 1 cm verschiebt um 10 mm', y3, y0 - 5 - 10, 1e-12)
+    Q.menu(4, 8); on.enterKey()          -- cm -> mm
+    -- ohne Querschnitt: Hinweis
+    T.reset()
+    Q.meldungWeg()
+    Q.menu(9, 2); on.enterKey(); on.charIn('5'); on.enterKey()
+    local m = Q.meldung()
+    wahr('leerer Querschnitt: Hinweis', m ~= nil and tostring(m.text):find('Kein Querschnitt', 1, true) ~= nil,
+        m and m.text)
+end)
+
+fall('36 sigma mit Versatz der Querkraefte', function()
+    T.abschnitt('Querkraefte im Abstand Δx: My = -Δx Fz, Mz = Δx Fy, ueberlagert mit den Eingaben')
+    -- Rechteck 40 (y) x 60 (z), Schwerpunkt im Ursprung; rotation 180: y nach links, z nach unten
+    T.massiv({ type = 'rect', points = { P(-20, -30), P(20, 30) } })
+    local Iy, Iz = 40 * 60 ^ 3 / 12, 60 * 40 ^ 3 / 12
+    -- Kraft F_z = +1000 N (nach unten) im Schwerpunkt: intern fb = -1000
+    Q.kraft({ u = 0, v = 0, fa = 0, fb = -1000, fc = 0 })
+    T.rechne()
+    local function schief(N, My, Mz, dx)
+        Q.menu(7, 3); on.enterKey()        -- mit Kraeften: 3 = Schiefe Spannung (N, My, Mz)
+        for _, w in ipairs({ N, My, Mz, dx }) do Q.tippe(w) end
+        return Q.sigmaErgebnis()
+    end
+    Q.menu(7, 3); on.enterKey()
+    local f = Q.sigmaFelder()
+    wahr('Querkraft vorhanden: Feld Δx wird gefragt', #f == 4 and f[4] == 'x', table.concat(f, ','))
+    -- Maske passt auf den Bildschirm, nichts ueberlappt
+    T.texte, T.pos = {}, {}
+    Q.paint(T.gc)
+    local tief, breit, dx_text = 0, 0, false
+    local ys = {}
+    for _, e in ipairs(T.pos) do
+        tief = math.max(tief, e.y + 12); breit = math.max(breit, e.x + #e.t * 6)
+        if e.t:find('Δx', 1, true) then dx_text = true end
+        if e.x < 60 and e.t:find('[', 1, true) then ys[#ys + 1] = e.y end
+    end
+    wahr('Maske endet oberhalb des Bildschirmrands', tief <= 212, tief)
+    wahr('Maske ragt nicht rechts hinaus', breit <= 318, breit)
+    wahr('Feld Δx ist beschriftet', dx_text)
+    table.sort(ys)
+    local min_abstand = 99
+    for i = 2, #ys do min_abstand = math.min(min_abstand, ys[i] - ys[i - 1]) end
+    wahr('vier Feldbeschriftungen ohne Ueberlappung', #ys == 4 and min_abstand >= 20, #ys .. ' / ' .. min_abstand)
+    on.escapeKey(); on.escapeKey()
+
+    -- nur Querkraft, Δx = 100 mm: My = -100 * 1000 = -1e5 Nmm, Zug oben (z = -30)
+    local r1 = schief('0', '0', '0', '100')
+    wahr('berechnet', r1 ~= nil)
+    if r1 then
+        zahl('sigma_max = 1e5 * 30 / I_y', r1.sigma_max, 1e5 * 30 / Iy, 1e-9)
+        local _, z = Q.cfd(r1.max_y, r1.max_z)
+        zahl('  am oberen Rand z = -30 (Zug oben wie beim Kragarm)', z, -30, 1e-9)
+        local My = Q.cfd(r1.quer_Ma_Nmm, r1.quer_Mb_Nmm)
+        zahl('  My aus Querkraft = -Δx * Fz = -1e5 Nmm', My, -1e5, 1e-9)
+    end
+    -- negativer Abstand: gleiches Ergebnis (nur der Betrag zaehlt)
+    local r2 = schief('0', '0', '0', '-100')
+    if r1 and r2 then zahl('Δx = -100 liefert dasselbe sigma_max', r2.sigma_max, r1.sigma_max, 1e-12) end
+    -- Ueberlagerung mit eingegebenem My = -50 Nm: My gesamt = -1.5e5 Nmm
+    local r3 = schief('0', '-50', '0', '100')
+    if r3 then zahl('ueberlagert: sigma_max = 1.5e5 * 30 / I_y', r3.sigma_max, 1.5e5 * 30 / Iy, 1e-9) end
+    -- My = +100 Nm hebt den Querkraftanteil genau auf
+    local r0 = schief('0', '100', '0', '100')
+    if r0 then zahl('My = +1e5 - 1e5 = 0: sigma = 0', r0.sigma_max, 0, 1e-9) end
+    -- My = +200 Nm hebt ihn mehr als auf: Zug jetzt unten
+    local r4 = schief('0', '200', '0', '100')
+    if r4 then
+        zahl('My = +2e5 - 1e5: sigma_max = 1e5 * 30 / I_y', r4.sigma_max, 1e5 * 30 / Iy, 1e-9)
+        local _, z = Q.cfd(r4.max_y, r4.max_z)
+        zahl('  Zug unten z = +30', z, 30, 1e-9)
+    end
+
+    -- zweite Kraft F_y = +500 N (nach links, intern fa = -500): Mz = Δx * Fy = 5e4 Nmm
+    Q.kraft({ u = 0, v = 0, fa = -500, fb = 0, fc = 0 })
+    T.rechne()
+    local r5 = schief('0', '0', '0', '100')
+    if r5 then
+        local _, Mz = Q.cfd(r5.quer_Ma_Nmm, r5.quer_Mb_Nmm)
+        zahl('Mz aus Querkraft = Δx * Fy = 5e4 Nmm', Mz, 5e4, 1e-9)
+        zahl('sigma_max = 1e5*30/I_y + 5e4*20/I_z', r5.sigma_max, 1e5 * 30 / Iy + 5e4 * 20 / Iz, 1e-9)
+        local y, z = Q.cfd(r5.max_y, r5.max_z)
+        wahr('  an der Ecke y = -20, z = -30', math.abs(y + 20) < 1e-9 and math.abs(z + 30) < 1e-9, y .. ', ' .. z)
+        -- Tabelle zeigt die Querkraftzeilen
+        T.texte, T.pos = {}, {}
+        Q.sigmaTabelle(T.gc)
+        local hat = false
+        for _, t in ipairs(T.texte) do if t:find('aus Querkraeften', 1, true) then hat = true end end
+        wahr('Ergebnistabelle zeigt My/Mz aus Querkraeften', hat)
+    end
+
+    -- sigma aus Kraeften: fragt nur Δx
+    Q.menu(7, 1); on.enterKey()
+    f = Q.sigmaFelder()
+    wahr('sigma aus Kraeften: nur Δx gefragt', #f == 1 and f[1] == 'x' and Q.sigmaStep() == 1, table.concat(f, ','))
+    Q.tippe('100')
+    local r6 = Q.sigmaErgebnis()
+    if r5 and r6 then zahl('sigma aus Kraeften = Ergebnis mit Δx', r6.sigma_max, r5.sigma_max, 1e-12) end
+
+    -- ohne Querkraefte: kein Δx-Feld
+    T.reset()
+    T.massiv({ type = 'rect', points = { P(-20, -30), P(20, 30) } })
+    Q.kraft({ u = 10, v = 0, fa = 0, fb = 0, fc = 1000 })
+    T.rechne()
+    Q.menu(7, 3); on.enterKey()
+    f = Q.sigmaFelder()
+    wahr('nur Normalkraft: kein Δx-Feld', #f == 3, table.concat(f, ','))
+    on.escapeKey(); on.escapeKey()
+end)
+
+fall('37 sigma-Tabelle: HAS und Gleichungen', function()
+    T.abschnitt('Momente um die Hauptachsen, sigma und neutrale Faser im KOS und im HAS')
+    -- Rechteck 40 (y) x 60 (z) im Schwerpunkt, rotation 180: HAS = KOS
+    T.massiv({ type = 'rect', points = { P(-20, -30), P(20, 30) } })
+    T.rechne()
+    Q.sigma(1000, 1e4, 0)                      -- N = 1000 N, My = 10 Nm
+    local zeilen = Q.sigmaZusatz()
+    local function zeile(praefix)
+        for _, z in ipairs(zeilen) do
+            local t = z.voll or z.kopf or z[1]
+            if t and t:sub(1, #praefix) == praefix then return z.voll or z[2] or z.kopf end
+        end
+    end
+    wahr('KOS: sigma = N/A + My/I_y z', zeile('KOS: σx') == 'KOS: σx = 0.4167 + 0.01389·z', zeile('KOS: σx'))
+    wahr('HAS: sigma = N/A + M_eta/I_eta zeta', zeile('HAS: σx') == 'HAS: σx = 0.4167 + 0.01389·ζ', zeile('HAS: σx'))
+    wahr('neutrale Faser im KOS: z = -30', zeile('KOS: z') == 'KOS: z = -30', zeile('KOS: z'))
+    wahr('neutrale Faser im HAS: zeta = -30', zeile('HAS: ζ') == 'HAS: ζ = -30', zeile('HAS: ζ'))
+    wahr('M_eta = 10 Nm', zeile('M_η') == '10 Nm', zeile('M_η'))
+    wahr('M_zeta = 0', zeile('M_ζ') == '0 Nm', zeile('M_ζ'))
+    wahr('KOS im Schwerpunkt: keine Zusatzzeile', zeile('     (KOS-Ursprung') == nil)
+
+    -- KOS-Ursprung ausserhalb des Schwerpunkts: Konstante im KOS verschiebt sich, HAS bleibt
+    T.reset()
+    T.massiv({ type = 'rect', points = { P(0, 0), P(-40, -60) } })   -- y 0..40, z 0..60, S = (20, 30)
+    T.rechne()
+    Q.sigma(1000, 1e4, 0)
+    zeilen = Q.sigmaZusatz()
+    wahr('KOS: sigma = 0.4167 - 0.4167 + 0.01389 z = 0.01389 z', zeile('KOS: σx') == 'KOS: σx = 0.01389·z', zeile('KOS: σx'))
+    wahr('neutrale Faser im KOS: z = 0 (Unterkante)', zeile('KOS: z') == 'KOS: z = 0', zeile('KOS: z'))
+    wahr('HAS unveraendert', zeile('HAS: σx') == 'HAS: σx = 0.4167 + 0.01389·ζ', zeile('HAS: σx'))
+    wahr('Hinweis auf den Schwerpunkt', zeile('     (KOS-Ursprung') ~= nil)
+
+    -- unsymmetrisches L: Gegenprobe mit der Lehrbuchform im HAS, alle vier KOS-Drehungen
+    for _, rot in ipairs({ 0, 90, 180, 270 }) do
+        T.reset(); Q.setRotation(rot)
+        T.massiv({ type = 'rect', points = { P(0, 0), P(1, 10) } })
+        T.massiv({ type = 'rect', points = { P(1, 0), P(10, 1) } })
+        local r = T.rechne()
+        local sr = Q.sigma(500, 1e6, 3e5)
+        local k = Q.sigmaKennwerte()
+        local vor = rot .. ' Grad: '
+        zahl(vor .. 'I_eta = I_1', k.I_eta, r.I1, 1e-9)
+        zahl(vor .. 'I_zeta = I_2', k.I_zeta, r.I2, 1e-9)
+        zahl(vor .. 'Koeffizient von zeta = M_eta / I_eta', k.c_zeta, k.M_eta / k.I_eta, 1e-9)
+        zahl(vor .. 'Koeffizient von eta = -M_zeta / I_zeta', k.c_eta, -k.M_zeta / k.I_zeta, 1e-9)
+        -- KOS-Gleichung im Punkt des Maximums = sigma_max
+        local y, z = Q.cfd(sr.max_y, sr.max_z)
+        zahl(vor .. 'KOS-Gleichung am Maximum = sigma_max', k.c0 + k.cy * y + k.cz * z, sr.sigma_max, 1e-9)
+        -- HAS-Gleichung am Minimum = sigma_min
+        local ym, zm = Q.cfd(sr.min_y, sr.min_z)
+        local c, s = math.cos(k.phi), math.sin(k.phi)
+        local eta = (ym - k.ys) * c + (zm - k.zs) * s
+        local zeta = -(ym - k.ys) * s + (zm - k.zs) * c
+        zahl(vor .. 'HAS-Gleichung am Minimum = sigma_min', k.n0 + k.c_eta * eta + k.c_zeta * zeta, sr.sigma_min, 1e-9)
+        -- Momentenbetrag bleibt bei der Drehung erhalten
+        local My, Mz = Q.cfd(sr.My_Nmm, sr.Mz_Nmm)
+        zahl(vor .. '|M| im HAS = |M| im KOS', math.sqrt(k.M_eta ^ 2 + k.M_zeta ^ 2), math.sqrt(My ^ 2 + Mz ^ 2), 1e-9)
+    end
+
+    -- Tabelle: Pfeiltasten scrollen, Verteilung liegt unter der Tabelle
+    T.reset()
+    T.massiv({ type = 'rect', points = { P(-20, -30), P(20, 30) } })
+    T.rechne()
+    Q.sigma(1000, 1e4, 0)
+    Q.sigmaTabelleZeigen(true)
+    T.texte, T.pos = {}, {}
+    Q.paint(T.gc)
+    zahl('Start oben', Q.sigmaScroll(), 0)
+    -- so weit scrollen, bis die letzte neue Zeile sichtbar ist; die Verteilung muss darunter liegen
+    local y_tab, y_vert = nil, nil
+    for _ = 1, 40 do
+        T.texte, T.pos = {}, {}
+        Q.paint(T.gc)
+        for _, e in ipairs(T.pos) do
+            if e.t:find('HAS: ζ', 1, true) then y_tab = e.y end
+            if e.t:find('Verteilung', 1, true) then y_vert = e.y end
+        end
+        if y_tab then break end
+        on.arrowKey('down')
+    end
+    wahr('neue Zeilen stehen in der Tabelle (nach dem Scrollen sichtbar)', y_tab ~= nil)
+    wahr('Verteilung beginnt unter der letzten Tabellenzeile', y_tab and (y_vert == nil or y_vert > y_tab),
+        tostring(y_vert) .. ' / ' .. tostring(y_tab))
+    for _ = 1, 100 do on.arrowKey('up') end
+    on.arrowKey('down'); on.arrowKey('down')
+    zahl('zweimal runter: 40 px', Q.sigmaScroll(), 40)
+    for _ = 1, 100 do on.arrowKey('down') end
+    local maxs = Q.sigmaScroll()
+    wahr('Scrollen ist nach unten begrenzt', maxs > 40 and maxs < 2000, maxs)
+    T.texte, T.pos = {}, {}
+    Q.paint(T.gc)
+    local sichtbar = false
+    for _, e in ipairs(T.pos) do if e.t:find('σx(z_max)', 1, true) and e.y < 212 then sichtbar = true end end
+    wahr('ganz unten ist das Ende der Verteilung sichtbar', sichtbar)
+    for _ = 1, 100 do on.arrowKey('up') end
+    zahl('wieder oben', Q.sigmaScroll(), 0)
+    Q.sigmaTabelleZeigen(false)
 end)
 
 T.ende('Querschnitt')

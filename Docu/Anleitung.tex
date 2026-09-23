@@ -629,6 +629,13 @@ meist schneller, als von Anfang an genau zu klicken.
   \bottomrule
 \end{longtable}
 
+Geklickte Punkte rasten auf dem Raster ein -- und auf den \textbf{Punkten der vorhandenen
+Elemente}: Ecken von Rechtecken (auch die beiden, die ihr nicht geklickt habt), Dreiecken und
+Polygonen, Mittel- und Randpunkte von Kreisen und Bögen, Endpunkte der Linien, dazu die schon
+geklickten Punkte des Elements, das gerade entsteht. Genommen wird immer der nächste Punkt. Damit
+trefft ihr auch Punkte, die nach einer exakten Koordinateneingabe oder einer KOS-Verschiebung
+nicht mehr auf dem Raster liegen.
+
 Die Wanddicke kommt aus der Standarddicke $t$ (Optionsmenü \taste{o}); einzelne Elemente ändert
 ihr nachträglich über Hover~+~\taste{Enter}. \taste{Backspace} löscht das letzte Element,
 \taste{c} löscht alles -- nach einer Rückfrage, die ihr mit \taste{Enter} bestätigt oder mit
@@ -650,9 +657,14 @@ Im Optionsmenü (\taste{o}):
   \item Zahlenformat (Wurzel/Bruch, Bruch, Dezimal),
   \item Einheiten für Kraft, Länge und Moment,
   \item Profilbeiwert $\xi$ für die Torsion offener Profile,
-  \item auf Seite~2 (\emph{Weitere Optionen}): KOS in den Schwerpunkt verschieben und
-        \emph{FTM-Bezug}.
+  \item auf Seite~2 (\emph{Weitere Optionen}, Pfeil links/rechts): KOS in den Schwerpunkt
+        verschieben, KOS entlang $y$ bzw.\ $z$ um einen Betrag verschieben und \emph{FTM-Bezug}.
 \end{itemize}
+
+\textbf{KOS entlang einer Achse verschieben:} Ihr gebt den Betrag in der aktuellen Längeneinheit
+ein, positiv heißt in positive Achsrichtung. Der Querschnitt bleibt auf dem Bildschirm stehen,
+das KOS (und mit ihm das Raster) wandert. Zusammen mit dem FTM-Bezug \emph{KOS} bekommt ihr so
+die Trägheitsmomente um jede beliebige parallele Achse.
 
 \textbf{FTM-Bezug} legt fest, worauf sich die angezeigten Flächenträgheitsmomente beziehen: auf
 den \emph{Schwerpunkt} (Standard, Anzeige $I_{y,S}$) oder auf den \emph{Ursprung des gezeichneten
@@ -691,12 +703,46 @@ Im Berechnungsmenü (\taste{b}) unter \emph{$\sigma_x$-Berechnung}:
 \begin{itemize}
   \item \emph{Normalspannung} $(N, M_y)$ für gerade Biegung,
   \item \emph{Schiefe Spannung} $(N, M_y, M_z)$,
-  \item \emph{$\sigma_x$ aus Kräften}, wenn ihr Kräfte platziert habt.
+  \item \emph{$\sigma_x$ aus Kräften}, wenn ihr Kräfte platziert habt (mit Querkräften wird der
+        Abstand $\Delta x$ gefragt, siehe unten).
 \end{itemize}
 
 Ihr bekommt Minimum und Maximum mit ihren Orten, die Nulllinie und die Spannungsverteilung über
 den Querschnitt. Gerechnet wird immer mit der allgemeinen Biegeformel inklusive
 $I_{yz}$-Kopplung, also auch für unsymmetrische Querschnitte richtig.
+
+\textbf{Ergebnistabelle:} Mit \taste{t} kommt ihr zur Tabelle, die Pfeiltasten hoch/runter
+scrollen durch sie und die $\sigma_x$-Verteilung darunter. Außer den Schnittgrößen und
+Extremwerten steht dort:
+
+\begin{itemize}
+  \item das \textbf{Hauptachsensystem}: Winkel $\varphi^*$ von $y$ nach $\eta$, $I_\eta = I_1$,
+        $I_\zeta = I_2$ und die \textbf{Momente um die Hauptachsen}
+        $M_\eta = M_y\cos\varphi + M_z\sin\varphi$, $M_\zeta = -M_y\sin\varphi + M_z\cos\varphi$,
+  \item die \textbf{Biegenormalspannung} in MPa als Gleichung, einmal im gezeigten KOS
+        ($\sigma_x = c_0 + c_y\,y + c_z\,z$, $y$ und $z$ vom KOS-Ursprung aus) und einmal im HAS
+        ($\sigma_x = N/A + (M_\eta/I_\eta)\,\zeta - (M_\zeta/I_\zeta)\,\eta$, als Zahlen),
+  \item die \textbf{neutrale Faser} $\sigma_x = 0$ in beiden Systemen, z.\,B.\ $z = m\,y + n$.
+\end{itemize}
+
+Liegt euer KOS nicht im Schwerpunkt, steckt das in der Konstanten $c_0$ der KOS-Gleichung; die
+Lage des Schwerpunkts steht darunter. Die HAS-Gleichung ist immer auf den Schwerpunkt bezogen.
+
+\textbf{Querkräfte mit Hebelarm:} Habt ihr Kräfte eingezeichnet, die in der Querschnittsebene
+wirken, fragt die Maske zusätzlich $\Delta x$ ab -- den Abstand zwischen dem Schnitt, den ihr
+anschaut, und der Ebene, in der die Kräfte angreifen (im $yz$-KOS also entlang $x$). Die
+Querkräfte liefern dann
+
+\[
+  M_y = -\Delta x\,F_z, \qquad M_z = \Delta x\,F_y ,
+\]
+
+und das wird mit euren eingegebenen Momenten überlagert. Wichtig für die Vorzeichen: Es zählt
+nur der \emph{Abstand}. Ob die Kräfte vor oder hinter dem Schnitt sitzen, ist für diesen Anteil
+egal -- rechnet man es für beide Seiten mit $\vec M = \pm\,\vec r \times \vec F$ nach, kommt
+jedes Mal $M_y = -a F_z$ heraus. Denkt an einen Kragarm: Eine Last nach unten macht immer Zug
+oben, egal ob der Kragarm nach links oder nach rechts auskragt. Ein negatives $\Delta x$ nimmt
+das Programm deshalb als Betrag. Bei \emph{$\sigma_x$ aus Kräften} wird nur $\Delta x$ gefragt.
 
 \section{Schubspannung und Schubmittelpunkt}
 
@@ -1012,6 +1058,26 @@ wenn der Rang wirklich~3 ist. Zwei parallele Schnitte oder dieselbe Angabe zweim
 nichts Neues, und das merkt es auch. Habt ihr mehr eingegeben als nötig, prüft es die Angaben
 gegeneinander.
 
+\textbf{Schnitte ohne Winkel} zählen auch mit, wenn ihr $\sigma$ \emph{und} $\tau$ kennt: Dann
+liegt der Punkt $(\sigma, \tau)$ auf dem Kreis,
+
+\[
+  (\sigma - \sigma_m)^2 + \tau^2 = R_c^2 + R_s^2 ,
+\]
+
+und das ist genau eine Angabe (der Winkel ist ja die zweite Unbekannte). Typischer Fall ist
+\emph{Klausur Aufgabe 5}: Hauptrichtung $x$ (eingeben als $\alpha = 0$, $\tau = 0$), dazu
+$\sigma_y = 10$ ($\alpha = 90^\circ$) und der Schnitt $\sigma_\xi = 35$, $\tau_{\xi\eta} = 20$ ohne
+Winkel. Das Programm liefert $\sigma_I = 51$, $\sigma_{II} = 10$ und den Winkel des Schnitts,
+$-38{,}7^\circ$ (in der Tabelle als $141{,}3^\circ$, das ist dasselbe).
+
+Weil die Gleichung quadratisch ist, kann es \textbf{zwei} passende Zustände geben -- etwa wenn ihr
+$\sigma_x$, $\sigma_y$ und einen Punkt ohne Winkel kennt: Dann ist das Vorzeichen von $\tau_{xy}$
+offen. Das Programm sagt dann \emph{zwei Zustände möglich}, zeigt beide an und lässt
+\taste{s} und \taste{k} gesperrt, bis eine weitere Angabe entscheidet. Ein Schnitt ohne Winkel mit
+nur $\sigma$ (oder nur $\tau$) ist zwar keine Gleichung, schließt aber einen Zustand aus, auf dessen
+Kreis der Wert nicht passt.
+
 \textbf{Gesuchte Winkel} folgen danach in geschlossener Form -- dafür braucht es kein CAS:
 
 \begin{longtable}{p{0.24\linewidth}p{0.50\linewidth}p{0.18\linewidth}}
@@ -1032,8 +1098,10 @@ $|\sigma - \sigma_m| > R$), sagt euch das Programm das für diesen Schnitt.
 \section{Grenzen und Tricks}
 
 \begin{itemize}
-  \item Schnitte \emph{ohne} Winkel helfen beim Bestimmen des Zustands nicht; sie werden erst
-        ausgewertet, wenn er aus den anderen Angaben feststeht.
+  \item Schnitte ohne Winkel legen nie die \emph{Richtung} fest, nur Mittelpunkt und Radius --
+        mindestens eine Angabe mit Winkel braucht ihr immer.
+  \item Eine Hauptrichtung gebt ihr als Schnitt mit diesem Winkel und $\tau = 0$ ein. Ob dort
+        $\sigma_I$ oder $\sigma_{II}$ wirkt, rechnet das Programm aus; eintragen lässt sich das nicht.
   \item Wenn ihr nur die Winkel \emph{zwischen} den Schnitten kennt: Setzt den ersten Schnitt auf
         $0^\circ$ und die anderen relativ dazu. Alle Ergebnisse sind dann auf diesen Schnitt
         bezogen, und die Hauptspannungen stimmen sowieso.

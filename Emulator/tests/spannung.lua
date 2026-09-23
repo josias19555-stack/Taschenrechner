@@ -75,6 +75,7 @@ _G.__S = {
   polygon = function(r) return scheibenPolygon(r) end,
   meldung = function() return meldung end,
   kreisWinkel = function() return kreisWinkel end,
+  mehrdeutig = function() return mehrdeutig end,
 }
 ]]
 assert(loadstring(code .. export, '=' .. pfad))()
@@ -534,6 +535,89 @@ fall('16 Scheibe: x nach unten, y nach rechts', function()
         ay and string.format('%.0f/%.0f', ay.x, ay.y))
     wahr('Schnitt bei 0 Grad liegt unten', s1 and s1.y > cy, s1 and s1.y)
     wahr('Schnitt bei 90 Grad liegt rechts', s2 and s2.x > cx, s2 and s2.x)
+end)
+
+fall('17 Schnitt ohne Winkel als Kreispunkt', function()
+    abschnitt('Klausur Aufgabe 5: Hauptrichtung x, sigma_y = 10, Schnitt (35, 20) ohne Winkel')
+    -- wie auf dem Rechner: S1 alpha=0, tau=0 (Hauptrichtung) | S2 alpha=90, sigma=10 | S3 sigma=35, tau=20
+    tippeZelle('0'); tippeZelle(nil); tippeZelle('0')
+    tippeZelle('90'); tippeZelle('10'); tippeZelle(nil)
+    tippeZelle(nil); tippeZelle('35'); tippeZelle('20')
+    local L = S.loesung()
+    wahr('eindeutig bestimmt', L ~= nil and S.bereit(), 'rang ' .. tostring(S.rang()))
+    if L then
+        zahl('sigma_I = 51', L.sig1, 51, 1e-9)
+        zahl('sigma_II = 10', L.sig2, 10, 1e-9)
+        zahl('sigma_x = 51', L.sx, 51, 1e-9)
+        zahl('tau_xy = 0', L.txy, 0, 1e-9)
+        local sch = S.schnitte()
+        zahl('S1: sigma = sigma_I', sch[1].s, 51, 1e-9)
+        -- Winkel des Schnitts: -38.66 Grad, in [0, 180) also 141.34 Grad
+        zahl('S3: phi_x-xi = -38.66 (mod 180)', sch[3].a, 180 - 38.659808254, 1e-6)
+        local s3, t3 = S.spannungen(sch[3].a, L)
+        zahl('S3: sigma im berechneten Winkel = 35', s3, 35, 1e-9)
+        zahl('S3: tau im berechneten Winkel = 20', t3, 20, 1e-9)
+    end
+    local txt = male('tabelle')
+    wahr('Status: eindeutig bestimmt', txt:find('eindeutig bestimmt', 1, true) ~= nil)
+    on.charIn('k'); wahr('Kreis frei', S.modus() == 'kreis', S.modus())
+    S.setModus('tabelle')
+
+    abschnitt('zaehlen: ein Kreispunkt ist eine Angabe, der Winkel bleibt offen')
+    S.neu(); setze({ { nil, 35, 20 } }); S.rechne()
+    zahl('nur ein Kreispunkt: Rang 1', S.rang(), 1)
+    setze({ { nil, 35, 20 }, { nil, 10, 5 } }); S.rechne()
+    zahl('zwei Kreispunkte: Rang 2 (Mitte und Radius, keine Richtung)', S.rang(), 2)
+    wahr('  noch nicht bestimmt', S.loesung() == nil)
+
+    abschnitt('zwei moegliche Zustaende: sigma_x und sigma_y bekannt, Punkt ohne Winkel')
+    -- wahrer Zustand sigma_x = 20, sigma_y = -5, tau_xy = 10; Punkt bei 30 Grad
+    local s30 = 7.5 + 12.5 * 0.5 + 10 * math.sqrt(3) / 2
+    local t30 = -12.5 * math.sqrt(3) / 2 + 10 * 0.5
+    setze({ { 0, 20, nil }, { 90, -5, nil }, { nil, s30, t30 } }); S.rechne()
+    local M = S.mehrdeutig()
+    wahr('zwei Zustaende erkannt', M ~= nil and #M == 2)
+    wahr('  nicht eindeutig: gesperrt', S.loesung() == nil and not S.bereit())
+    if M and #M == 2 then
+        zahl('  tau_xy der Loesungen: +10 und -10', math.abs(M[1].txy) + math.abs(M[2].txy), 20, 1e-9)
+        zahl('  entgegengesetzt', M[1].txy + M[2].txy, 0, 1e-9)
+    end
+    txt = male('tabelle')
+    wahr('Status nennt zwei Zustaende', txt:find('zwei Zustände', 1, true) ~= nil, txt:sub(-120))
+    wahr('beide Zustaende stehen im Ergebnisblock', txt:find('1:', 1, true) ~= nil and txt:find('2:', 1, true) ~= nil)
+    local rand, unten = 0, 0
+    for _, e in ipairs(texte) do
+        rand = math.max(rand, e.x + e.w - 318); unten = math.max(unten, e.y + e.h - 212)
+    end
+    wahr('  nichts ueber den rechten Rand', rand <= 0, rand)
+    wahr('  nichts unter den unteren Rand', unten <= 0, unten)
+    on.charIn('s'); wahr('Scheibe gesperrt', S.modus() == 'tabelle', S.modus())
+    -- eine weitere Angabe mit Winkel entscheidet
+    setze({ { 0, 20, 10 }, { 90, -5, nil }, { nil, s30, t30 } }); S.rechne()
+    wahr('mit tau_xy eindeutig', S.loesung() ~= nil and S.mehrdeutig() == nil)
+
+    abschnitt('Ungleichung aus einem Schnitt ohne Winkel mit nur sigma schliesst eine Loesung aus')
+    -- wahr: sigma_m = 10, Rc = 6, Rs = 0. Angaben tau(0) = 0, sigma(30) = 13, Punkt bei 60 Grad (7, -5.196)
+    local p60s, p60t = 10 + 6 * math.cos(math.rad(120)), -6 * math.sin(math.rad(120))
+    setze({ { 0, nil, 0 }, { 30, 13, nil }, { nil, p60s, p60t } }); S.rechne()
+    M = S.mehrdeutig()
+    wahr('ohne weitere Angabe zwei Zustaende', M ~= nil and #M == 2)
+    if M and #M == 2 then
+        local r1, r2 = math.min(M[1].r, M[2].r), math.max(M[1].r, M[2].r)
+        zahl('  Radien 6 und 14', r1 + r2 / 100, 6 + 0.14, 1e-9)
+    end
+    -- sigma = 5 (ohne Winkel) passt nur in [4, 16], nicht in [6, 34]
+    setze({ { 0, nil, 0 }, { 30, 13, nil }, { nil, p60s, p60t }, { nil, 5, nil } }); S.rechne()
+    L = S.loesung()
+    wahr('sigma = 5 ohne Winkel entscheidet', L ~= nil and S.mehrdeutig() == nil)
+    if L then zahl('  sigma_1 = 16', L.sig1, 16, 1e-9); zahl('  sigma_2 = 4', L.sig2, 4, 1e-9) end
+
+    abschnitt('Widerspruch: Punkt ohne Winkel liegt nicht auf dem bestimmten Kreis')
+    setze({ { 0, 20, 0 }, { 90, -5, nil }, { nil, 100, 0 } }); S.rechne()
+    wahr('Widerspruch erkannt', S.widerspruch() == true)
+    wahr('  gesperrt', not S.bereit())
+    setze({ { 0, 20, 0 }, { 90, -5, nil }, { nil, 20, 0 } }); S.rechne()
+    wahr('passender Punkt: kein Widerspruch', S.widerspruch() == false and S.bereit())
 end)
 
 write(string.format('\nErgebnis Spannungskreis: %d Pruefungen, %d Fehler\n', M.total, M.fails))

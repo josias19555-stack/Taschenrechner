@@ -137,6 +137,8 @@ end
 local escape_clear_pending = false
 local sigma_input_step = 0
 local sigma_N, sigma_My, sigma_Mz = nil, nil, nil
+-- Felder der sigma-Eingabe ("N", "Ma", "Mb", "x") und Versatz der Kraftebene entlang der Stabachse
+local sigmaEingabe = { felder = { "N", "Ma" }, versatz = 0 }
 local sigma_oblique = false
 local sigma_results = nil
 local sigma_scroll_y, sigma_table_scroll_y = 0, 0
@@ -208,15 +210,44 @@ local function current_axes()
     return a, b
 end
 
+-- Haben eingezeichnete Kraefte eine Komponente in der Querschnittsebene (Querkraft)?
+function sigmaEingabe.hatQuerkraefte()
+    for _, kraft in ipairs(kraefte) do
+        if math.abs(tonumber(kraft.fa) or 0) > 1e-12 or math.abs(tonumber(kraft.fb) or 0) > 1e-12 then return true end
+    end
+    return false
+end
+
+-- Name der Stabachse (die Achse, die nicht in der Querschnittsebene liegt)
+function sigmaEingabe.stabachse()
+    local a, b = current_axes()
+    for _, n in ipairs({ "x", "y", "z" }) do
+        if n ~= a and n ~= b then return n end
+    end
+    return "x"
+end
+
+function sigmaEingabe.aufforderung()
+    local feld = sigmaEingabe.felder[sigma_input_step]
+    local a, b = current_axes()
+    if feld == "N" then return "N in " .. force_unit .. " eingeben, dann Enter." end
+    if feld == "Ma" then return "M" .. a .. " in " .. moment_unit .. " eingeben, dann Enter." end
+    if feld == "Mb" then return "M" .. b .. " in " .. moment_unit .. " eingeben, dann Enter." end
+    return "Abstand Δ" .. sigmaEingabe.stabachse() .. " zwischen Schnitt und Kraftebene in " .. length_unit .. " eingeben."
+end
+
 local function openSigmaInput(oblique)
     qsMeldung = nil
     sigma_oblique = oblique == true
     sigma_input_step, inputText = 1, ""
     sigma_results, sigma_scroll_y, sigma_table_scroll_y = nil, 0, 0
     showResults, showTable, menuOpen = true, false, false
-    local a, b = current_axes()
-    status = "N in " .. force_unit .. " eingeben, dann Enter."
-    if sigma_oblique then status = "N in " .. force_unit .. ", M" .. a .. " und M" .. b .. " in " .. moment_unit .. " eingeben." end
+    -- Der Versatz wird nur gefragt, wenn eingezeichnete Kraefte eine Querkomponente haben:
+    -- sonst gaebe es kein Moment aus Querkraft und das Feld waere ohne Wirkung.
+    sigmaEingabe.felder = sigma_oblique and { "N", "Ma", "Mb" } or { "N", "Ma" }
+    if sigmaEingabe.hatQuerkraefte() then table.insert(sigmaEingabe.felder, "x") end
+    sigmaEingabe.versatz = 0
+    status = sigmaEingabe.aufforderung()
 end
 
 local function openShearInput()
@@ -449,6 +480,34 @@ local function snap(x)
     local q = x / raster
     if q >= 0 then return math.floor(q + .5) * raster end
     return math.ceil(q - .5) * raster
+end
+
+-- Fangpunkte: die Punkte, die Flaechen und Elemente definieren (bei Rechtecken auch die beiden
+-- gegenueberliegenden Ecken), und die schon geklickten Punkte des Elements, das gerade entsteht.
+-- Sie wirken wie zusaetzliche Rasterpunkte: ein Klick landet auf dem naechsten Kandidaten, egal
+-- ob Rasterpunkt oder Fangpunkt. So lassen sich auch Punkte treffen, die nach exakter
+-- Koordinateneingabe oder KOS-Verschiebung nicht mehr auf dem Raster liegen.
+local function fange(u, v)
+    local liste = {}
+    local function dazu(pt) if pt and pt.u and pt.v then liste[#liste + 1] = pt end end
+    for _, elem in ipairs(massiv_elemente) do
+        for _, pt in ipairs(elem.points or {}) do dazu(pt) end
+        if elem.type == "rect" and elem.points[1] and elem.points[2] then
+            local p1, p2 = elem.points[1], elem.points[2]
+            dazu({ u = p1.u, v = p2.v }); dazu({ u = p2.u, v = p1.v })
+        end
+    end
+    for _, elem in ipairs(duenn_elemente) do
+        for _, pt in ipairs(elem.points or {}) do dazu(pt) end
+    end
+    for _, pt in ipairs(pending) do dazu(pt) end
+    local bu, bv = snap(u), snap(v)
+    local best = (bu - u) ^ 2 + (bv - v) ^ 2
+    for _, pt in ipairs(liste) do
+        local d = (pt.u - u) ^ 2 + (pt.v - v) ^ 2
+        if d < best then best, bu, bv = d, pt.u, pt.v end
+    end
+    return bu, bv
 end
 
 -- Intern: u nach rechts, v nach oben. Angezeigtes KOS (y, z) wie von toScreenKOS gezeichnet:
@@ -1135,6 +1194,7 @@ function loescheAllesQS()
     table_scroll_x, table_scroll_y = 0, 0
     results_scroll_y = 0
     sigma_input_step, sigma_N, sigma_My, sigma_Mz, sigma_results = 0, nil, nil, nil, nil
+    sigmaEingabe.versatz, sigmaEingabe.felder = 0, { "N", "Ma" }
     shear_input_step, shear_Qa, shear_Qb, shear_results = 0, nil, nil, nil
     torsion_input_step, torsion_M, torsion_results = 0, nil, nil
     woelb.step, woelb.M, woelb.results, woelb.visible = 0, nil, nil, false
@@ -1310,6 +1370,30 @@ local function berechneSystem()
         torsion_results = nil
     end
     if kernMode > 0 and kern_build then kern_build() end
+end
+
+-- KOS-Ursprung um (du, dv) im internen KOS verschieben: alle Koordinaten aendern sich um
+-- -(du, dv). Die Ansicht wird mitgefuehrt, damit der Querschnitt auf dem Bildschirm stehen bleibt
+-- und sichtbar das KOS wandert (mit ihm das Raster).
+local function verschiebeKOS(du, dv)
+    if #massiv_elemente + #duenn_elemente + #kraefte == 0 then
+        meldung("Kein Querschnitt vorhanden.", "Hinweis", true)
+        return false
+    end
+    local verschoben = {}
+    local function schiebe(pt)
+        if pt and not verschoben[pt] then
+            pt.u, pt.v = pt.u - du, pt.v - dv
+            verschoben[pt] = true
+        end
+    end
+    for _, elem in ipairs(massiv_elemente) do for _, pt in ipairs(elem.points) do schiebe(pt) end end
+    for _, elem in ipairs(duenn_elemente) do for _, pt in ipairs(elem.points) do schiebe(pt) end end
+    for _, pt in ipairs(pending) do schiebe(pt) end
+    for _, kraft in ipairs(kraefte) do kraft.u, kraft.v = kraft.u - du, kraft.v - dv end
+    ox, oy = ox + du * scale, oy - dv * scale
+    berechneSystem()
+    return true
 end
 
 local function verschiebeKOSZumSchwerpunkt()
@@ -1869,7 +1953,7 @@ end
 --    Das ist Standardtheorie, steht aber nicht in der Formelsammlung -> Warnung beim Aufruf.
 --  * r_perp ist auf einer geraden Kante linear, u_x also quadratisch: beides wird geschlossen
 --    integriert, die Stuetzstellen dienen nur der Darstellung.
-local function berechneVerwoelbung(M, G)
+function woelb.berechne(M, G)
     if not system_results then return nil, "Kein Querschnitt vorhanden." end
     if #duenn_elemente == 0 or #massiv_elemente > 0 then
         return nil, "Verwoelbung nur fuer rein duennwandige Profile (offen oder einzellig geschlossen)."
@@ -1988,7 +2072,7 @@ local function berechneVerwoelbung(M, G)
              max_wert = maximum.wert, schluss = schluss, c = c, sym_v = sym_v, sym_h = sym_h }
 end
 
-local function openWoelbInput()
+function woelb.oeffnen()
     qsMeldung = nil
     if not system_results then meldung("Kein Querschnitt vorhanden.", "Hinweis", true); return end
     if #duenn_elemente == 0 or #massiv_elemente > 0 then
@@ -2009,7 +2093,7 @@ local function openWoelbInput()
     status = "Verwoelbung: Torsionsmoment MT in " .. moment_unit .. " eingeben, dann Enter."
 end
 
-local function enterWoelbInput()
+function woelb.eingabe()
     local val = evaluate_input(inputText)
     if not val then
         meldung("Ungueltige Eingabe fuer die Verwoelbung.", "Eingabe", true)
@@ -2024,7 +2108,7 @@ local function enterWoelbInput()
     else
         woelb.G = val
         woelb.step, inputText = 0, ""
-        local res, fehler = berechneVerwoelbung(woelb.M, woelb.G)
+        local res, fehler = woelb.berechne(woelb.M, woelb.G)
         if res then
             woelb.results, woelb.visible = res, true
             shear_profile_visible, shear_selector_open, showResults = false, false, false
@@ -2566,39 +2650,54 @@ end
 
 local function drawSigmaInput(gc, w, h)
     if sigma_input_step == 0 then return end
-    local left, top, width = 12, 28, math.min(260, w - 24)
-    local function forceValueText(value)
-        return value == nil and "" or string.format("%.6g", display_force(value))
-    end
-    local function momentValueText(value)
-        return value == nil and "" or string.format("%.6g", display_moment(value))
-    end
-
-    local field_left = left + 72
-    local field_width = width - 84
-    local height = sigma_oblique and 170 or 136
+    local felder = sigmaEingabe.felder
     local moment_a, moment_b = axes()
+    local achse = sigmaEingabe.stabachse()
+    -- Hoehe aus der Feldzahl: vier Felder, Hinweiszeile und Fusszeile passen in 212 px
+    local left, top, width = 12, 16, math.min(290, w - 24)
+    local field_left = left + 78
+    local field_width = width - 90
+    local abstand = 28
+    local hat_x = false
+    for _, f in ipairs(felder) do if f == "x" then hat_x = true end end
+    local unten = top + 26 + #felder * abstand
+    local height = unten - top + (hat_x and 26 or 14)
+
+    local function wert(feld)
+        if feld == "N" then return sigma_N == nil and "" or string.format("%.6g", display_force(sigma_N)) end
+        if feld == "Ma" then return sigma_My == nil and "" or string.format("%.6g", display_moment(sigma_My)) end
+        if feld == "Mb" then return sigma_Mz == nil and "" or string.format("%.6g", display_moment(sigma_Mz)) end
+        return string.format("%.6g", display_length(sigmaEingabe.versatz or 0))
+    end
+    local function name(feld)
+        if feld == "N" then return "N [" .. force_unit .. "]" end
+        if feld == "Ma" then return "M" .. moment_a .. " [" .. moment_unit .. "]" end
+        if feld == "Mb" then return "M" .. moment_b .. " [" .. moment_unit .. "]" end
+        return "Δ" .. achse .. " [" .. length_unit .. "]"
+    end
 
     gc:setColorRGB(248, 248, 248)
     gc:fillRect(left, top, width, height)
     gc:setColorRGB(0, 0, 0)
     gc:drawRect(left, top, width, height)
     gc:setFont("sansserif", "b", 10)
-    gc:drawString("σx Eingabe", left + 8, top + 8)
+    gc:drawString("σx Eingabe", left + 8, top + 6)
     gc:setFont("sansserif", "r", 9)
-    gc:drawString("N [" .. force_unit .. "]", left + 8, top + 36)
-    gc:drawString("M" .. moment_a .. " [" .. moment_unit .. "]", left + 8, top + 70)
-    gc:drawRect(field_left, top + 28, field_width, 20)
-    gc:drawRect(field_left, top + 62, field_width, 20)
-    gc:drawString(sigma_input_step == 1 and inputText .. "_" or forceValueText(sigma_N), field_left + 5, top + 33)
-    gc:drawString(sigma_input_step == 2 and inputText .. "_" or momentValueText(sigma_My), field_left + 5, top + 67)
-    if sigma_oblique then
-        gc:drawString("M" .. moment_b .. " [" .. moment_unit .. "]", left + 8, top + 104)
-        gc:drawRect(field_left, top + 96, field_width, 20)
-        gc:drawString(sigma_input_step == 3 and inputText .. "_" or "", field_left + 5, top + 101)
+    for i, feld in ipairs(felder) do
+        local y = top + 26 + (i - 1) * abstand
+        gc:drawString(name(feld), left + 8, y + 4)
+        gc:drawRect(field_left, y, field_width, 20)
+        local bereits = i < sigma_input_step
+        local t = (i == sigma_input_step) and (inputText .. "_") or (bereits and wert(feld) or "")
+        gc:drawString(t, field_left + 5, y + 4)
     end
     gc:setFont("sansserif", "r", 8)
-    gc:drawString("Enter bestaetigen, Esc abbrechen", left + 8, top + (sigma_oblique and 146 or 112))
+    if hat_x then
+        gc:setColorRGB(60, 60, 60)
+        gc:drawString("Δ" .. achse .. " = Abstand Schnitt - Kraftebene (Betrag)", left + 8, unten)
+        gc:setColorRGB(0, 0, 0)
+    end
+    gc:drawString("Enter bestaetigen, Esc abbrechen", left + 8, top + height - 14)
 end
 
 local function drawShearInput(gc, w, h)
@@ -2652,13 +2751,12 @@ end
 -- Bildschirmpunkte umgerechnet, auf etwa einen Punkt je 1,5 px ausgeduennt und als eine
 -- Polylinie je Abschnitt gezeichnet. Min/Max und Endwerte kommen weiterhin aus allen
 -- Stuetzstellen; die Rechendichte ist unveraendert.
-local verlauf_cache = nil
-local VERLAUF_BREITE = 36          -- Pixel fuer den betragsgroessten Wert
+local verlauf = { cache = nil, breite = 36 }   -- Cache der Abschnitte; Pixel fuer den groessten Wert
 
 local function verlaufAbschnitte(quelle)
     local schluessel = table.concat({ tostring(quelle.id), tostring(quelle.key), tostring(rotation),
         tostring(quelle.hovered or "-") }, "|")
-    if verlauf_cache and verlauf_cache.schluessel == schluessel then return verlauf_cache end
+    if verlauf.cache and verlauf.cache.schluessel == schluessel then return verlauf.cache end
     local abschnitte, aktuell, aktuell_key = {}, nil, nil
     for index, sample in ipairs(quelle.samples) do
         if not quelle.hovered or sample.segment == quelle.hovered then
@@ -2685,11 +2783,11 @@ local function verlaufAbschnitte(quelle)
             local sm = e.sample
             -- Pixelversatz des Verlaufspunkts gegenueber der Wand (Bildschirm: x rechts, y unten)
             if sm.profile == "massiv_b" then
-                e.fx, e.fy = (e.wert / massiv_max) * VERLAUF_BREITE, 0
+                e.fx, e.fy = (e.wert / massiv_max) * verlauf.breite, 0
             elseif sm.profile == "massiv_a" then
-                e.fx, e.fy = 0, -(e.wert / massiv_max) * VERLAUF_BREITE
+                e.fx, e.fy = 0, -(e.wert / massiv_max) * verlauf.breite
             elseif sm.display_normal_u and sm.display_normal_v then
-                local f = e.wert / gesamt_max * VERLAUF_BREITE
+                local f = e.wert / gesamt_max * verlauf.breite
                 e.fx, e.fy = sm.display_normal_u * f, -sm.display_normal_v * f
             else
                 e.fx, e.fy = 0, 0
@@ -2699,8 +2797,8 @@ local function verlaufAbschnitte(quelle)
             if quelle.hovered and e.wert > hover_max then hover_max, hover_max_eintrag = e.wert, e end
         end
     end
-    verlauf_cache = { schluessel = schluessel, abschnitte = abschnitte, hover_max = hover_max_eintrag }
-    return verlauf_cache
+    verlauf.cache = { schluessel = schluessel, abschnitte = abschnitte, hover_max = hover_max_eintrag }
+    return verlauf.cache
 end
 
 local function drawVerlauf(gc, quelle)
@@ -2856,7 +2954,7 @@ local function drawShearProfile(gc)
     drawShearProfileLegacy(gc)
 end
 
-local function drawWoelbInput(gc, w, h)
+function woelb.zeichneDialog(gc, w, h)
     if woelb.step == 0 then return end
     local left, top, width = 12, 28, math.min(280, w - 24)
     local field_left, field_width = left + 96, width - 108
@@ -2876,7 +2974,7 @@ end
 
 -- Verwoelbungsverlauf wie die Schubverlaeufe (normal zur Wand), dazu MT als Drehpfeil um den
 -- Pol -- das Moment wird nur in dieser Ansicht gezeichnet.
-local function drawWoelbProfile(gc)
+function woelb.zeichne(gc)
     if not woelb.visible or not woelb.results then return end
     local wr = woelb.results
     local hovered_segment = hover_type == "duenn" and hover_idx or nil
@@ -2945,6 +3043,98 @@ local function drawShearSelector(gc, w, h)
     end
 end
 
+-- Spannungsebene im angezeigten KOS und im Hauptachsensystem. Grundlage ist dieselbe Ebene, die
+-- auch Nulllinie und Extremwerte liefert (intern sigma = N/A + s_u (u - u_S) + s_v (v - v_S)):
+-- der Gradient dreht sich wie ein Vektor, so dass keine zweite Vorzeichenherleitung noetig ist.
+-- HAS nach Formelsammlung: eta = y' cos(phi) + z' sin(phi), zeta = -y' sin(phi) + z' cos(phi)
+-- (y', z' vom Schwerpunkt aus), I_eta = I_1, I_zeta = I_2; Momente drehen sich genauso.
+function sigmaEingabe.kennwerte(sr)
+    local den = sr.Iy * sr.Iz - sr.Iyz ^ 2
+    local su = -((sr.Mz_Nmm * sr.Iy - sr.My_Nmm * sr.Iyz) / den)
+    local sv = (sr.My_Nmm * sr.Iz - sr.Mz_Nmm * sr.Iyz) / den
+    local cy, cz = coordinatesForDisplay(su, sv)
+    local ys, zs = coordinatesForDisplay(sr.ys, sr.zs)
+    local Iy, Iz, Iyz = inertiaForDisplay(sr.Iy, sr.Iz, sr.Iyz)
+    local My, Mz = coordinatesForDisplay(sr.My_Nmm, sr.Mz_Nmm)
+    local phi = alphaForDisplay(sr.alpha or 0)
+    local c, sn = math.cos(phi), math.sin(phi)
+    return {
+        n0 = sr.normal, cy = cy, cz = cz, ys = ys, zs = zs,
+        c0 = sr.normal - cy * ys - cz * zs,          -- Konstante im KOS (Ursprung des KOS)
+        phi = phi,
+        I_eta = 0.5 * (Iy + Iz) + 0.5 * (Iy - Iz) * math.cos(2 * phi) + Iyz * math.sin(2 * phi),
+        I_zeta = 0.5 * (Iy + Iz) - 0.5 * (Iy - Iz) * math.cos(2 * phi) - Iyz * math.sin(2 * phi),
+        M_eta = My * c + Mz * sn,
+        M_zeta = -My * sn + Mz * c,
+        c_eta = cy * c + cz * sn,
+        c_zeta = -cy * sn + cz * c,
+    }
+end
+
+-- "a + b*x1 - c*x2" mit vier gueltigen Stellen; Terme unterhalb der Toleranz entfallen
+function sigmaEingabe.lineareForm(konst, terme, tol)
+    local t = ""
+    if math.abs(konst) > tol then t = string.format("%.4g", konst) end
+    for _, tm in ipairs(terme) do
+        local k = tm[1]
+        if math.abs(k) > (tm[3] or tol) then
+            local zahl = string.format("%.4g", math.abs(k))
+            if t == "" then t = (k < 0 and "-" or "") .. zahl .. "·" .. tm[2]
+            else t = t .. (k < 0 and " - " or " + ") .. zahl .. "·" .. tm[2] end
+        end
+    end
+    return (t == "") and "0" or t
+end
+
+-- Nulllinie a + b*x1 + c*x2 = 0 als "x2 = m*x1 + n" (bzw. "x1 = n", wenn c = 0)
+function sigmaEingabe.nulllinie(a, b, c, x1, x2, tol_k, tol_n)
+    if math.abs(c) > tol_k then
+        return x2 .. " = " .. sigmaEingabe.lineareForm(display_length(-a / c), { { -b / c, x1, 1e-12 } }, tol_n)
+    elseif math.abs(b) > tol_k then
+        return x1 .. " = " .. string.format("%.4g", display_length(-a / b))
+    end
+    return "keine (σx ist konstant)"
+end
+
+function sigmaEingabe.zusatzzeilen(sr)
+    local k = sigmaEingabe.kennwerte(sr)
+    local a, b = axes()
+    local f = unit_factor(length_unit)                -- mm je Laengeneinheit der Anzeige
+    local skala = math.max(math.abs(sr.sigma_max or 0), math.abs(sr.sigma_min or 0), math.abs(sr.normal or 0), 1e-9)
+    local L = 1
+    for _, pt in ipairs({ { sr.max_y, sr.max_z }, { sr.min_y, sr.min_z } }) do
+        L = math.max(L, math.abs(pt[1] - sr.ys) + math.abs(pt[2] - sr.zs))
+    end
+    local tol_s = 1e-9 * skala                        -- MPa
+    local tol_k = 1e-9 * skala / L                    -- MPa je mm
+    local tol_n = 1e-9 * L / f                        -- Laenge in Anzeigeeinheit
+    local eh = length_unit
+    -- Werte, die nur numerisch von null abweichen, als 0 zeigen (sonst "-0" oder "1e-17")
+    local mskala = math.max(math.abs(k.M_eta), math.abs(k.M_zeta), 1e-9)
+    if math.abs(k.M_eta) <= 1e-12 * mskala then k.M_eta = 0 end
+    if math.abs(k.M_zeta) <= 1e-12 * mskala then k.M_zeta = 0 end
+    local zeilen = {
+        { kopf = "Hauptachsensystem (HAS, Ursprung im Schwerpunkt)" },
+        { "φ* (" .. a .. " → η) [°]", string.format("%.4g°", math.deg(k.phi)) },
+        { "I_η = I_1 [" .. unit_label(4) .. "]", string.format("%.6g %s", display_inertia(k.I_eta), unit_label(4)) },
+        { "I_ζ = I_2 [" .. unit_label(4) .. "]", string.format("%.6g %s", display_inertia(k.I_zeta), unit_label(4)) },
+        { "M_η (um HA 1) [" .. moment_unit .. "]", string.format("%.6g %s", display_moment(k.M_eta), moment_unit) },
+        { "M_ζ (um HA 2) [" .. moment_unit .. "]", string.format("%.6g %s", display_moment(k.M_zeta), moment_unit) },
+        { kopf = "Biegenormalspannung σx [MPa], Längen in " .. eh },
+        { voll = "KOS: σx = " .. sigmaEingabe.lineareForm(k.c0, { { k.cy * f, a, tol_k * f }, { k.cz * f, b, tol_k * f } }, tol_s) },
+        { voll = "HAS: σx = " .. sigmaEingabe.lineareForm(k.n0, { { k.c_eta * f, "η", tol_k * f }, { k.c_zeta * f, "ζ", tol_k * f } }, tol_s) },
+        { voll = "     = N/A + (M_η/I_η)·ζ - (M_ζ/I_ζ)·η" },
+        { kopf = "Neutrale Faser (σx = 0)" },
+        { voll = "KOS: " .. sigmaEingabe.nulllinie(k.c0, k.cy, k.cz, a, b, tol_k, tol_n) },
+        { voll = "HAS: " .. sigmaEingabe.nulllinie(k.n0, k.c_eta, k.c_zeta, "η", "ζ", tol_k, tol_n) },
+    }
+    if math.abs(k.ys) > 1e-9 * L or math.abs(k.zs) > 1e-9 * L then
+        table.insert(zeilen, 8, { voll = string.format("     (KOS-Ursprung nicht im Schwerpunkt: %s_S = %.4g, %s_S = %.4g)",
+            a, display_length(k.ys), b, display_length(k.zs)) })
+    end
+    return zeilen, k
+end
+
 local function drawSigmaResultsTable(gc, w, h)
     if not sigma_results then return end
     local left, top, width = 8, 8 - sigma_scroll_y, math.min(300, w - 16)
@@ -2955,15 +3145,16 @@ local function drawSigmaResultsTable(gc, w, h)
     -- Momente und Traegheitsmomente im angezeigten KOS
     local My_d, Mz_d = coordinatesForDisplay(sigma_results.My_Nmm, sigma_results.Mz_Nmm)
     local fMy_d, fMz_d = coordinatesForDisplay(sigma_results.force_Ma_Nmm or 0, sigma_results.force_Mb_Nmm or 0)
+    local qMy_d, qMz_d = coordinatesForDisplay(sigma_results.quer_Ma_Nmm or 0, sigma_results.quer_Mb_Nmm or 0)
     local Iy_d, Iz_d, Iyz_d = inertiaForDisplay(sigma_results.Iy, sigma_results.Iz, sigma_results.Iyz)
     local rows = {
         {"N [" .. force_unit .. "]", string.format("%.6g %s", display_force(sigma_results.N), force_unit)},
         {"N aus Kraeften [" .. force_unit .. "]", string.format("%.6g %s", display_force(sigma_results.force_N or 0), force_unit)},
         {"M" .. moment_a .. " [" .. moment_unit .. "]", string.format("%.6g %s", display_moment(My_d), moment_unit)},
-        {"M" .. moment_a .. " aus Kraeften [" .. moment_unit .. "]", string.format("%.6g %s", display_moment(fMy_d), moment_unit)},
+        {"M" .. moment_a .. " aus Normalkraeften [" .. moment_unit .. "]", string.format("%.6g %s", display_moment(fMy_d), moment_unit)},
         {"M" .. moment_a .. " umgerechnet [Nmm]", string.format("%.6g Nmm", My_d)},
         {"M" .. moment_b .. " [" .. moment_unit .. "]", string.format("%.6g %s", display_moment(Mz_d), moment_unit)},
-        {"M" .. moment_b .. " aus Kraeften [" .. moment_unit .. "]", string.format("%.6g %s", display_moment(fMz_d), moment_unit)},
+        {"M" .. moment_b .. " aus Normalkraeften [" .. moment_unit .. "]", string.format("%.6g %s", display_moment(fMz_d), moment_unit)},
         {"A [" .. unit_label(2) .. "]", string.format("%.6g %s", display_area(sigma_results.A), unit_label(2))},
         {"I" .. moment_a .. " [" .. unit_label(4) .. "]", string.format("%.6g %s", display_inertia(Iy_d), unit_label(4))},
         {"I" .. moment_b .. " [" .. unit_label(4) .. "]", string.format("%.6g %s", display_inertia(Iz_d), unit_label(4))},
@@ -2974,8 +3165,19 @@ local function drawSigmaResultsTable(gc, w, h)
         {"σx,min [MPa]", string.format("%.6g MPa", sigma_results.sigma_min)},
         {"bei (y,z) [" .. unit_label(1) .. "]", string.format("(%.6g, %.6g) %s", display_length(min_display_y), display_length(min_display_z), length_unit)}
     }
+    if sigma_results.mit_querkraft or (sigma_results.versatz or 0) > 0 then
+        -- Querkraftanteil: My = -Δx Fz, Mz = Δx Fy, nach den Normalkraftzeilen eingefuegt
+        local achse = sigmaEingabe.stabachse()
+        table.insert(rows, 8, {"Δ" .. achse .. " Kraftebene [" .. unit_label(1) .. "]", string.format("%.6g %s", display_length(sigma_results.versatz or 0), length_unit)})
+        table.insert(rows, 9, {"M" .. moment_a .. " aus Querkraeften [" .. moment_unit .. "]", string.format("%.6g %s", display_moment(qMy_d), moment_unit)})
+        table.insert(rows, 10, {"M" .. moment_b .. " aus Querkraeften [" .. moment_unit .. "]", string.format("%.6g %s", display_moment(qMz_d), moment_unit)})
+    end
+    for _, zeile in ipairs(sigmaEingabe.zusatzzeilen(sigma_results)) do rows[#rows + 1] = zeile end
     local height = (2 + #rows) * row_height + 8
     local split = left + math.min(108, width * 0.42)
+    -- Gesamthoehe (Tabelle + Verteilung) fuer das Scrollen mit den Pfeiltasten merken
+    sigmaEingabe.tabellenHoehe = height
+    sigmaEingabe.inhaltHoehe = height + 14 + 250 + 8
 
     local viewport_top, viewport_bottom = 0, math.max(0, h - 24)
     local visible_top = math.max(top, viewport_top)
@@ -2998,15 +3200,28 @@ local function drawSigmaResultsTable(gc, w, h)
     if header_bottom >= viewport_top and header_bottom <= viewport_bottom then
         gc:drawLine(left, header_bottom, left + width, header_bottom)
     end
-    gc:drawLine(split, visible_top, split, visible_bottom)
     for i, row in ipairs(rows) do
         local y = top + row_height + 8 + i * row_height
         if y >= viewport_top and y <= viewport_bottom then
             gc:drawLine(left, y, left + width, y)
         end
-        if y - 12 >= viewport_top and y - 12 <= viewport_bottom then
-            gc:drawString(row[1], left + 4, y - 12)
-            gc:drawString(row[2], split + 4, y - 12)
+        if row.kopf then
+            -- Abschnittsueberschrift ueber die ganze Breite
+            gc:setColorRGB(232, 238, 248)
+            gc:fillRect(left + 1, y - row_height + 1, width - 1, row_height - 1)
+            gc:setColorRGB(20, 60, 130)
+            gc:setFont("sansserif", "b", 8)
+            if y - 12 >= viewport_top and y - 12 <= viewport_bottom then gc:drawString(row.kopf, left + 4, y - 12) end
+            gc:setFont("sansserif", "r", 8)
+            gc:setColorRGB(0, 0, 0)
+        elseif row.voll then
+            if y - 12 >= viewport_top and y - 12 <= viewport_bottom then gc:drawString(row.voll, left + 4, y - 12) end
+        else
+            gc:drawLine(split, math.max(y - row_height, visible_top), split, math.min(y, visible_bottom))
+            if y - 12 >= viewport_top and y - 12 <= viewport_bottom then
+                gc:drawString(row[1], left + 4, y - 12)
+                gc:drawString(row[2], split + 4, y - 12)
+            end
         end
     end
     gc:clipRect("reset")
@@ -3016,7 +3231,7 @@ local function drawSigmaDistribution(gc, w, h)
     if not sigma_results then return end
 
     local left = 8
-    local top = 8 - sigma_scroll_y + (2 + 13) * 17 + 8 + 14
+    local top = 8 - sigma_scroll_y + (sigmaEingabe.tabellenHoehe or ((2 + 13) * 17 + 8)) + 14
     local width = math.min(360, w - 16)
     local height = 250
     local graph_left, graph_right = left + 42, left + width - 10
@@ -3467,9 +3682,12 @@ local function buildMenuItems()
         local format_name = zahlenFormat == 1 and "Wurzel/Bruch" or zahlenFormat == 2 and "Bruch" or "Dezimal"
         return {"1. Raster aendern (Aktuell: "..string.format("%.4g %s", display_length(raster), length_unit)..")", "2. Standarddicke t (Aktuell: "..string.format("%.4g %s", display_length(default_t), length_unit)..")", "3. KOS Ebene ("..a..b..")", "4. KOS drehen", "5. KOS Groesse (Aktuell: "..kos_size..")", "6. Zahlenformat ("..format_name..")", "7. Kraft-Einheit ("..force_unit..")", "8. Laengen-Einheit ("..length_unit..")", "9. Moment-Einheit ("..moment_unit..")", "10. ξ Profilbeiwert (Aktuell: "..string.format("%.4g", torsion_xi)..")"}
     elseif menuPage == 9 then
+        local a, b = axes()
         return {"1. KOS in Schwerpunkt verschieben",
-                "2. FTM-Bezug (" .. (ftm_bezug == "kos" and "KOS-Ursprung" or "Schwerpunkt") .. ")",
-                "3. < Zurueck"}
+                "2. KOS entlang " .. a .. " verschieben (Δ" .. a .. " in " .. length_unit .. ": Eingabe)",
+                "3. KOS entlang " .. b .. " verschieben (Δ" .. b .. " in " .. length_unit .. ": Eingabe)",
+                "4. FTM-Bezug (" .. (ftm_bezug == "kos" and "KOS-Ursprung" or "Schwerpunkt") .. ")",
+                "5. < Zurueck"}
     elseif menuPage == 5 then
         return {"1. Querschnittswerte", "2. Einzelwerte-Tabelle", "3. σx-Berechnung", "4. Kernflaeche", "5. Schubspannung", "6. Schubmittelpunkt", "7. Verwölbung", "8. Schliessen"}
     elseif menuPage == 8 then
@@ -3834,6 +4052,24 @@ local function berechneKraftResultanten()
     return force_N, moment_a, moment_b
 end
 
+-- Biegemoment der eingezeichneten Querkraefte, deren Ebene um e entlang der Stabachse vom Schnitt
+-- entfernt ist: My = -e Fz, Mz = e Fy (im angezeigten KOS, (y, z, x) rechtshaendig). Intern
+-- (u, v wie y, z; Stabachse aus der Bildebene): M_u = -e F_v, M_v = e F_u. Das Ergebnis haengt nur
+-- vom Abstand ab, nicht davon, auf welcher Seite des Schnitts die Kraefte angreifen:
+--   Kraft am positiven Teil (Normale +x, Abstand +a):  M =  r x F  mit r = ( a, ...)
+--   Kraft am negativen Teil (Abstand -a):              M = -r x F  mit r = (-a, ...)
+-- In beiden Faellen ist der Querkraftanteil My = -a Fz, Mz = a Fy. Deshalb zaehlt |e|; ein
+-- vorzeichenbehaftetes x eingesetzt waere auf einer der beiden Seiten falsch.
+function sigmaEingabe.querkraftMomente(e)
+    local Mu, Mv = 0, 0
+    e = math.abs(e or 0)
+    for _, kraft in ipairs(kraefte) do
+        Mu = Mu - e * (tonumber(kraft.fb) or 0)
+        Mv = Mv + e * (tonumber(kraft.fa) or 0)
+    end
+    return Mu, Mv
+end
+
 local function finishSigmaCalculation(Mz_Nmm)
     local r = system_results
     local denominator = r.Iy * r.Iz - r.Iyz^2
@@ -3841,17 +4077,22 @@ local function finishSigmaCalculation(Mz_Nmm)
         return false
     end
     local force_N, force_Ma, force_Mb = berechneKraftResultanten()
+    local quer_Ma, quer_Mb = sigmaEingabe.querkraftMomente(sigmaEingabe.versatz)
     -- Eingegebene Momente beziehen sich auf das angezeigte KOS (y, z): ins interne (u, v) drehen.
     -- Momentenvektoren drehen sich wie Punkte (Drehung um die Stabachse).
     local Mu_in, Mv_in = coordinatesFromDisplay(sigma_My or 0, Mz_Nmm or 0)
     local total_N = (sigma_N or 0) + force_N
-    local total_Ma_Nmm = Mu_in + force_Ma
-    local total_Mb_Nmm = Mv_in + force_Mb
+    local total_Ma_Nmm = Mu_in + force_Ma + quer_Ma
+    local total_Mb_Nmm = Mv_in + force_Mb + quer_Mb
     sigma_results = berechneSigmaExtrema(total_N, total_Ma_Nmm, total_Mb_Nmm)
     if sigma_results then
         sigma_results.force_N = force_N
         sigma_results.force_Ma_Nmm = force_Ma
         sigma_results.force_Mb_Nmm = force_Mb
+        sigma_results.quer_Ma_Nmm = quer_Ma
+        sigma_results.quer_Mb_Nmm = quer_Mb
+        sigma_results.versatz = math.abs(sigmaEingabe.versatz or 0)
+        sigma_results.mit_querkraft = sigmaEingabe.hatQuerkraefte()
     end
     return sigma_results ~= nil
 end
@@ -3861,6 +4102,17 @@ local function openSigmaFromForces()
     sigma_oblique = true
     sigma_input_step, inputText = 0, ""
     sigma_results, sigma_scroll_y, sigma_table_scroll_y = nil, 0, 0
+    sigmaEingabe.versatz = 0
+    if sigmaEingabe.hatQuerkraefte() then
+        -- Querkraefte wirken erst mit ihrem Abstand zum Schnitt: nur diesen abfragen
+        qsMeldung = nil
+        sigmaEingabe.felder = { "x" }
+        sigma_input_step = 1
+        showResults, showTable, menuOpen = true, false, false
+        status = sigmaEingabe.aufforderung()
+        platform.window:invalidate()
+        return
+    end
     local success = finishSigmaCalculation(0)
     showResults, showTable, menuOpen = success, false, false
     status = "σx aus den eingetragenen Kraeften berechnet."
@@ -4146,7 +4398,7 @@ function on.paint(gc)
     end
     if woelb.step > 0 then
         gc:setColorRGB(255, 255, 255); gc:fillRect(0, 0, w, h)
-        drawWoelbInput(gc, w, h)
+        woelb.zeichneDialog(gc, w, h)
         return
     end
     gc:setColorRGB(255, 255, 255)
@@ -4260,7 +4512,7 @@ function on.paint(gc)
     end
 
     drawShearProfile(gc)
-    drawWoelbProfile(gc)
+    woelb.zeichne(gc)
 
     if show_shear_center and system_results and #duenn_elemente > 0 then
         local center = berechneSchubmittelpunkt()
@@ -4457,7 +4709,7 @@ end
 function on.mouseUp(x, y)
     if menuOpen then return end
     local u, v = fromScreen(x, y)
-    u, v = snap(u), snap(v)
+    u, v = fange(u, v)   -- Raster plus Punkte der vorhandenen Elemente
     
     if mode == "idle" then
         if hover_type then
@@ -4573,7 +4825,7 @@ function on.charIn(c)
 
     if menuOpen and menuPage ~= 3 then
         local menu_number = tonumber(c)
-        local menu_count = menuPage == 1 and 9 or menuPage == 2 and 5 or menuPage == 5 and 8 or menuPage == 6 and 4 or menuPage == 7 and (#kraefte > 0 and 4 or 3) or menuPage == 8 and 2 or menuPage == 9 and 3 or menuPage == 4 and 10 or 6
+        local menu_count = menuPage == 1 and 9 or menuPage == 2 and 5 or menuPage == 5 and 8 or menuPage == 6 and 4 or menuPage == 7 and (#kraefte > 0 and 4 or 3) or menuPage == 8 and 2 or menuPage == 9 and 5 or menuPage == 4 and 10 or 6
         if menu_number and menu_number >= 1 and menu_number <= menu_count then
             menuRow = menu_number
             on.enterKey()
@@ -4648,6 +4900,16 @@ function on.charIn(c)
 end
 
 function on.arrowKey(k)
+    if showTable and sigma_results then
+        -- σx-Tabelle und Verteilung: hoch/runter scrollt, begrenzt auf den Inhalt
+        local h = platform.window:height()
+        local max_y = math.max(0, (sigmaEingabe.inhaltHoehe or 0) - (h - 24) + 8)
+        if k == "up" then sigma_scroll_y = math.max(0, sigma_scroll_y - 20)
+        elseif k == "down" then sigma_scroll_y = math.min(max_y, sigma_scroll_y + 20)
+        end
+        platform.window:invalidate()
+        return
+    end
     if showTable then
         if k == "left" then table_scroll_x = table_scroll_x + 20
         elseif k == "right" then table_scroll_x = table_scroll_x - 20
@@ -4681,7 +4943,7 @@ function on.arrowKey(k)
         elseif menuPage == 6 then n = 4
         elseif menuPage == 7 then n = #kraefte > 0 and 4 or 3
         elseif menuPage == 8 then n = 2
-        elseif menuPage == 9 then n = 3
+        elseif menuPage == 9 then n = 5
         elseif menuPage == 4 then n = 10
         elseif menuPage == 3 then
             local elem = (selected_type == "massiv") and massiv_elemente[selected_idx] or (selected_type == "duenn" and duenn_elemente[selected_idx] or kraefte[selected_idx])
@@ -4713,25 +4975,22 @@ local function enterSigmaInput()
         platform.window:invalidate()
         return true
     end
-    if sigma_input_step == 1 then
-        sigma_N, sigma_input_step, inputText = input_to_internal(val, force_unit), 2, ""
-        local moment_a = axes()
-        status = "M" .. moment_a .. " in " .. moment_unit .. " eingeben, dann Enter."
-    elseif sigma_input_step == 2 then
-        sigma_My, inputText = input_to_internal(val, moment_unit), ""
-        if sigma_oblique then
-            sigma_input_step = 3
-            local _, moment_b = axes()
-            status = "M" .. moment_b .. " in " .. moment_unit .. " eingeben, dann Enter."
-        else
-            sigma_input_step = 0
-            if finishSigmaCalculation(0) then status = "Normale σx-Minimum und -Maximum berechnet."
-            else meldung("σx nicht berechenbar: Nenner ist 0.", "Spannung nicht berechnet", true) end
-        end
+    local feld = sigmaEingabe.felder[sigma_input_step]
+    if feld == "N" then sigma_N = input_to_internal(val, force_unit)
+    elseif feld == "Ma" then sigma_My = input_to_internal(val, moment_unit)
+    elseif feld == "Mb" then sigma_Mz = input_to_internal(val, moment_unit)
+    else sigmaEingabe.versatz = math.abs(input_to_internal(val, length_unit)) end
+    inputText = ""
+    if sigma_input_step < #sigmaEingabe.felder then
+        sigma_input_step = sigma_input_step + 1
+        status = sigmaEingabe.aufforderung()
     else
-        sigma_Mz, sigma_input_step, inputText = input_to_internal(val, moment_unit), 0, ""
-        if finishSigmaCalculation(sigma_Mz) then status = "Schiefe σx-Minimum und -Maximum berechnet."
-        else meldung("σx nicht berechenbar: Nenner ist 0.", "Spannung nicht berechnet", true) end
+        sigma_input_step = 0
+        if finishSigmaCalculation(sigma_oblique and (sigma_Mz or 0) or 0) then
+            status = sigma_oblique and "Schiefe σx-Minimum und -Maximum berechnet." or "Normale σx-Minimum und -Maximum berechnet."
+        else
+            meldung("σx nicht berechenbar: Nenner ist 0.", "Spannung nicht berechnet", true)
+        end
     end
     platform.window:invalidate()
     return true
@@ -4756,6 +5015,15 @@ local function enterMenuInput()
             torsion_xi = math.max(0, val)
             berechneSystem()
             status = "ξ gesetzt auf " .. torsion_xi
+        elseif menuPage == 9 and (menuRow == 2 or menuRow == 3) then
+            -- Verschiebung entlang der angezeigten Achse, intern umgerechnet (KOS-Drehung)
+            local d = input_to_internal(val, length_unit)
+            local da, db = (menuRow == 2) and d or 0, (menuRow == 3) and d or 0
+            local a, b = axes()
+            if verschiebeKOS(coordinatesFromDisplay(da, db)) then
+                status = "KOS um " .. string.format("%.6g", val) .. " " .. length_unit .. " entlang "
+                    .. ((menuRow == 2) and a or b) .. " verschoben."
+            end
         elseif menuPage == 3 then
             local elem = selected_type == "massiv" and massiv_elemente[selected_idx] or selected_type == "duenn" and duenn_elemente[selected_idx] or kraefte[selected_idx]
             if selected_type == "kraft" then
@@ -4802,7 +5070,7 @@ local function enterMenuAction()
             show_shear_center = not show_shear_center
             menuOpen = false
             status = show_shear_center and "Schubmittelpunkt angezeigt. T: Momententabelle." or "Schubmittelpunkt ausgeblendet."
-        elseif menuRow == 7 then openWoelbInput()
+        elseif menuRow == 7 then woelb.oeffnen()
         elseif menuRow == 8 then menuOpen = false end
     elseif menuPage == 8 then
         if menuRow == 1 then
@@ -4844,10 +5112,12 @@ local function enterMenuAction()
         if menuRow == 1 then
             verschiebeKOSZumSchwerpunkt()
             menuOpen = false
-        elseif menuRow == 2 then
+        elseif menuRow == 2 or menuRow == 3 then
+            inputMode, inputText = true, ""
+        elseif menuRow == 4 then
             ftm_bezug = (ftm_bezug == "kos") and "schwerpunkt" or "kos"
             status = "Traegheitsmomente bezogen auf " .. (ftm_bezug == "kos" and "den KOS-Ursprung" or "den Schwerpunkt")
-        elseif menuRow == 3 then menuPage, menuRow = 4, 1 end
+        elseif menuRow == 5 then menuPage, menuRow = 4, 1 end
     elseif menuPage == 3 then
         local elem = selected_type == "massiv" and massiv_elemente[selected_idx] or selected_type == "duenn" and duenn_elemente[selected_idx] or kraefte[selected_idx]
         if not elem then
@@ -4878,7 +5148,7 @@ function on.enterKey()
     if sigma_input_step > 0 then enterSigmaInput(); return end
     if shear_input_step > 0 then enterShearInput(); return end
     if torsion_input_step > 0 then enterTorsionInput(); platform.window:invalidate(); return end
-    if woelb.step > 0 then enterWoelbInput(); return end
+    if woelb.step > 0 then woelb.eingabe(); return end
     -- Wie im Tragwerksskript: Hovern genuegt, vorher anklicken ist nicht noetig.
     -- Liegt der Zeiger auf einem Objekt, gilt dieses; sonst das zuletzt ausgewaehlte.
     if not menuOpen and mode == "idle" and (hover_idx or selected_idx) then
@@ -4927,6 +5197,7 @@ function on.escapeKey()
     escape_clear_pending = true
     inputMode, inputText = false, ""
     sigma_input_step, sigma_N, sigma_My, sigma_Mz = 0, nil, nil, nil
+    sigmaEingabe.versatz = 0
     shear_input_step, shear_Qa, shear_Qb, shear_results = 0, nil, nil, nil
     shear_external_input = false
     show_shear_center, show_shear_moment_table, shear_moment_table = false, false, nil

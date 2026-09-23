@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.28 (MiKTeX 25.12) (preloaded format=pdflatex 2026.9.20)  22 SEP 2026 23:47
+This is pdfTeX, Version 3.141592653-2.6-1.40.28 (MiKTeX 25.12) (preloaded format=pdflatex 2026.9.20)  23 SEP 2026 12:20
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -817,80 +817,79 @@ Overfull \hbox (5.56567pt too wide) in alignment at lines 624--630
  [] [] 
  []
 
-[15] [16]
-Overfull \hbox (5.56567pt too wide) in alignment at lines 706--709
+[15] [16] [17]
+Overfull \hbox (5.56567pt too wide) in alignment at lines 752--755
  [] [] 
  []
 
 
-Overfull \hbox (5.56567pt too wide) in alignment at lines 709--718
+Overfull \hbox (5.56567pt too wide) in alignment at lines 755--764
  [] [] 
  []
 
-[17] [18] [19]
-Overfull \hbox (0.95183pt too wide) in alignment at lines 859--862
+[18] [19] [20]
+Overfull \hbox (0.95183pt too wide) in alignment at lines 905--908
  [] [] 
  []
 
 
-Underfull \hbox (badness 6758) in paragraph at lines 864--864
+Underfull \hbox (badness 6758) in paragraph at lines 910--910
 []|\T1/cmr/m/n/10.95 Schub: Haupt-ach-sen nicht par-al-lel
  []
 
 
-Overfull \hbox (0.95183pt too wide) in alignment at lines 862--890
+Overfull \hbox (0.95183pt too wide) in alignment at lines 908--936
  [] [] 
  []
 
-ignored error: Infinite glue shrinkage found in box being split [20] [21]
-Overfull \hbox (5.56567pt too wide) in alignment at lines 951--954
- [] [] 
- []
-
-
-Overfull \hbox (5.56567pt too wide) in alignment at lines 954--968
- [] [] 
- []
-
-[22]
-ignored error: Infinite glue shrinkage found in box being split [23]
-Overfull \hbox (5.56567pt too wide) in alignment at lines 1056--1059
+[21] [22]
+Overfull \hbox (5.56567pt too wide) in alignment at lines 997--1000
  [] [] 
  []
 
 
-Overfull \hbox (5.56567pt too wide) in alignment at lines 1059--1077
+Overfull \hbox (5.56567pt too wide) in alignment at lines 1000--1014
  [] [] 
  []
 
-ignored error: Infinite glue shrinkage found in box being split [24]
-Overfull \hbox (5.56567pt too wide) in alignment at lines 1081--1084
+[23] [24]
+Overfull \hbox (5.56567pt too wide) in alignment at lines 1124--1127
  [] [] 
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1096--1096
+Overfull \hbox (5.56567pt too wide) in alignment at lines 1127--1145
+ [] [] 
+ []
+
+
+Overfull \hbox (5.56567pt too wide) in alignment at lines 1149--1152
+ [] [] 
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 1164--1164
 []|\T1/cmss/bx/n/10.95 Backspace\T1/cmr/m/n/10.95 ,
  []
 
 
-Overfull \hbox (5.56567pt too wide) in alignment at lines 1084--1098
+Overfull \hbox (5.56567pt too wide) in alignment at lines 1152--1166
+ [] [] 
+ []
+
+[25]
+Overfull \hbox (5.56567pt too wide) in alignment at lines 1170--1173
  [] [] 
  []
 
 
-Overfull \hbox (5.56567pt too wide) in alignment at lines 1102--1105
- [] [] 
- []
-
-
-Overfull \hbox (5.56567pt too wide) in alignment at lines 1105--1116
+Overfull \hbox (5.56567pt too wide) in alignment at lines 1173--1184
  [] [] 
  []
 
 LaTeX Font Info:    Font shape `T1/cmtt/bx/n' in size <10.95> not available
-(Font)              Font shape `T1/cmtt/m/n' tried instead on input line 1122.
-[25] [26] (Anleitung.aux)
+(Font)              Font shape `T1/cmtt/m/n' tried instead on input line 1190.
+[26] (Anleitung.aux)
  ***********
 LaTeX2e <2025-11-01>
 L3 programming layer <2025-12-24>
@@ -930,9 +929,9 @@ ams/MiKTeX/fonts/type1/public/amsfonts/cm/cmr10.pfb><C:/Users/benja/AppData/Loc
 al/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmr8.pfb><C:/Users/benja/AppD
 ata/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmsy10.pfb><C:/Users/b
 enja/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmsy8.pfb>
-Output written on Anleitung.pdf (26 pages, 413805 bytes).
+Output written on Anleitung.pdf (26 pages, 421773 bytes).
 PDF statistics:
- 1058 PDF objects out of 1200 (max. 8388607)
+ 1062 PDF objects out of 1200 (max. 8388607)
  114 named destinations out of 1000 (max. 500000)
  401 words of extra memory for PDF output out of 10000 (max. 10000000)
 

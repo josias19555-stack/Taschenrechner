@@ -66,6 +66,10 @@ Sie beschreibt zu jeder Funktion: **Zweck**, **Moeglichkeiten** und **Grenzen/be
 - **Zweck:** Rundet eine Koordinate auf das aktuelle Raster (`raster`).
 - **Grenzen:** Symmetrisches Runden um 0; kein adaptives Raster.
 
+### `fange(u, v)`
+- **Zweck:** `fange` sammelt alle `points` der Massiv- und Duennwand-Elemente, beim Rechteck zusaetzlich die beiden abgeleiteten Ecken, und die Punkte in `pending`. `fange` nimmt von Rasterpunkt (`snap`) und Fangpunkten den naechsten zum Klick; `on.mouseUp` benutzt `fange` statt `snap`.
+- **Grenzen:** Keine Schnitt- oder Mittelpunkte von Kanten, keine Kraftpunkte; die Liste wird je Klick neu aufgebaut (bei den ueblichen Elementzahlen vernachlaessigbar).
+
 ### `coordinatesForDisplay(u, v)` / `coordinatesFromDisplay(u, v)`
 - **Zweck:** Zentrale Vorzeichen-/Achsentransformation zwischen internen (u,v) und angezeigten Koordinaten je nach `rotation`.
 - **Moeglichkeiten:** Wird fuer alle Anzeige-Texte, Kraftkomponenten, Momentendichten und den Schubmittelpunkt konsistent verwendet.
@@ -198,12 +202,12 @@ werden nur mehrzellige Profile und die Torsion massiver Querschnitte.
 - **Zweck:** Torsionsmoment der Kraefte in der Querschnittsebene um den **Schubmittelpunkt** (`M_x = Δu F_v - Δv F_u`), danach `berechneTorsionsResultat`.
 - **Grenzen:** Ist die benoetigte Koordinate des Schubmittelpunkts statisch unbestimmt, wird nicht gerechnet (Meldung).
 
-### `berechneVerwoelbung(M, G)`
+### `woelb.berechne(M, G)`
 - **Zweck:** Verwoelbung u_x(s) duennwandiger Profile nach Formelsammlung Kap. 6: `u_x = Int [MT/(2 G A_m h) - r_perp theta] ds + c`, `theta = MT/(G I_T)`. Pol ist der Schubmittelpunkt; `r_perp = (u-u_M) t_v - (v-v_M) t_u` (Kreuzprodukt, positiv im Umlaufsinn des Bredt-Schubflusses, `ccw_dir`). Geschlossen: `I_T` nach Bredt und Bredt-Anteil `sign * qT/(G h)` je Zellkante; offen: `I_T = r.It` und kein Bredt-Anteil.
 - **Ablauf:** Graph aus `duennGraph(ys, zs)`, Breitensuche ab einem Knoten auf einer Symmetrieachse (sonst Knoten 1); je Kante geschlossene Integration (`u(s) = u0 + bredt s - theta (r1 s + (r2-r1) s^2/(2L))`), Stuetzstellen wie beim Schub (gerade Intervallzahl), nicht zusammenhaengende Teile bekommen eigene Startknoten. `c` aus `Int u h ds = 0` mit Simpson je Kante. Rueckgabe u. a. `samples` (mit `ux`, `r_perp`), `paths`, `theta`, `It`, `Am`, `closed`, `pol`, `max_abs/max_u/max_v`, `schluss` (Probe: Umlauf der Zelle schliesst).
 - **Grenzen:** `nil, fehler` fuer massiv/gemischt, Kreisboegen, mehrzellig, `I_T = 0`, unbestimmten Schubmittelpunkt. Keine Woelbkrafttorsion.
 
-### `openWoelbInput()` / `enterWoelbInput()`
+### `woelb.oeffnen()` / `woelb.eingabe()`
 - **Zweck:** Dialog unter `b` -> 7: Schritt 1 `MT` in `moment_unit` (vorbelegt mit `berechneKraftTorsion().M`, falls Kraefte eingetragen sind), Schritt 2 `G` in N/mm^2 (vorbelegt 81000). Ergebnis in `woelb.results`, Ansicht `woelb.visible`; der Schubverlauf wird ausgeblendet. Offenes Profil: Warnung "nicht in der Formelsammlung".
 - **Grenzen:** `woelb.M` wird bewusst nicht in `torsion_M`/`torsion_results` uebernommen; `Esc` schliesst Dialog bzw. Ansicht und verwirft `woelb.results`, `berechneSystem()` ebenfalls (Geometrie geaendert).
 
@@ -218,6 +222,10 @@ werden nur mehrzellige Profile und die Torsion massiver Querschnitte.
 - **Zweck:** Zentrale Funktion, die nach jeder Geometrieaenderung aufgerufen wird: aggregiert alle Massiv- und Duennwand-Elemente zu `system_results` (Gesamtflaeche, Schwerpunkt `ys/zs`, `Iy/Iz/Iyz` bezogen auf den Schwerpunkt, Haupttraegheitsmomente `I1/I2` + Winkel, Widerstandsmomente `Wu/Wv`, offene/geschlossene Torsionskonstante).
 - **Moeglichkeiten:** Speichert je Element zusaetzlich lokale Hauptachsen (`I_eta/I_zeta/alpha`) fuer die Einzelwerte-Tabelle. Ruft am Ende automatisch `berechneKraftTorsion()` und `kern_build()` (falls Kernflaechen-Modus aktiv) auf.
 - **Grenzen:** `Iy/Iz/Iyz` in `system_results` sind **immer schwerpunktbezogen** (`IyS/IzS/IyzS`); die am aktuellen KOS-Ursprung dargestellten Werte in der Ergebnisspalte werden erst in `drawSpreadsheet` per Steiner-Rueckrechnung gebildet. Bei Flaeche `≈ 0` wird `system_results = nil` gesetzt (keine Teilergebnisse).
+
+### `verschiebeKOS(du, dv)`
+- **Zweck:** Verschiebt den KOS-Ursprung um `(du, dv)` im internen KOS: alle Element-, `pending`- und Kraftpunkte um `-(du, dv)` (gemeinsame Punkte nur einmal), dazu `ox, oy` um `(du*scale, -dv*scale)`, damit der Querschnitt auf dem Bildschirm stehen bleibt. Danach `berechneSystem()`. Aufgerufen aus dem Obermenue Seite 2, Zeilen 2/3 (Eingabe in `length_unit`, Richtung ueber `coordinatesFromDisplay`).
+- **Grenzen:** Ohne Elemente und Kraefte nur ein Hinweis. `verschiebeKOSZumSchwerpunkt` fuehrt die Ansicht nicht mit (dort springt der Querschnitt zum KOS).
 
 ### `verschiebeKOSZumSchwerpunkt()`
 - **Zweck:** Verschiebt alle Punkte, Kraefte und damit den Koordinatenursprung in den aktuellen Schwerpunkt.
@@ -236,16 +244,27 @@ werden nur mehrzellige Profile und die Torsion massiver Querschnitte.
  **Moeglichkeiten:** Verarbeitet Momente intern einheitlich in `Nmm`; die Eingabemaske rechnet den Wert genau einmal mit der aktuell angezeigten Momenteneinheit (`Nm`, `Nmm`, `kNm` usw.) um. Die Ergebnisanzeige rechnet den internen Wert anschließend in die gewählte Anzeigeeinheit zurück.
 
 ### `finishSigmaCalculation(Mz_Nmm)`
- **Moeglichkeiten:** Verwendet die bereits einmalig in `Nmm` umgerechneten Eingaben und addiert die aus äußeren Kräften berechneten Momente ebenfalls in `Nmm`, ohne eine zweite Einheitenumrechnung.
+ **Moeglichkeiten:** Verwendet die bereits einmalig in `Nmm` umgerechneten Eingaben und addiert die aus äußeren Kräften berechneten Momente ebenfalls in `Nmm`, ohne eine zweite Einheitenumrechnung: Normalkraftanteil aus `berechneKraftResultanten`, Querkraftanteil aus `sigmaEingabe.querkraftMomente(sigmaEingabe.versatz)`. Speichert zusaetzlich `quer_Ma_Nmm`, `quer_Mb_Nmm`, `versatz`, `mit_querkraft` in `sigma_results`.
+
+### `sigmaEingabe` (Tabelle) mit `querkraftMomente(e)`, `hatQuerkraefte()`, `stabachse()`, `aufforderung()`
+- **Zweck:** Zustand der σx-Maske (`felder` = Liste aus `"N"`, `"Ma"`, `"Mb"`, `"x"`; `versatz` in mm) und ihre Hilfen. `querkraftMomente(e)`: `M_u = -|e| Σ F_v`, `M_v = |e| Σ F_u` (intern; im angezeigten KOS `My = -Δx Fz`, `Mz = Δx Fy`), unabhaengig von Drehung und Ebene, weil beide Seiten gleich gedreht werden. `hatQuerkraefte` entscheidet, ob das Feld `Δx` gefragt wird; `stabachse` liefert den Namen der Achse senkrecht zur Querschnittsebene (fuer `yz` also `x`).
+- **Grenzen:** Ein Versatz fuer alle Kraefte (eine Kraftebene). Die Seite des Schnitts spielt fuer den Querkraftanteil keine Rolle (Beweis im Kommentar und in der Feature-Doku); Normalkraft- und Querkraftvorzeichen der Schubrechnung gehen weiter davon aus, dass die Kraefte am positiven Teil angreifen.
+
+### `sigmaEingabe.kennwerte(sr)` / `lineareForm(...)` / `nulllinie(...)` / `zusatzzeilen(sr)`
+- **Zweck:** Erweiterung der σx-Ergebnistabelle. `kennwerte` bildet aus der internen Spannungsebene (`s_u`, `s_v` wie in `drawSigmaOverlay`) den Gradienten im angezeigten KOS (`cy`, `cz` ueber `coordinatesForDisplay`), die Konstante `c0` am KOS-Ursprung, den Hauptachsenwinkel `phi = alphaForDisplay(alpha)`, `I_eta`/`I_zeta` (Formelsammlung 1.3), die Momente `M_eta`/`M_zeta` (wie Koordinaten gedreht) und den Gradienten im HAS (`c_eta`, `c_zeta`). `lineareForm` schreibt `a + b·x1 - c·x2` mit vier Stellen, `nulllinie` loest `a + b x1 + c x2 = 0` nach `x2` (oder `x1 = n`). `zusatzzeilen` liefert die Zeilen fuer die Tabelle (Zeilentypen `{Name, Wert}`, `{kopf = ...}`, `{voll = ...}`); Koeffizienten werden in die Laengeneinheit der Anzeige umgerechnet.
+- **Grenzen:** Winkel `phi` gilt fuer `I_eta = I_1`; bei `I_1 = I_2` ist jede Richtung Hauptachse (dann `phi = 0`).
 
 ### `openSigmaFromForces()`
-- **Zweck:** Direkte σx-Auswertung ausschliesslich aus den bereits platzierten Kraeften, ohne manuelle Eingabemaske (analog zur Schubspannungs-Kraftauswertung).
+- **Zweck:** Direkte σx-Auswertung ausschliesslich aus den bereits platzierten Kraeften (analog zur Schubspannungs-Kraftauswertung). Haben die Kraefte eine Querkomponente, fragt eine Maske nur `Δx` ab, sonst wird sofort gerechnet.
 - **Grenzen:** Setzt `sigma_N/My/Mz` auf 0 und nutzt ausschliesslich die Kraft-Resultierenden; wird nur angeboten, wenn `#kraefte > 0`.
 
 ### `openSigmaInput(oblique)` / `enterSigmaInput()`
-- **Zweck:** Mehrstufige manuelle Eingabemaske fuer `N`, `My` (und bei `oblique=true` zusaetzlich `Mz`).
+- **Zweck:** Mehrstufige manuelle Eingabemaske fuer `N`, `My` (und bei `oblique=true` zusaetzlich `Mz`), bei eingezeichneten Querkraeften zuletzt `Δx` (Betrag). `drawSigmaInput` baut die Maske aus `sigmaEingabe.felder` (28 px Zeilenabstand, Hinweiszeile fuer `Δx`), damit auch vier Felder auf 212 px passen.
 - **Moeglichkeiten:** Bereits bestaetigte Werte werden im Eingabedialog wieder in der aktuell eingestellten Anzeigeeinheit dargestellt; die interne Umrechnung in `N`/`Nmm` bleibt davon getrennt.
 - **Grenzen:** Reine Texteingabe ueber `evaluate_input`; keine Bereichspruefung der eingegebenen Werte.
+
+### σx-Tabelle scrollen (`on.arrowKey`)
+- **Zweck:** Bei `showTable` mit `sigma_results` scrollen hoch/runter `sigma_scroll_y` in 20-px-Schritten, begrenzt auf `sigmaEingabe.inhaltHoehe` (Tabelle + Verteilung, beim Zeichnen gemerkt). `drawSigmaDistribution` beginnt unter `sigmaEingabe.tabellenHoehe` statt fest nach 13 Zeilen.
 
 ### `kern_dual(nu, nv, d)`
 - **Zweck:** Dualitaetsbeziehung: wandelt eine neutrale Faser (Gerade `nu*(y-ys)+nv*(z-zs)=d`) in den zugehoerigen Kernpunkt um (Basis der Kernflaechen-Konstruktion).
@@ -284,14 +303,14 @@ werden nur mehrzellige Profile und die Torsion massiver Querschnitte.
 - **Zweck:** Zeichnen die jeweiligen mehrstufigen Texteingabemasken fuer σx-, Schub- und Torsionsberechnung.
 
 ### `verlaufAbschnitte(quelle)` / `drawVerlauf(gc, quelle)` / `drawLaufrichtung(gc, paths, hovered, korrigiert)`
-- **Zweck:** Gemeinsame Verlaufsdarstellung fuer Schub und Verwoelbung. `quelle` = `{ id, key, samples, wert(sample), anzeige(wert), titel, hovered, maximum, farbe }`. `verlaufAbschnitte` gruppiert die Stuetzstellen nach `path_id:segment`, sortiert nach `s`, wertet `wert` je Stuetzstelle einmal aus und merkt den Pixelversatz normal zur Wand (`fx, fy`, 36 px fuer den betragsgroessten Wert); der Cache (`verlauf_cache`) haengt an `id`, `key`, `rotation` und `hovered`. `drawVerlauf` rechnet je Frame nur `toScreen`, duennt auf etwa einen Punkt je 1,5 px aus und zeichnet **eine Polylinie je Abschnitt**, dazu Wandverbinder, Endwerte, min/max (aus allen Stuetzstellen). `drawLaufrichtung` zeichnet Startmarken (Start / Start (Symmetrieachse) / Schnitt / Schnitt (q0 aus Verträglichkeit) / Schnitt (q0 offen)) und Laufrichtungspfeile.
+- **Zweck:** Gemeinsame Verlaufsdarstellung fuer Schub und Verwoelbung. `quelle` = `{ id, key, samples, wert(sample), anzeige(wert), titel, hovered, maximum, farbe }`. `verlaufAbschnitte` gruppiert die Stuetzstellen nach `path_id:segment`, sortiert nach `s`, wertet `wert` je Stuetzstelle einmal aus und merkt den Pixelversatz normal zur Wand (`fx, fy`, 36 px fuer den betragsgroessten Wert); der Cache (`verlauf.cache`, Breite `verlauf.breite`) haengt an `id`, `key`, `rotation` und `hovered`. `drawVerlauf` rechnet je Frame nur `toScreen`, duennt auf etwa einen Punkt je 1,5 px aus und zeichnet **eine Polylinie je Abschnitt**, dazu Wandverbinder, Endwerte, min/max (aus allen Stuetzstellen). `drawLaufrichtung` zeichnet Startmarken (Start / Start (Symmetrieachse) / Schnitt / Schnitt (q0 aus Verträglichkeit) / Schnitt (q0 offen)) und Laufrichtungspfeile.
 - **Grenzen:** Diagrammbreite ist ein fester Pixelwert; die Ausduennung betrifft nur die gezeichneten Punkte, nicht die Rechnung.
 
 ### `drawShearProfileLegacy(gc)` / `drawShearProfile(gc)`
 - **Zweck:** Baut aus `shear_results` die `quelle` fuer `drawVerlauf` (Titel und `profile_value` je `shear_view_mode` 1–10, Anzeigeeinheit) und ruft `drawLaufrichtung`. `drawShearProfile` bleibt der Wrapper aus `on.paint`.
 - **Grenzen:** `key` enthaelt `shear_view_mode`, `torsion_results` und `max_tau_total`, damit Torsionsaenderungen den Cache erneuern.
 
-### `drawWoelbInput(gc, w, h)` / `drawWoelbProfile(gc)`
+### `woelb.zeichneDialog(gc, w, h)` / `woelb.zeichne(gc)`
 - **Zweck:** Eingabemaske (MT, G) und Verwoelbungsansicht: `drawVerlauf` mit `wert = ux` in Gruen, dazu der Pol (Schubmittelpunkt) mit MT als Drehpfeil (gegen den Uhrzeigersinn fuer MT > 0, wie der Bredt-Schubfluss) und eine Fusszeile mit der verwendeten Formel. Kraefte werden in dieser Ansicht nicht gezeichnet.
 - **Grenzen:** Nur sichtbar, solange `woelb.visible`; `Esc` beendet die Ansicht.
 
@@ -341,7 +360,7 @@ werden nur mehrzellige Profile und die Torsion massiver Querschnitte.
 
 ## 9. Menü- & Interaktionslogik
 
-### `ftm_bezug` (Obermenue Seite 2, `FTM-Bezug`)
+### `ftm_bezug` (Obermenue Seite 2, Zeile 4 `FTM-Bezug`)
 - **Zweck:** `"schwerpunkt"` (Standard) oder `"kos"`. Steuert die Ergebnisliste (`I_y,S` bzw. `I_y (KOS)` aus `IyS_d` bzw. `IyS_d + A*z_s^2`) und die Einzelwerte-Tabelle (Steiner-Anteile `delta = Element - Bezug`, Gesamtwerte, Ueberschrift). Umschalten ueber `menuPage 9, Zeile 2`.
 
 ### `loescheAllesQS()` / `on.clearKey()` / `qsLoeschFrage`
@@ -399,6 +418,9 @@ werden nur mehrzellige Profile und die Torsion massiver Querschnitte.
 ---
 
 ## 10. Bekannte projektweite Einschraenkungen (Kurzuebersicht)
+
+- **Lua-Grenze von 200 lokalen Variablen im Hauptblock:** Neue Hilfsfunktionen werden deshalb in Tabellen gebuendelt (`sigmaEingabe.*`, `woelb.*`, `verlauf.*`) statt als eigene `local function`. Stand: 190 Top-Level-Locals.
+
 
 - **Mehrzellige geschlossene Duennwandprofile:** nicht unterstuetzt (nur eine Zelle wird ausgewertet).
 - **Unsymmetrische geschlossene Zellen:** Schubfluss-Konstante `q0` nicht exakt bestimmt; Schubmittelpunkt faellt auf Schwerpunkt-Naeherung zurueck.
