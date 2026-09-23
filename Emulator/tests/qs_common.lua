@@ -22,17 +22,25 @@ M.texte = {}
 M.pos = {}
 M.zaehler = { linien = 0, polylinien = 0, polypunkte = 0 }
 function M.zaehlerReset() M.zaehler = { linien = 0, polylinien = 0, polypunkte = 0 } end
+-- Textbreite abhaengig von der eingestellten Schrift (etwas grosszuegiger als auf dem Rechner,
+-- damit ein Layout, das hier passt, dort sicher passt)
+M.schrift = { stil = 'r', groesse = 10 }
+local function utf8len(s) local n = 0; for i = 1, #tostring(s) do local b = tostring(s):byte(i); if b < 128 or b > 191 then n = n + 1 end end; return n end
+function M.breite(text) return utf8len(text) * M.schrift.groesse * ((M.schrift.stil == 'b') and 0.66 or 0.62) end
 M.gc = setmetatable({}, { __index = function(_, k)
     if k == 'drawString' then return function(_, text, x, y)
         M.texte[#M.texte + 1] = tostring(text)
-        M.pos[#M.pos + 1] = { t = tostring(text), x = x, y = y }
+        M.pos[#M.pos + 1] = { t = tostring(text), x = x, y = y, w = M.breite(text) }
+    end end
+    if k == 'setFont' then return function(_, _, stil, groesse)
+        M.schrift.stil, M.schrift.groesse = stil or 'r', groesse or 10
     end end
     if k == 'drawLine' then return function() M.zaehler.linien = M.zaehler.linien + 1 end end
     if k == 'drawPolyLine' then return function(_, pts)
         M.zaehler.polylinien = M.zaehler.polylinien + 1
         M.zaehler.polypunkte = M.zaehler.polypunkte + #pts / 2
     end end
-    if k == 'getStringWidth' then return function(_, text) return #tostring(text) * 6 end end
+    if k == 'getStringWidth' then return function(_, text) return M.breite(text) end end
     if k == 'getStringHeight' then return function() return 12 end end
     return function() end
 end })

@@ -1286,7 +1286,7 @@ fall('37 sigma-Tabelle: HAS und Gleichungen', function()
     wahr('neutrale Faser im HAS: zeta = -30', zeile('HAS: ζ') == 'HAS: ζ = -30', zeile('HAS: ζ'))
     wahr('M_eta = 10 Nm', zeile('M_η') == '10 Nm', zeile('M_η'))
     wahr('M_zeta = 0', zeile('M_ζ') == '0 Nm', zeile('M_ζ'))
-    wahr('KOS im Schwerpunkt: keine Zusatzzeile', zeile('     (KOS-Ursprung') == nil)
+    wahr('KOS im Schwerpunkt: keine Zusatzzeile', zeile('     (Schwerpunkt im KOS') == nil)
 
     -- KOS-Ursprung ausserhalb des Schwerpunkts: Konstante im KOS verschiebt sich, HAS bleibt
     T.reset()
@@ -1297,7 +1297,7 @@ fall('37 sigma-Tabelle: HAS und Gleichungen', function()
     wahr('KOS: sigma = 0.4167 - 0.4167 + 0.01389 z = 0.01389 z', zeile('KOS: σx') == 'KOS: σx = 0.01389·z', zeile('KOS: σx'))
     wahr('neutrale Faser im KOS: z = 0 (Unterkante)', zeile('KOS: z') == 'KOS: z = 0', zeile('KOS: z'))
     wahr('HAS unveraendert', zeile('HAS: σx') == 'HAS: σx = 0.4167 + 0.01389·ζ', zeile('HAS: σx'))
-    wahr('Hinweis auf den Schwerpunkt', zeile('     (KOS-Ursprung') ~= nil)
+    wahr('Hinweis auf den Schwerpunkt', zeile('     (Schwerpunkt im KOS') ~= nil)
 
     -- unsymmetrisches L: Gegenprobe mit der Lehrbuchform im HAS, alle vier KOS-Drehungen
     for _, rot in ipairs({ 0, 90, 180, 270 }) do
@@ -1348,8 +1348,7 @@ fall('37 sigma-Tabelle: HAS und Gleichungen', function()
         on.arrowKey('down')
     end
     wahr('neue Zeilen stehen in der Tabelle (nach dem Scrollen sichtbar)', y_tab ~= nil)
-    wahr('Verteilung beginnt unter der letzten Tabellenzeile', y_tab and (y_vert == nil or y_vert > y_tab),
-        tostring(y_vert) .. ' / ' .. tostring(y_tab))
+    wahr('keine Verteilungsgrafik mehr unter der Tabelle', y_vert == nil, tostring(y_vert))
     for _ = 1, 100 do on.arrowKey('up') end
     on.arrowKey('down'); on.arrowKey('down')
     zahl('zweimal runter: 40 px', Q.sigmaScroll(), 40)
@@ -1359,8 +1358,8 @@ fall('37 sigma-Tabelle: HAS und Gleichungen', function()
     T.texte, T.pos = {}, {}
     Q.paint(T.gc)
     local sichtbar = false
-    for _, e in ipairs(T.pos) do if e.t:find('σx(z_max)', 1, true) and e.y < 212 then sichtbar = true end end
-    wahr('ganz unten ist das Ende der Verteilung sichtbar', sichtbar)
+    for _, e in ipairs(T.pos) do if e.t:find('HAS: ζ', 1, true) and e.y < 212 then sichtbar = true end end
+    wahr('ganz unten ist die letzte Tabellenzeile sichtbar', sichtbar)
     for _ = 1, 100 do on.arrowKey('up') end
     zahl('wieder oben', Q.sigmaScroll(), 0)
     Q.sigmaTabelleZeigen(false)
@@ -1460,6 +1459,47 @@ fall('39 Hinweis einheitliche Dicke', function()
     T.reset()
     T.massiv({ type = 'rect', points = { P(0, 0), P(4, 6) } }); T.rechne()
     wahr('nur massiv: kein Hinweis', drueckeE() == '')
+end)
+
+fall('40 sigma-Tabelle ohne Ueberlappung', function()
+    T.abschnitt('Zweite Spalte richtet sich nach der breitesten Beschriftung, nichts ragt hinaus')
+    -- alle langen Zeilen: KOS nicht im Schwerpunkt, Normal- und Querkraefte, Versatz
+    T.massiv({ type = 'rect', points = { P(0, 0), P(-40, -60) } })
+    Q.kraft({ u = -10, v = -20, fa = -500, fb = -1000, fc = 2000 })
+    T.rechne()
+    Q.menu(7, 3); on.enterKey()
+    for _, w in ipairs({ '-12345.678', '-98765.4321', '54321.987', '123.456' }) do Q.tippe(w) end
+    Q.sigmaTabelleZeigen(true)
+    local paare, ueberlappt, zu_breit, schlimmster = 0, 0, 0, ''
+    for schritt = 1, 60 do
+        T.texte, T.pos = {}, {}
+        Q.paint(T.gc)
+        -- nur Tabellenzeilen: alles oberhalb der Verteilungsgrafik
+        local grenze = math.huge
+        for _, e in ipairs(T.pos) do
+            if e.t:find('Verteilung', 1, true) then grenze = math.min(grenze, e.y) end
+        end
+        for _, a in ipairs(T.pos) do
+            if a.y < grenze - 1 then
+                if a.x + a.w > 318 then zu_breit = zu_breit + 1; schlimmster = a.t end
+                if math.abs(a.x - 12) < 0.5 then
+                    for _, b in ipairs(T.pos) do
+                        if b ~= a and math.abs(b.y - a.y) < 0.5 and b.x > a.x + 1 then
+                            paare = paare + 1
+                            if a.x + a.w > b.x - 2 then ueberlappt = ueberlappt + 1; schlimmster = a.t .. ' | ' .. b.t end
+                        end
+                    end
+                end
+            end
+        end
+        local vorher = Q.sigmaScroll()
+        on.arrowKey('down')
+        if Q.sigmaScroll() == vorher then break end
+    end
+    wahr('Zeilenpaare gefunden', paare > 30, paare)
+    wahr('keine Beschriftung ragt in die Werte-Spalte', ueberlappt == 0, ueberlappt .. ': ' .. schlimmster)
+    wahr('kein Text ragt ueber den Bildschirmrand', zu_breit == 0, zu_breit .. ': ' .. schlimmster)
+    Q.sigmaTabelleZeigen(false)
 end)
 
 T.ende('Querschnitt')

@@ -3170,7 +3170,7 @@ function sigmaEingabe.zusatzzeilen(sr)
         { voll = "HAS: " .. sigmaEingabe.nulllinie(k.n0, k.c_eta, k.c_zeta, "η", "ζ", tol_k, tol_n) },
     }
     if math.abs(k.ys) > 1e-9 * L or math.abs(k.zs) > 1e-9 * L then
-        table.insert(zeilen, 8, { voll = string.format("     (KOS-Ursprung nicht im Schwerpunkt: %s_S = %.4g, %s_S = %.4g)",
+        table.insert(zeilen, 8, { voll = string.format("     (Schwerpunkt im KOS: %s_S = %.4g, %s_S = %.4g)",
             a, display_length(k.ys), b, display_length(k.zs)) })
     end
     return zeilen, k
@@ -3215,10 +3215,29 @@ local function drawSigmaResultsTable(gc, w, h)
     end
     for _, zeile in ipairs(sigmaEingabe.zusatzzeilen(sigma_results)) do rows[#rows + 1] = zeile end
     local height = (2 + #rows) * row_height + 8
-    local split = left + math.min(108, width * 0.42)
-    -- Gesamthoehe (Tabelle + Verteilung) fuer das Scrollen mit den Pfeiltasten merken
+    -- Wertespalte hinter die breiteste Beschriftung setzen (Schrift 8); die breitesten Werte muessen
+    -- aber noch daneben passen. Was dann immer noch zu breit ist, wird kleiner geschrieben.
+    gc:setFont("sansserif", "r", 8)
+    local label_max, value_max = 0, 0
+    for _, row in ipairs(rows) do
+        if not row.kopf and not row.voll then
+            label_max = math.max(label_max, gc:getStringWidth(row[1]))
+            value_max = math.max(value_max, gc:getStringWidth(row[2]))
+        end
+    end
+    local split = left + math.max(60, math.min(label_max + 10, width - value_max - 10))
+    -- Hoehe fuer das Scrollen mit den Pfeiltasten merken
     sigmaEingabe.tabellenHoehe = height
-    sigmaEingabe.inhaltHoehe = height + 14 + 250 + 8
+    sigmaEingabe.inhaltHoehe = height + 8
+    -- Text in die verfuegbare Breite bringen: Schrift 8, notfalls 7 oder 6
+    local function schreibe(text, x, y, platz)
+        for _, g in ipairs({ 8, 7, 6 }) do
+            gc:setFont("sansserif", "r", g)
+            if gc:getStringWidth(text) <= platz then break end
+        end
+        gc:drawString(text, x, y)
+        gc:setFont("sansserif", "r", 8)
+    end
 
     local viewport_top, viewport_bottom = 0, math.max(0, h - 24)
     local visible_top = math.max(top, viewport_top)
@@ -3256,97 +3275,15 @@ local function drawSigmaResultsTable(gc, w, h)
             gc:setFont("sansserif", "r", 8)
             gc:setColorRGB(0, 0, 0)
         elseif row.voll then
-            if y - 12 >= viewport_top and y - 12 <= viewport_bottom then gc:drawString(row.voll, left + 4, y - 12) end
+            if y - 12 >= viewport_top and y - 12 <= viewport_bottom then schreibe(row.voll, left + 4, y - 12, width - 8) end
         else
             gc:drawLine(split, math.max(y - row_height, visible_top), split, math.min(y, visible_bottom))
             if y - 12 >= viewport_top and y - 12 <= viewport_bottom then
-                gc:drawString(row[1], left + 4, y - 12)
-                gc:drawString(row[2], split + 4, y - 12)
+                schreibe(row[1], left + 4, y - 12, split - left - 7)
+                schreibe(row[2], split + 4, y - 12, left + width - split - 7)
             end
         end
     end
-    gc:clipRect("reset")
-end
-
-local function drawSigmaDistribution(gc, w, h)
-    if not sigma_results then return end
-
-    local left = 8
-    local top = 8 - sigma_scroll_y + (sigmaEingabe.tabellenHoehe or ((2 + 13) * 17 + 8)) + 14
-    local width = math.min(360, w - 16)
-    local height = 250
-    local graph_left, graph_right = left + 42, left + width - 10
-    local graph_top, graph_bottom = top + 42, top + height - 24
-    local r = sigma_results
-    local denominator = r.Iy * r.Iz - r.Iyz^2
-    if math.abs(denominator) < 1e-12 then return end
-
-    -- alles im angezeigten KOS: z ist die angezeigte z-Koordinate
-    local _, zs_d = coordinatesForDisplay(r.ys, r.zs)
-    local _, zmax_d = coordinatesForDisplay(r.max_y, r.max_z)
-    local _, zmin_d = coordinatesForDisplay(r.min_y, r.min_z)
-    local z_min = math.min(zs_d, zmax_d, zmin_d)
-    local z_max = math.max(zs_d, zmax_d, zmin_d)
-    if z_max - z_min < 1e-9 then z_min, z_max = z_min - 1, z_max + 1 end
-
-    local my, mz = coordinatesForDisplay(r.My_Nmm, r.Mz_Nmm)
-    local Iy_d, Iz_d, Iyz_d = inertiaForDisplay(r.Iy, r.Iz, r.Iyz)
-    local function bending(z)
-        return ((my * Iz_d - mz * Iyz_d) / denominator) * (z - zs_d)
-    end
-    local sigma_min = math.min(0, r.normal + bending(z_min), r.normal + bending(z_max), r.normal)
-    local sigma_max = math.max(0, r.normal + bending(z_min), r.normal + bending(z_max), r.normal)
-    local sigma_range = math.max(1e-9, sigma_max - sigma_min)
-    local function sx(z)
-        return graph_left + (z - z_min) / (z_max - z_min) * (graph_right - graph_left)
-    end
-    local function sy(sigma)
-        return graph_bottom - (sigma - sigma_min) / sigma_range * (graph_bottom - graph_top)
-    end
-
-    gc:clipRect("set", 0, 0, w, h - 24)
-    gc:setColorRGB(248, 248, 248)
-    gc:fillRect(left, top, width, height)
-    gc:setColorRGB(0, 0, 0)
-    gc:drawRect(left, top, width, height)
-    gc:setFont("sansserif", "b", 10)
-    gc:drawString("σx-Verteilung ueber z", left + 6, top + 5)
-    gc:setFont("sansserif", "r", 8)
-    gc:drawString("blau: My-Anteil   rot: N + My", left + 6, top + 21)
-
-    local zero_y = sy(0)
-    local normal_y = sy(r.normal)
-    gc:setColorRGB(120, 120, 120)
-    gc:setPen("thin", "smooth")
-    gc:drawLine(graph_left, zero_y, graph_right, zero_y)
-    gc:drawLine(graph_left, graph_top, graph_left, graph_bottom)
-    gc:setColorRGB(80, 80, 80)
-    gc:drawString("σ [MPa]", left + 4, graph_top - 2)
-    gc:drawString(string.format("z = %.3g", display_length(z_min)), graph_left - 8, graph_bottom + 5)
-    gc:drawString(string.format("z = %.3g", display_length(z_max)), graph_right - 38, graph_bottom + 5)
-
-    local x1, x2 = sx(z_min), sx(z_max)
-    local b1, b2 = bending(z_min), bending(z_max)
-    local yb1, yb2 = sy(b1), sy(b2)
-    local yt1, yt2 = sy(r.normal + b1), sy(r.normal + b2)
-
-    gc:setColorRGB(170, 205, 240)
-    gc:fillPolygon({x1, zero_y, x1, yb1, x2, yb2, x2, zero_y})
-    gc:setColorRGB(40, 105, 190)
-    gc:setPen("medium", "smooth")
-    gc:drawLine(x1, zero_y, x2, zero_y)
-    gc:drawLine(x1, yb1, x2, yb2)
-
-    gc:setColorRGB(220, 70, 55)
-    gc:setPen("thick", "smooth")
-    gc:drawLine(x1, yt1, x2, yt2)
-    gc:setColorRGB(0, 130, 70)
-    gc:setPen("thin", "dashed")
-    gc:drawLine(graph_left, normal_y, graph_right, normal_y)
-    gc:setFont("sansserif", "r", 8)
-    gc:drawString(string.format("N/A = %.3g", r.normal), graph_left + 4, normal_y - 10)
-    gc:drawString(string.format("σx(z_min) = %.3g", r.normal + b1), x1 + 4, yt1 - 10)
-    gc:drawString(string.format("σx(z_max) = %.3g", r.normal + b2), x2 - 80, yt2 - 10)
     gc:clipRect("reset")
 end
 
@@ -4412,7 +4349,6 @@ function on.paint(gc)
             gc:setColorRGB(255, 255, 255)
             gc:fillRect(0, 0, w, h)
             drawSigmaResultsTable(gc, w, h)
-            drawSigmaDistribution(gc, w, h)
         elseif show_shear_moment_table then
             drawShearMomentTable(gc, w, h)
         else

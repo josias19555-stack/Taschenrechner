@@ -267,7 +267,7 @@ werden nur mehrzellige Profile und die Torsion massiver Querschnitte.
 - **Zweck:** Hinweise, die man nicht uebersehen soll. `melde` haengt an eine schon offene Meldungsbox an (statt sie zu ueberschreiben) und nie doppelt. `xiNoetig` ist wahr fuer ein offenes Torsionsergebnis bei `torsion_xi = 1`; aufgerufen im Torsionsdialog, in `enterShearInput` (MT), in `berechneSchubspannungsResultate` (Kraft-Torsion, in die gesammelten Hinweise) und bei der Verwoelbung offener Profile -- nicht in `berechneSystem`. `pruefeDicke` (Taste `e`, Menue b -> 1) meldet einmalig, wenn alle duennwandigen Elemente die Standarddicke haben; der Merker `dicke_gezeigt` faellt in `loescheAllesQS` und in `berechneSystem` bei leerem Profil zurueck.
 
 ### σx-Tabelle scrollen (`on.arrowKey`)
-- **Zweck:** Bei `showTable` mit `sigma_results` scrollen hoch/runter `sigma_scroll_y` in 20-px-Schritten, begrenzt auf `sigmaEingabe.inhaltHoehe` (Tabelle + Verteilung, beim Zeichnen gemerkt). `drawSigmaDistribution` beginnt unter `sigmaEingabe.tabellenHoehe` statt fest nach 13 Zeilen.
+- **Zweck:** Bei `showTable` mit `sigma_results` scrollen hoch/runter `sigma_scroll_y` in 20-px-Schritten, begrenzt auf `sigmaEingabe.inhaltHoehe` (Tabellenhoehe, beim Zeichnen gemerkt). Der fruehere Verlauf `drawSigmaDistribution` unter der Tabelle ist entfernt.
 
 ### `kern_dual(nu, nv, d)`
 - **Zweck:** Dualitaetsbeziehung: wandelt eine neutrale Faser (Gerade `nu*(y-ys)+nv*(z-zs)=d`) in den zugehoerigen Kernpunkt um (Basis der Kernflaechen-Konstruktion).
@@ -322,10 +322,7 @@ werden nur mehrzellige Profile und die Torsion massiver Querschnitte.
 
 ### `drawSigmaResultsTable(gc, w, h)`
 - **Zweck:** Tabellarische Detailausgabe aller σx-Zwischenwerte (`N`, `My`, `Mz`, `A`, `Iy/Iz/Iyz`, Extremstellen) mit Scroll-Unterstuetzung.
-
-### `drawSigmaDistribution(gc, w, h)`
-- **Zweck:** Liniendiagramm der σx-Verteilung ueber die Koordinate `z` (reiner Biegeanteil vs. Biegung+Normalkraft).
-- **Grenzen:** Nur eindimensionale Darstellung ueber `z`, keine 2D-Flaechendarstellung (siehe `drawSigmaCrossSection`/`drawSigmaOverlay`).
+- **Spaltenbreite:** Die Wertespalte (`split`) steht hinter der breitesten Beschriftung (Schrift 8, `getStringWidth`), hoechstens so weit rechts, dass die breitesten Werte noch daneben passen; die lokale Hilfe `schreibe` setzt einzelne Texte, die trotzdem zu breit sind, in Schrift 7 bzw. 6. Volle Zeilen (`voll`) bekommen die ganze Tabellenbreite.
 
 ### `drawSigmaCrossSection(gc, w, h)`
 - **Zweck:** Zweigeteilte Ansicht: eingefaerbter Querschnitt (Zug/Druck-Heatmap, feste 28x22-Rasterung) plus separates Spannungsverlaufs-Diagramm.
