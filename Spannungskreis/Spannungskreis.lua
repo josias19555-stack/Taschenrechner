@@ -36,6 +36,7 @@ local scroll = 0             -- erste sichtbare Spalte
 local meldung = nil
 local loeschFrage = false
 local kreisWinkel = nil      -- Marke im Kreisbild (Winkel in Grad), mit den Pfeilen bewegt
+local scheibenPfeile = {}    -- zuletzt gezeichnete Pfeile je Kante (fuer die Pruefung der Richtungen)
 local loesung = nil
 local rang = 0
 local widerspruch = false
@@ -685,6 +686,7 @@ local function zeichneScheibe(gc)
 
     -- je Kante die Spannungen
     gc:setFont("sansserif", "r", 7)
+    scheibenPfeile = {}
     for i = 1, #poly do
         local p, q = poly[i], poly[(i % #poly) + 1]
         local mx, my = (p[1] + q[1]) / 2, (p[2] + q[2]) / 2
@@ -694,29 +696,40 @@ local function zeichneScheibe(gc)
         end
         if zu then
             local sch = schnitte[zu.i]
+            -- Jede Kante zeichnet mit IHRER aeusseren Normalen n und Tangente t (n um +90 Grad).
+            -- Die Rueckseite eines Schnitts hat die Normale -n und damit auch die Tangente -t; der
+            -- Spannungsvektor dort ist -(σ n + τ t) = σ (-n) + τ (-t). Bezogen auf die eigene Normale
+            -- und Tangente hat sie also dieselben Werte σ und τ: Zug zeigt auf beiden Seiten von der
+            -- Scheibe weg, τ auf gegenueberliegenden Kanten in entgegengesetzte Richtungen.
+            local vz = zu.seite                             -- nur fuer die Beschriftung "R"
             local nx, ny = zu.nx, zu.ny                    -- aeussere Normale der Kante
             local tx, ty = -ny, nx                          -- Tangente (Normale um +90 Grad)
-            local vz = zu.seite                             -- Rueckseite: Spannungen zeigen anders
             local px, py = sx({ mx, my }), sy({ mx, my })
+            local eintrag = { i = zu.i, seite = vz, px = px, py = py, s = sch.s or 0, t = sch.t or 0 }
+            eintrag.nx, eintrag.ny = ziel(0, 0, nx, ny, 1)  -- aeussere Normale auf dem Bildschirm
             -- Normalspannung laengs der Normalen (Zug nach aussen, Druck auf die Kante zu)
-            local ls = (sch.s or 0) / gross * pmax * vz
+            local ls = (sch.s or 0) / gross * pmax
             if math.abs(ls) < 8 then ls = (ls >= 0 and 8 or -8) end
             setFarbe(gc, FARBE_SIGMA)
-            if (sch.s or 0) * vz >= 0 then
+            if (sch.s or 0) >= 0 then
                 local ex, ey = ziel(px, py, nx, ny, ls)
                 pfeil(gc, px, py, ex, ey)
+                eintrag.sigma = { px, py, ex, ey }
             else
                 local ax, ay = ziel(px, py, nx, ny, -ls)
                 pfeil(gc, ax, ay, px, py)
+                eintrag.sigma = { ax, ay, px, py }
             end
             -- Schubspannung laengs der Kante
-            local lt = (sch.t or 0) / gross * pmax * 0.8 * vz
+            local lt = (sch.t or 0) / gross * pmax * 0.8
             if math.abs(lt) < 8 and math.abs(sch.t or 0) > 1e-9 then lt = (lt >= 0 and 8 or -8) end
             setFarbe(gc, FARBE_TAU)
             if math.abs(sch.t or 0) > 1e-9 then
                 local ex, ey = ziel(px, py, tx, ty, lt)
                 pfeil(gc, px, py, ex, ey)
+                eintrag.tau = { px, py, ex, ey }
             end
+            scheibenPfeile[#scheibenPfeile + 1] = eintrag
             -- Beschriftung nach aussen
             local bx, by = ziel(px, py, nx, ny, pmax * 0.55 + 16)
             bx = math.max(24, math.min(W - 24, bx))

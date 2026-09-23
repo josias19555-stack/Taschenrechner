@@ -263,6 +263,9 @@ werden nur mehrzellige Profile und die Torsion massiver Querschnitte.
 - **Moeglichkeiten:** Bereits bestaetigte Werte werden im Eingabedialog wieder in der aktuell eingestellten Anzeigeeinheit dargestellt; die interne Umrechnung in `N`/`Nmm` bleibt davon getrennt.
 - **Grenzen:** Reine Texteingabe ueber `evaluate_input`; keine Bereichspruefung der eingegebenen Werte.
 
+### `qsHinweis` (Tabelle) mit `melde(text)`, `xiNoetig(ergebnis)`, `xiText()`, `pruefeDicke()`
+- **Zweck:** Hinweise, die man nicht uebersehen soll. `melde` haengt an eine schon offene Meldungsbox an (statt sie zu ueberschreiben) und nie doppelt. `xiNoetig` ist wahr fuer ein offenes Torsionsergebnis bei `torsion_xi = 1`; aufgerufen im Torsionsdialog, in `enterShearInput` (MT), in `berechneSchubspannungsResultate` (Kraft-Torsion, in die gesammelten Hinweise) und bei der Verwoelbung offener Profile -- nicht in `berechneSystem`. `pruefeDicke` (Taste `e`, Menue b -> 1) meldet einmalig, wenn alle duennwandigen Elemente die Standarddicke haben; der Merker `dicke_gezeigt` faellt in `loescheAllesQS` und in `berechneSystem` bei leerem Profil zurueck.
+
 ### σx-Tabelle scrollen (`on.arrowKey`)
 - **Zweck:** Bei `showTable` mit `sigma_results` scrollen hoch/runter `sigma_scroll_y` in 20-px-Schritten, begrenzt auf `sigmaEingabe.inhaltHoehe` (Tabelle + Verteilung, beim Zeichnen gemerkt). `drawSigmaDistribution` beginnt unter `sigmaEingabe.tabellenHoehe` statt fest nach 13 Zeilen.
 

@@ -76,6 +76,7 @@ _G.__S = {
   meldung = function() return meldung end,
   kreisWinkel = function() return kreisWinkel end,
   mehrdeutig = function() return mehrdeutig end,
+  pfeile = function() return scheibenPfeile end,
 }
 ]]
 assert(loadstring(code .. export, '=' .. pfad))()
@@ -618,6 +619,75 @@ fall('17 Schnitt ohne Winkel als Kreispunkt', function()
     wahr('  gesperrt', not S.bereit())
     setze({ { 0, 20, 0 }, { 90, -5, nil }, { nil, 20, 0 } }); S.rechne()
     wahr('passender Punkt: kein Widerspruch', S.widerspruch() == false and S.bereit())
+end)
+
+fall('18 Pfeilrichtungen an gegenueberliegenden Kanten', function()
+    abschnitt('Zug zeigt immer von der Scheibe weg, tau auf Gegenseiten entgegengesetzt')
+    local function richtungen(liste, name)
+        setze(liste); S.rechne()
+        male('scheibe')
+        local P = S.pfeile()
+        wahr(name .. ': vier Kanten gezeichnet', #P == 4, #P)
+        local function dot(a, b) return a[1] * b[1] + a[2] * b[2] end
+        for _, e in ipairs(P) do
+            local kante = name .. ': S' .. e.i .. (e.seite < 0 and ' R' or '')
+            local n = { e.nx, e.ny }
+            -- Normalspannung: nach aussen genau dann, wenn Zug
+            if math.abs(e.s) > 1e-9 then
+                local d = { e.sigma[3] - e.sigma[1], e.sigma[4] - e.sigma[2] }
+                wahr(kante .. ': sigma ' .. (e.s > 0 and 'Zug zeigt weg' or 'Druck zeigt auf die Scheibe'),
+                    (dot(d, n) > 0) == (e.s > 0), string.format('s=%.2f  d.n=%.1f', e.s, dot(d, n)))
+            end
+            -- Schubspannung: laengs der eigenen Tangente (Normale um +90 Grad) mit dem Vorzeichen von tau
+            if math.abs(e.t) > 1e-9 then
+                local d = { e.tau[3] - e.tau[1], e.tau[4] - e.tau[2] }
+                local tang = { e.ny, -e.nx }
+                wahr(kante .. ': tau laengs der eigenen Tangente', (dot(d, tang) > 0) == (e.t > 0),
+                    string.format('t=%.2f  d.t=%.1f', e.t, dot(d, tang)))
+            end
+        end
+        -- Paare Vorder-/Rueckseite: sigma und tau jeweils entgegengesetzt
+        for _, a in ipairs(P) do
+            for _, b in ipairs(P) do
+                if a.i == b.i and a.seite > 0 and b.seite < 0 then
+                    local da = { a.sigma[3] - a.sigma[1], a.sigma[4] - a.sigma[2] }
+                    local db = { b.sigma[3] - b.sigma[1], b.sigma[4] - b.sigma[2] }
+                    wahr(name .. ': S' .. a.i .. ' und Rueckseite: sigma-Pfeile entgegengesetzt', dot(da, db) < 0)
+                    if a.tau and b.tau then
+                        local ta = { a.tau[3] - a.tau[1], a.tau[4] - a.tau[2] }
+                        local tb = { b.tau[3] - b.tau[1], b.tau[4] - b.tau[2] }
+                        wahr(name .. ': S' .. a.i .. ' und Rueckseite: tau-Pfeile entgegengesetzt', dot(ta, tb) < 0)
+                    end
+                end
+            end
+        end
+        return P
+    end
+
+    -- sigma_x = 20 (Zug), sigma_y = -5 (Druck), tau_xy = 10
+    local P = richtungen({ { 0, 20, 10 }, { 90, -5, nil } }, 'Zug/Druck')
+    -- klassisches Bild bei tau_xy > 0: auf der +x-Flaeche (unten, x zeigt nach unten) zeigt tau nach +y
+    -- (rechts), auf der +y-Flaeche (rechts) nach +x (unten) -- beide auf die Ecke unten rechts zu
+    for _, e in ipairs(P) do
+        if e.seite > 0 and e.i == 1 then
+            wahr('+x-Flaeche liegt unten', e.ny > 0.9, e.ny)
+            wahr('  tau zeigt nach rechts (+y)', e.tau[3] - e.tau[1] > 0)
+        elseif e.seite > 0 and e.i == 2 then
+            wahr('+y-Flaeche liegt rechts', e.nx > 0.9, e.nx)
+            wahr('  tau zeigt nach unten (+x)', e.tau[4] - e.tau[2] > 0)
+        end
+    end
+    -- beide Normalspannungen Zug, negatives tau
+    richtungen({ { 0, 30, -8 }, { 90, 12, nil } }, 'Zug/Zug')
+    -- drei Schnitte ohne Rueckseiten: jede Kante nur mit ihren eigenen Werten
+    setze({ { 0, 20, 10 }, { 90, -5, nil }, { 225, nil, nil } }); S.rechne()
+    male('scheibe')
+    local ok = true
+    for _, e in ipairs(S.pfeile()) do
+        local d = { e.sigma[3] - e.sigma[1], e.sigma[4] - e.sigma[2] }
+        if math.abs(e.s) > 1e-9 and ((d[1] * e.nx + d[2] * e.ny) > 0) ~= (e.s > 0) then ok = false end
+    end
+    wahr('Dreieck: an jeder Kante zeigt Zug weg und Druck hin', ok)
 end)
 
 write(string.format('\nErgebnis Spannungskreis: %d Pruefungen, %d Fehler\n', M.total, M.fails))

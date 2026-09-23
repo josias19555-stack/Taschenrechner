@@ -134,6 +134,8 @@ local function meldung(text, titel, fehler)
     status = text
     qsMeldung = { text = text, titel = titel or "Hinweis", fehler = fehler and true or false }
 end
+-- Hinweise, die der Nutzer nicht uebersehen soll (Funktionen weiter unten, nach den Anzeigehilfen)
+local qsHinweis = { dicke_gezeigt = false }
 local escape_clear_pending = false
 local sigma_input_step = 0
 local sigma_N, sigma_My, sigma_Mz = nil, nil, nil
@@ -371,6 +373,7 @@ local function enterTorsionInput()
     torsion_results = berechneTorsionsResultat(value)
     aktualisiereTorsionsverlauf(torsion_results)
     if torsion_results then status = "Torsionsspannung berechnet." end
+    if qsHinweis.xiNoetig(torsion_results) then qsHinweis.melde(qsHinweis.xiText()) end
     showResults = true
     return true
 end
@@ -432,6 +435,7 @@ local function enterShearInput()
         torsion_M = shear_M
         torsion_results = berechneTorsionsResultat(shear_M)
         aktualisiereTorsionsverlauf(torsion_results)
+        if qsHinweis.xiNoetig(torsion_results) then qsHinweis.melde(qsHinweis.xiText()) end
         shear_external_input = false
         shear_selector_open = shear_results ~= nil
         showResults = true
@@ -1184,8 +1188,41 @@ local function autoZoom()
 end
 
 -- Alles loeschen; on.clearKey fragt vorher nach (qsLoeschFrage)
+-- Hinweis an eine schon offene Box anhaengen (sonst wuerde er sie ueberschreiben), doppelt nie
+function qsHinweis.melde(text)
+    if qsMeldung then
+        if not tostring(qsMeldung.text):find(text, 1, true) then qsMeldung.text = qsMeldung.text .. "  " .. text end
+    else
+        meldung(text, "Hinweis")
+    end
+end
+
+-- Offenes Profil mit Profilbeiwert 1: nachfragen, ob das gewollt ist (Formelsammlung Kap. 6.2)
+function qsHinweis.xiNoetig(ergebnis)
+    return ergebnis ~= nil and not ergebnis.closed and math.abs((torsion_xi or 1) - 1) < 1e-12
+end
+function qsHinweis.xiText()
+    return "Offenes Profil: der Profilbeiwert steht auf ξ = 1 (Optionen o, Punkt 10). Laut Formelsammlung "
+        .. "z. B. L 0,99 / C 1,12 / T 1,12 / I 1,31 / IPB 1,29 -- ist ξ = 1 so gewollt?"
+end
+
+-- Alle duennwandigen Elemente in der Standarddicke: einmal darauf hinweisen. Der Hinweis kommt erst
+-- wieder, wenn das ganze Profil geloescht wurde (loescheAllesQS oder alles einzeln entfernt).
+function qsHinweis.pruefeDicke()
+    if #massiv_elemente + #duenn_elemente == 0 then qsHinweis.dicke_gezeigt = false; return end
+    if qsHinweis.dicke_gezeigt or #duenn_elemente == 0 then return end
+    for _, elem in ipairs(duenn_elemente) do
+        if math.abs((elem.t or default_t) - default_t) > 1e-9 * math.max(1, default_t) then return end
+    end
+    qsHinweis.dicke_gezeigt = true
+    qsHinweis.melde(string.format("Alle duennwandigen Elemente haben dieselbe Dicke, die Standarddicke "
+        .. "t = %.4g %s (Optionen o, Punkt 2). Ist das so gewollt? Einzelne Waende aendert ihr mit dem "
+        .. "Zeiger auf dem Element und Enter.", display_length(default_t), length_unit))
+end
+
 function loescheAllesQS()
     qsLoeschFrage = false
+    qsHinweis.dicke_gezeigt = false
     escape_clear_pending = false
     massiv_elemente, duenn_elemente, kraefte, pending = {}, {}, {}, {}
     overlap_pending_elem = nil
@@ -1231,6 +1268,7 @@ end
 
 local function berechneSystem()
     qsMeldung = nil   -- Querschnitt geaendert: alte Meldung gilt nicht mehr
+    if #massiv_elemente + #duenn_elemente == 0 then qsHinweis.dicke_gezeigt = false end
     sigma_results = nil
     shear_center_cache = nil
     woelb.results, woelb.visible = nil, false   -- Geometrie geaendert: Verwoelbung neu rechnen
@@ -2117,6 +2155,8 @@ function woelb.eingabe()
                 meldung("Offenes Profil: die Verwoelbung folgt aus u_x = -theta * Int(r ds) + c um den Schubmittelpunkt "
                     .. "(der Bredt-Anteil entfaellt, es gibt keinen umlaufenden Schubfluss). Diese Formel steht nicht in "
                     .. "der Formelsammlung, dort ist nur der geschlossene Fall angegeben.", "Warnung", true)
+                -- I_T und damit theta haengen am Profilbeiwert
+                if qsHinweis.xiNoetig(res) then qsHinweis.melde(qsHinweis.xiText()) end
             end
         else
             meldung(fehler or "Verwoelbung nicht berechenbar.", "Verwoelbung nicht berechnet", true)
@@ -2170,6 +2210,7 @@ berechneSchubspannungsResultate = function(input_Qa, input_Qb)
         if force_torsion then aktualisiereTorsionsverlauf(torsion_results) end
         -- Hinweise sammeln und in einer Box zeigen (sonst ueberschreibt der letzte die vorherigen)
         local hinweise, ist_warnung = {}, false
+        if force_torsion and qsHinweis.xiNoetig(force_torsion) then hinweise[#hinweise + 1] = qsHinweis.xiText() end
         -- Geschlossene Zelle: q0 (konstanter Umlaufanteil) folgt nur aus der Symmetrie. Ohne erkannte
         -- Symmetrie bzw. ohne Querkraft bleibt er offen, die Verlaeufe gelten dann nur bis auf q0.
         if thin_closed then
@@ -4839,7 +4880,7 @@ function on.charIn(c)
     elseif c == "b" then toggleCalculationMenu()
     elseif c == "e" then
         showResults = not showResults
-        if showResults then results_scroll_y = 0 end
+        if showResults then results_scroll_y = 0; qsHinweis.pruefeDicke() end
         menuOpen = false
         showTable = false
     elseif c == "t" then
@@ -5061,7 +5102,7 @@ end
 
 local function enterMenuAction()
     if menuPage == 5 then
-        if menuRow == 1 then showResults, showTable, menuOpen = true, false, false
+        if menuRow == 1 then showResults, showTable, menuOpen = true, false, false; qsHinweis.pruefeDicke()
         elseif menuRow == 2 then showTable, showResults, menuOpen = true, false, false
         elseif menuRow == 3 then openSigmaInput(true)
         elseif menuRow == 4 then menuPage, menuRow = 6, 1

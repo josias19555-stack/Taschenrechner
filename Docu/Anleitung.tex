@@ -929,6 +929,10 @@ auch, wenn ihr neu rechnet oder den Querschnitt ändert.
   Torsion aus Kräften: Schubmittelpunkt statisch unbestimmt & Das Moment ist nicht bestimmbar \\
   $\sigma_x$ nicht berechenbar (Nenner 0) & Fläche oder $I_yI_z - I_{yz}^2$ ist null \\
   Ungültige Eingabe & Der Ausdruck ließ sich nicht auswerten \\
+  Hinweis: Profilbeiwert $\xi = 1$ -- so gewollt? & Torsion eines offenen Profils mit $\xi = 1$;
+    die Formelsammlung nennt z.\,B.\ L 0,99, C/T 1,12, I 1,31 \\
+  Hinweis: alle Elemente in der Standarddicke & Kommt einmal bei \taste{e}, wenn alle dünnwandigen
+    Elemente die Standarddicke haben; erst wieder, wenn das Profil ganz gelöscht wurde \\
   Kein Querschnitt vorhanden & Es wurde noch nichts gezeichnet \\
   \taste{v} nur im Schubspannungsmodus & Erst Schub rechnen, dann Verlauf wählen \\
   Wirklich alles loeschen? & Rückfrage bei \taste{c}: \taste{Enter} löscht, \taste{Esc} bricht ab \\
@@ -1025,7 +1029,10 @@ Pfeil für die Normalspannung (nach außen bei Zug, auf die Kante zu bei Druck) 
 die Schubspannung längs der Kante, dazu die Beschriftung mit $\alpha$, $\sigma$ und $\tau$
 außerhalb der Kante. Decken eure Schnitte nicht den ganzen Umfang ab -- bei zwei senkrechten
 Schnitten zum Beispiel --, ergänzt das Programm die Rückseiten, damit die Scheibe geschlossen
-ist; diese Kanten sind mit \code{R} gekennzeichnet und tragen dieselben Spannungen.
+ist; diese Kanten sind mit \code{R} gekennzeichnet und tragen dieselben Werte $\sigma$ und $	au$.
+Gezeichnet wird so, wie ihr es von Hand macht: Zug zeigt immer von der Scheibe weg, auf beiden
+gegenüberliegenden Seiten, und die Schubpfeile gegenüberliegender Kanten zeigen in
+entgegengesetzte Richtungen -- bei positivem $	au_{xy}$ laufen sie paarweise auf dieselben Ecken zu.
 
 \textbf{Mohrscher Kreis (\taste{k}):} $\sigma$ nach rechts, $\tau$ nach oben, der Kreis um
 $(\sigma_m, 0)$ mit Radius $R$. Die $\tau$-Achse steht dort, wo sie hingehört, nämlich bei

@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.28 (MiKTeX 25.12) (preloaded format=pdflatex 2026.9.20)  23 SEP 2026 12:20
+This is pdfTeX, Version 3.141592653-2.6-1.40.28 (MiKTeX 25.12) (preloaded format=pdflatex 2026.9.20)  23 SEP 2026 13:13
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -838,58 +838,59 @@ Underfull \hbox (badness 6758) in paragraph at lines 910--910
  []
 
 
-Overfull \hbox (0.95183pt too wide) in alignment at lines 908--936
+Overfull \hbox (0.95183pt too wide) in alignment at lines 908--940
  [] [] 
  []
 
-[21] [22]
-Overfull \hbox (5.56567pt too wide) in alignment at lines 997--1000
- [] [] 
- []
-
-
-Overfull \hbox (5.56567pt too wide) in alignment at lines 1000--1014
- [] [] 
- []
-
-[23] [24]
-Overfull \hbox (5.56567pt too wide) in alignment at lines 1124--1127
+ignored error: Infinite glue shrinkage found in box being split [21] [22]
+Overfull \hbox (5.56567pt too wide) in alignment at lines 1001--1004
  [] [] 
  []
 
 
-Overfull \hbox (5.56567pt too wide) in alignment at lines 1127--1145
+Overfull \hbox (5.56567pt too wide) in alignment at lines 1004--1018
+ [] [] 
+ []
+
+[23]
+ignored error: Infinite glue shrinkage found in box being split [24]
+Overfull \hbox (5.56567pt too wide) in alignment at lines 1131--1134
  [] [] 
  []
 
 
-Overfull \hbox (5.56567pt too wide) in alignment at lines 1149--1152
+Overfull \hbox (5.56567pt too wide) in alignment at lines 1134--1152
+ [] [] 
+ []
+
+ignored error: Infinite glue shrinkage found in box being split [25]
+Overfull \hbox (5.56567pt too wide) in alignment at lines 1156--1159
  [] [] 
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1164--1164
+Underfull \hbox (badness 10000) in paragraph at lines 1171--1171
 []|\T1/cmss/bx/n/10.95 Backspace\T1/cmr/m/n/10.95 ,
  []
 
 
-Overfull \hbox (5.56567pt too wide) in alignment at lines 1152--1166
- [] [] 
- []
-
-[25]
-Overfull \hbox (5.56567pt too wide) in alignment at lines 1170--1173
+Overfull \hbox (5.56567pt too wide) in alignment at lines 1159--1173
  [] [] 
  []
 
 
-Overfull \hbox (5.56567pt too wide) in alignment at lines 1173--1184
+Overfull \hbox (5.56567pt too wide) in alignment at lines 1177--1180
+ [] [] 
+ []
+
+
+Overfull \hbox (5.56567pt too wide) in alignment at lines 1180--1191
  [] [] 
  []
 
 LaTeX Font Info:    Font shape `T1/cmtt/bx/n' in size <10.95> not available
-(Font)              Font shape `T1/cmtt/m/n' tried instead on input line 1190.
-[26] (Anleitung.aux)
+(Font)              Font shape `T1/cmtt/m/n' tried instead on input line 1197.
+[26] [27] (Anleitung.aux)
  ***********
 LaTeX2e <2025-11-01>
 L3 programming layer <2025-12-24>
@@ -898,8 +899,8 @@ Package rerunfilecheck Info: File `Anleitung.out' has not changed.
 (rerunfilecheck)             Checksum: 1FA8C7FEDDE93045AD57F9B054777F53;8838.
  ) 
 Here is how much of TeX's memory you used:
- 13161 strings out of 467871
- 203877 string characters out of 5418376
+ 13162 strings out of 467871
+ 203884 string characters out of 5418376
  658397 words of memory out of 5000000
  41748 multiletter control sequences out of 15000+600000
  647745 words of font info for 92 fonts, out of 8000000 for 9000
@@ -929,9 +930,9 @@ ams/MiKTeX/fonts/type1/public/amsfonts/cm/cmr10.pfb><C:/Users/benja/AppData/Loc
 al/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmr8.pfb><C:/Users/benja/AppD
 ata/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmsy10.pfb><C:/Users/b
 enja/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmsy8.pfb>
-Output written on Anleitung.pdf (26 pages, 421773 bytes).
+Output written on Anleitung.pdf (27 pages, 423453 bytes).
 PDF statistics:
- 1062 PDF objects out of 1200 (max. 8388607)
- 114 named destinations out of 1000 (max. 500000)
+ 1067 PDF objects out of 1200 (max. 8388607)
+ 115 named destinations out of 1000 (max. 500000)
  401 words of extra memory for PDF output out of 10000 (max. 10000000)
 

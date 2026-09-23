@@ -1366,4 +1366,100 @@ fall('37 sigma-Tabelle: HAS und Gleichungen', function()
     Q.sigmaTabelleZeigen(false)
 end)
 
+fall('38 Hinweis Profilbeiwert', function()
+    T.abschnitt('Torsion eines offenen Profils mit ξ = 1: nachfragen, ob das gewollt ist')
+    local alt_xi = torsion_xi
+    local function text() local m = Q.meldung(); return m and tostring(m.text) or '' end
+    local function anzahl(t, muster)
+        local n, pos = 0, 1
+        while true do
+            local a = t:find(muster, pos, true)
+            if not a then return n end
+            n, pos = n + 1, a + 1
+        end
+    end
+    local function cProfil()
+        T.duenn(P(5, 0), P(0, 0), 1); T.duenn(P(0, 0), P(0, 10), 1); T.duenn(P(0, 10), P(5, 10), 1)
+    end
+    -- C-Profil, Kraft am Steg (nicht im Schubmittelpunkt): Torsion aus Kraeften
+    torsion_xi = 1
+    cProfil()
+    Q.kraft({ u = 0, v = 5, fa = 0, fb = 1000, fc = 0 })
+    T.rechne()
+    Q.meldungWeg()
+    Q.schub(0, 0)
+    wahr('Schub aus Kraeften, offenes Profil, ξ = 1: Hinweis', text():find('ξ = 1', 1, true) ~= nil, text())
+    wahr('  nennt die Werte der Formelsammlung', text():find('1,31', 1, true) ~= nil)
+    -- mit anderem Beiwert: kein Hinweis
+    torsion_xi = 1.12
+    T.rechne(); Q.meldungWeg()
+    Q.schub(0, 0)
+    wahr('ξ = 1.12: kein Hinweis', text():find('Profilbeiwert', 1, true) == nil, text())
+    -- aeussere Belastungen mit MT: Hinweis genau einmal, auch wenn Kraefte ebenfalls tordieren
+    torsion_xi = 1
+    T.rechne(); Q.meldungWeg()
+    Q.schub(0, 0)
+    Q.menu(8, 1); on.enterKey()
+    Q.tippe('0'); Q.tippe('0'); Q.tippe('0'); Q.tippe('50')
+    wahr('Schub mit MT: Hinweis', text():find('ξ = 1', 1, true) ~= nil, text())
+    wahr('  nur einmal in der Box', anzahl(text(), 'Profilbeiwert') == 1, anzahl(text(), 'Profilbeiwert'))
+    -- Verwoelbung eines offenen Profils: Warnung plus Hinweis
+    on.escapeKey(); on.escapeKey()
+    Q.meldungWeg()
+    Q.woelbEingabe(100, 81000)
+    wahr('Verwoelbung offen: Warnung bleibt', text():find('nicht in der Formelsammlung', 1, true) ~= nil, text())
+    wahr('  dazu der Hinweis auf ξ', text():find('ξ = 1', 1, true) ~= nil)
+    on.escapeKey(); on.escapeKey()
+    -- geschlossenes Profil (Bredt, ohne ξ): kein Hinweis
+    T.reset()
+    T.zug({ -5, 3, 5, 3, 5, -3, -5, -3, -5, 3 }, 1)
+    Q.kraft({ u = 5, v = 0, fa = 0, fb = 1000, fc = 0 })
+    T.rechne(); Q.meldungWeg()
+    Q.schub(0, 0)
+    wahr('geschlossenes Profil: kein Hinweis', text():find('Profilbeiwert', 1, true) == nil, text())
+    torsion_xi = alt_xi
+end)
+
+fall('39 Hinweis einheitliche Dicke', function()
+    T.abschnitt('Alle duennwandigen Elemente in der Standarddicke: einmal bei E, wieder nach dem Loeschen')
+    local function text() local m = Q.meldung(); return m and tostring(m.text) or '' end
+    local function drueckeE()
+        Q.meldungWeg()
+        on.charIn('e')                  -- Ergebnisse an ...
+        local t = text()
+        on.charIn('e')                  -- ... und wieder aus
+        return t
+    end
+    -- Profil in der Standarddicke (t = 1)
+    T.zug({ 0, 0, 10, 0, 10, 10 }, 1); T.duenn(P(0, 0), P(0, 10), 1)
+    T.rechne()
+    local t1 = drueckeE()
+    wahr('E: Hinweis auf die Standarddicke', t1:find('Standarddicke', 1, true) ~= nil, t1)
+    wahr('  mit dem Wert der Dicke', t1:find('t = 1 mm', 1, true) ~= nil, t1)
+    wahr('zweites E: kein erneuter Hinweis', drueckeE() == '')
+    -- weitere Elemente zeichnen reicht nicht: erst nach dem Loeschen des ganzen Profils
+    T.duenn(P(10, 10), P(20, 10), 1); T.rechne()
+    wahr('nach dem Ergaenzen weiterhin still', drueckeE() == '')
+    Q.clear()
+    T.zug({ 0, 0, 10, 0, 10, 10 }, 1); T.rechne()
+    wahr('nach dem Loeschen des ganzen Profils wieder', drueckeE():find('Standarddicke', 1, true) ~= nil)
+    -- Profil Element fuer Element entfernen zaehlt ebenfalls als geloescht
+    on.backspaceKey(); on.backspaceKey()
+    wahr('  Profil einzeln geleert', #Q.D() == 0, #Q.D())
+    T.duenn(P(0, 0), P(0, 10), 1); T.rechne()
+    wahr('nach dem einzelnen Leeren wieder', drueckeE():find('Standarddicke', 1, true) ~= nil)
+    -- unterschiedliche Dicken: kein Hinweis
+    T.reset()
+    T.duenn(P(0, 0), P(10, 0), 1); T.duenn(P(10, 0), P(10, 10), 2); T.rechne()
+    wahr('unterschiedliche Dicken: kein Hinweis', drueckeE() == '')
+    -- einheitlich, aber nicht die Standarddicke: kein Hinweis
+    T.reset()
+    T.duenn(P(0, 0), P(10, 0), 2); T.duenn(P(10, 0), P(10, 10), 2); T.rechne()
+    wahr('alle t = 2, Standard 1: kein Hinweis', drueckeE() == '')
+    -- nur massiv: kein Hinweis
+    T.reset()
+    T.massiv({ type = 'rect', points = { P(0, 0), P(4, 6) } }); T.rechne()
+    wahr('nur massiv: kein Hinweis', drueckeE() == '')
+end)
+
 T.ende('Querschnitt')

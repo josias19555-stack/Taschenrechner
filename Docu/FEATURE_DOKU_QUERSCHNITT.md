@@ -277,6 +277,8 @@ Meldungen erscheinen als Box in der Bildmitte: rot, wenn etwas nicht berechnet w
 | … Torsion aus Kräften: Schubmittelpunkt statisch unbestimmt | Kraft in einer Richtung, deren Schubmittelpunktkoordinate unbestimmt ist | Das Moment um den Schubmittelpunkt ist nicht bestimmbar |
 | **Spannung nicht berechnet:** σx nicht berechenbar (Nenner 0) | Fläche oder $I_yI_z - I_{yz}^2$ gleich null | Division durch null |
 | **Eingabe:** Ungültige Eingabe (Torsion, Schubkraft, σx, Menüwert) | Ausdruck nicht auswertbar | Rückmeldung statt stillem Abbruch |
+| **Hinweis:** Offenes Profil, Profilbeiwert ξ = 1 – so gewollt? | Torsion eines offenen Profils (Schub aus Kräften mit Torsion, äußere Belastung mit $M_T$, Torsionsdialog, Verwölbung) bei ξ = 1 | Erinnerung an die Werte der Formelsammlung (L 0,99, C/T 1,12, I 1,31, IPB 1,29); wird an eine schon offene Box angehängt, nie doppelt |
+| **Hinweis:** Alle dünnwandigen Elemente haben die Standarddicke | Taste `e` (bzw. Menü b → 1), alle dünnwandigen Elemente mit derselben Dicke = Standarddicke | Einmalig; erst wieder, wenn das ganze Profil gelöscht wurde (`c` oder alle Elemente einzeln entfernt) |
 | **Hinweis:** Kein Querschnitt vorhanden | Berechnung, KOS-Verschiebung oder Kernfläche ohne Querschnitt | Rückmeldung |
 | **Hinweis:** V nur im Schubspannungsmodus verfügbar | Taste `V` ohne Schubergebnis | Bedienhinweis |
 

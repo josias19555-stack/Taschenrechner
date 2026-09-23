@@ -69,6 +69,16 @@ der Normalen; Zug nach außen, Druck auf die Kante zu) und Schubspannung (blau, 
 gezeichnet, dazu die Beschriftung `S_i (α)`, `σ=…`, `τ=…` außerhalb der Kante. Kleine Werte
 bekommen eine Mindestpfeillänge, damit nichts unsichtbar bleibt.
 
+Jede Kante zeichnet mit ihrer **eigenen** äußeren Normalen $ec n$ und Tangente $ec t$ ($ec n$
+um $+90^\circ$ gedreht). Die Rückseite hat $-ec n$ und $-ec t$; ihr Spannungsvektor ist
+$-(\sigmaec n + 	auec t) = \sigma(-ec n) + 	au(-ec t)$, bezogen auf die eigene Normale und
+Tangente also mit **denselben** Werten $\sigma$, $	au$. Folge: Zug zeigt auf beiden Seiten von der
+Scheibe weg, Druck auf beiden Seiten auf die Scheibe zu, und die Schubpfeile gegenüberliegender
+Kanten zeigen in entgegengesetzte Richtungen (bei $	au_{xy} > 0$ laufen die Pfeile der
+$+x$- und der $+y$-Fläche auf dieselbe Ecke zu). Früher wurden die Rückseiten zusätzlich mit $-1$
+multipliziert, wodurch Zug dort nach innen zeigte und $	au$ parallel zur Vorderseite lief; Test 18
+prüft die Richtungen an jeder Kante gegen ihre Normale und paarweise.
+
 **Mohrscher Kreis (`k`):** $\sigma$ waagerecht, $\tau$ senkrecht nach oben, Kreis um
 $(\sigma_m, 0)$ mit Radius $R$; Hauptspannungen und Mittelpunkt sind markiert, jeder Schnitt ist
 als Punkt mit Radiusstrahl eingezeichnet. Bei wachsendem $\alpha$ wandern die Punkte im
